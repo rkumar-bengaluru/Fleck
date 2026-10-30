@@ -112,3 +112,7 @@ rupak.k ran the probe after granting Screen & System Audio Recording and notific
 ### Task 5: shared event schema
 
 `core/fleck_core/events.py` holds the segment, assist and meeting_state models plus `parse_event` (pydantic discriminated union on `type`; unknown type raises `ValidationError`, a `ValueError`). `scripts/gen_event_types.py` writes `web/src/events.ts` from the JSON schema (`make gen-types`); CI regenerates and fails on `git diff --exit-code web/src/events.ts`. Defaults are marked required in the schema, since they are always present on the wire.
+
+### Task 6: demo library content and parsing fixtures
+
+Firm docs retitled `Rate card FY2026`, `Delivery FAQ`, `Capabilities` (firm name on the line below); rate-card table heading now "Time and materials (USD per person per month)", rows unchanged. Three case studies added (`calloway-marsh/`, `meridian-intel/`, `brightwater-insurance/`), `clients/README.md` updated. `api/tests/fixtures/make_xlsx.py` builds `rate-card.xlsx` (merged title row, `"$"#,##0` formats) and `rate-card.pptx` (title + 4-row rate table); both byte-identical across two runs. openpyxl and python-pptx added to fleck-api dev group.

@@ -1,4 +1,6 @@
-# Northbeam Digital: capabilities
+# Capabilities
+
+Northbeam Digital.
 
 Simulated document for the Fleck demo.
 

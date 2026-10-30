@@ -1,4 +1,6 @@
-# Northbeam Digital: delivery FAQ
+# Delivery FAQ
+
+Northbeam Digital.
 
 Simulated document for the Fleck demo. Standard answers to questions clients ask in presales.
 

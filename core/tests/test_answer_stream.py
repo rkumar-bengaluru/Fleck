@@ -112,10 +112,27 @@ def test_consumer_stopping_closes_the_stream():
     assert fake.closed.wait(1.0)
 
 
-def test_uncited_sentence_is_removed_not_replaced():
-    ev = run(["Yes", ".", " Mixed", " teams", " are", " common", " [2]", "."])
-    assert sents(ev) == [(0, "", False, "uncited"), (1, "Mixed teams are common.", True, None)]
-    assert ev[-1].check.ok
+def test_uncited_sentence_inherits_next_citation():
+    # the q_ip shape: the claim is uncited, the marker comes only on the next sentence
+    ev = run(["Yes", ",", " mixed", " teams", ".", " We", " name", " a", " lead", " [2]", "."])
+    s = [e for e in ev if isinstance(e, Sentence)]
+    assert sents(ev) == [(0, "Yes, mixed teams.", True, None), (1, "We name a lead.", True, None)]
+    assert [c.title for c in s[0].citations] == ["Delivery FAQ"] and ev[-1].check.ok
+
+
+def test_inherited_citation_still_checks_figures():
+    ev = run(["Teams", " cost", " USD", " 9,999", ".", " Mixed", " teams", " are", " common", " [2]", "."])
+    assert sents(ev) == [(0, NOT_IN_MATERIAL, False, "figure_not_in_cited_passage"), (1, "Mixed teams are common.", True, None)]
+
+
+def test_two_uncited_then_cited_removes_the_first():
+    ev = run(["Yes", ".", " Sure", ".", " Mixed", " teams", " are", " common", " [2]", "."])
+    assert sents(ev) == [(0, "", False, "uncited"), (1, "Sure.", True, None), (2, "Mixed teams are common.", True, None)]
+
+
+def test_uncited_sentence_at_the_end_is_removed():
+    ev = run(["Mixed", " teams", " are", " common", " [2]", ".", " Ask", " us", "."])
+    assert sents(ev) == [(0, "Mixed teams are common.", True, None), (1, "", False, "uncited")]
 
 
 def test_stops_after_three_cited_sentences():

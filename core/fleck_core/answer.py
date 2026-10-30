@@ -132,7 +132,8 @@ def stream_library_answer(question: str, passages: list[Passage], client_names: 
     Event contract for a consumer: show each Delta's text appended to sentence `index` (sentences are joined with
     one space). When Sentence(index, ...) arrives, replace everything shown for that index with Sentence.text:
     "Not in our material" when the sentence failed its check (link it to Sentence.citations), or "" (reason
-    "uncited") to remove the index. A sentence gets Deltas only until a figure appears in it; the rest is held, and
+    "uncited") to remove the index. An uncited sentence's verdict waits for the next sentence: if that one is
+    cited, the uncited one inherits its citations and is checked against them (one level only). A sentence gets Deltas only until a figure appears in it; the rest is held, and
     a trailing "one", "two", "a" or "an" waits for the next word. After MAX_SENTENCES cited sentences the stream
     is closed. Done ends the stream; if Done.check is not ok, replace the whole answer with "Not in our material"
     (kind not_in_material; reasons ["none"] for NONE, which hands over to the fallback, ["timeout"],
@@ -144,6 +145,7 @@ def stream_library_answer(question: str, passages: list[Passage], client_names: 
     threading.Thread(target=_pump, args=(ollama, build_messages(question, passages), q, stop), daemon=True).start()
     by_n = {p.n: p for p in passages}
     text, pos, index, shown, held, got, decided, cited_n = "", 0, 0, "", False, False, False, 0
+    pending: tuple[int, str] | None = None  # an uncited sentence waiting for the next one's citations
     first_words: int | None = None
 
     def ms() -> int:
@@ -152,8 +154,15 @@ def stream_library_answer(question: str, passages: list[Passage], client_names: 
     def degraded(reason: str) -> Done:
         return Done(dataclasses.replace(check_library_answer("", passages), reasons=[reason]), first_words, ms())
 
+    def verdict(i: int, raw: str, sc=None) -> Sentence:
+        nonlocal cited_n
+        sc = sc or check_library_answer(raw, passages, client_names, question).sentences[0]
+        cits = [Citation(**by_n[c].model_dump(include=set(Citation.model_fields))) for c in dict.fromkeys(sc.cited) if c in by_n]
+        cited_n += 1  # a shown sentence ("Not in our material" included) counts toward the cap
+        return Sentence(i, sc.display_text, sc.ok, sc.reason, cits)
+
     def emit(final: bool) -> Iterator[AssistUpdate]:
-        nonlocal pos, index, shown, held, first_words, cited_n
+        nonlocal pos, index, shown, held, first_words, pending
         pieces = split_sentences(text[pos:])
         n = len(pieces) if final else len(pieces) - 1
         if not final and n > 0 and pieces[-1].startswith("["):
@@ -164,14 +173,22 @@ def stream_library_answer(question: str, passages: list[Passage], client_names: 
             sc = checked[0] if checked else None
             first_words = first_words if first_words is not None else ms()
             if not sc or not sc.cited:
-                yield Sentence(index, "", False, "uncited")
+                if pending:  # one level of carry only: the older uncited sentence goes
+                    yield Sentence(pending[0], "", False, "uncited")
+                pending = (index, piece)  # its Deltas stay up until the next sentence ends
             else:
-                cits = [Citation(**by_n[c].model_dump(include=set(Citation.model_fields))) for c in dict.fromkeys(sc.cited) if c in by_n]
-                yield Sentence(index, sc.display_text, sc.ok, sc.reason, cits)
-                cited_n += 1
+                if pending:  # it inherits this sentence's citations and is checked against them
+                    yield verdict(pending[0], f"{pending[1]} " + "".join(f"[{c}]" for c in dict.fromkeys(sc.cited)))
+                    pending = None
+                    if cited_n >= MAX_SENTENCES:
+                        return
+                yield verdict(index, piece, sc)
             index, shown, held = index + 1, "", False
             if cited_n >= MAX_SENTENCES:
                 return
+        if final and pending:
+            yield Sentence(pending[0], "", False, "uncited")
+            pending = None
         disp = _display(text[pos:])
         if held or final:
             return

@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Literal
 
-from .numbers import CODES, extract_figures, normalize_numbers
+from .numbers import _PERIOD_RX, _PERIODS, _TIME, CODES, extract_figures, normalize_numbers
 from .types import Citation, Passage
 
 NOT_IN_MATERIAL = "Not in our material"
@@ -30,9 +30,15 @@ def split_sentences(text: str) -> list[str]:
 _FIGURE = re.compile(r"(-?[\d.]+)(?: ([^/\s]+)(?:/(\w+))?)?")
 _CODES = re.compile(rf"\b(?:{CODES})\b")
 _CODE_SET = set(CODES.split("|"))
-_PERIOD_WORD = re.compile(r"\bper\s+(?:person\s+per\s+)?(hour|day|week|month|year)\b|(?<=/)(hour|day|week|month|year)\b", re.I)
-# clause or list numbers at the start of a passage or sentence ("7. Limitation", "2.17 OF THE") are not figures
-_HEADING_NUM = re.compile(r"(?:^|(?<=[.;:]\s)|(?<=\n))\d{1,2}(?:\.\d+)*\.?\s+(?=[A-Z])")
+_PERIOD_WORD = re.compile(rf"\b(?:per|an?|each|every)\s+(?:person\s+(?:per\s+)?)?({_PERIOD_RX})\b|(?<=/)({_PERIOD_RX})\b", re.I)
+# A clause number at the start of a line or passage ("7. Limitation", "2.17 OF THE") is not a figure, unless a
+# scale, unit or currency word follows ("1.5 Million users").
+_NOT_HEADING = "|".join([*_TIME, "million", "billion", "thousand", "hundred", "lakhs?", "crores?", "grand", "k", "mn", "bn", "per", "percent", CODES])
+_HEADING_NUM = re.compile(rf"(?m)^\d{{1,2}}(?:\.\d+)*\.?\s+(?!(?i:{_NOT_HEADING})\b)(?=[A-Z])")
+
+
+def _periods(norm: str) -> set[str]:
+    return {_PERIODS[(a or b).lower()] for a, b in _PERIOD_WORD.findall(norm)}
 
 
 def _parse(fig: str) -> tuple[Decimal | str, str | None, str | None]:
@@ -42,7 +48,7 @@ def _parse(fig: str) -> tuple[Decimal | str, str | None, str | None]:
     return Decimal(m[1]), m[2], m[3]
 
 
-def _matches(fig: str, passage_figs: set[str], currencies: set[str], periods: set[str]) -> bool:
+def _matches(fig: str, passage_figs: set[str], currencies: set[str]) -> bool:
     v, u, per = _parse(fig)
     for p in passage_figs:
         pv, pu, pper = _parse(p)
@@ -50,12 +56,12 @@ def _matches(fig: str, passage_figs: set[str], currencies: set[str], periods: se
             continue
         if u is None:
             return True
-        if pu == u:  # same unit: a period mismatches only when both sides state one
+        if pu == u:
             if per is None or pper is None or per == pper:
                 return True
         elif pu is None and u in _CODE_SET:
-            # bare table cell: currency and period come from the passage's heading
-            if (not currencies or u in currencies) and (per is None or not periods or per in periods):
+            # bare table cell: the currency comes from the passage's heading
+            if not currencies or u in currencies:
                 return True
     return False
 
@@ -105,8 +111,9 @@ def check_library_answer(answer: str, passages: list[Passage]) -> LibraryCheck:
             pfigs = set().union(*(extract_figures(t) for t in texts))
             norm = " ".join(normalize_numbers(t) for t in texts)
             cur = set(_CODES.findall(norm))  # also headings like "(USD)"
-            per = {(a or b).lower() for a, b in _PERIOD_WORD.findall(norm)}
-            if not all(_matches(f, pfigs, cur, per) for f in figs):
+            per = _periods(norm)
+            # any rate period in the sentence ("billed per year", "Per year, ...") must be one the passage states
+            if not all(_matches(f, pfigs, cur) for f in figs) or (per and (aper := _periods(normalize_numbers(bare))) and not aper <= per):
                 reason = "figure_not_in_cited_passage"
         sentences.append(SentenceCheck(s, NOT_IN_MATERIAL if reason else bare, cited, figs, reason is None, reason))
     reasons = [s.reason for s in sentences if s.reason]
@@ -122,8 +129,10 @@ def check_library_answer(answer: str, passages: list[Passage]) -> LibraryCheck:
 _DUR = r"\d+(?:\.\d+)?\s?(?:%|(?:h|hrs?|hours?|mins?|minutes?|days?|weeks?|months?|years?)\b)"
 _PEOPLE = r"engineers?|developers?|people|consultants?|members?|designers?|architects?|testers?|analysts?|staff|ftes?|resources|specialists?|heads"
 _BLOCK = [
-    ("currency", re.compile(rf"\d+(?:\.\d+)? (?:{CODES})\b|[$€£¥₹]|\bRs\b\.?|\b[A-Z]{{3}}\s?\d")),
+    ("currency", re.compile(rf"\d+(?:\.\d+)? (?:{CODES})\b|[$€£¥₹]|\bRs\b\.?")),
     ("scaled_amount", re.compile(r"\d\s?(?:k|m|bn|mn)\b|\b(?:grand|lakhs?|crores?|millions?|billions?)\b", re.I)),
+    ("nines", re.compile(r"\b\w+ nines\b", re.I)),
+    ("availability_figure", re.compile(r"\b(?:availability|uptime|SLA)\b(?:\W+\w+){0,3}?\W+\d", re.I)),
     ("percent", re.compile(r"\d+(?:\.\d+)? %")),
     ("rate", re.compile(r"\bper\s+(?:hour|day|week|month|year|person|seat|head)\b|\b(?:an?|each)\s+(?:hour|day|month)\b|\d\s?/\s?(?:hr|hour|day|month|mo|yr|year|wk|week)\b", re.I)),
     # an SLA word within five words of a duration or percentage ("response within 240 min"); plain "retry 3 times" is fine

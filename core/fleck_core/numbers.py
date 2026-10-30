@@ -8,12 +8,12 @@ from text_to_num import alpha2digit, text2num
 CODES = "USD|INR|EUR|GBP|JPY|CNY|RMB|CAD|AUD|CHF|SGD|AED|NZD|HKD|SEK|NOK|DKK|ZAR|BRL|MXN|KRW"
 _SYMBOLS = {"$": "USD", "₹": "INR", "€": "EUR", "£": "GBP", "¥": "JPY"}
 _WORDS = {"us dollars": "USD", "us dollar": "USD", "dollars": "USD", "dollar": "USD", "rupees": "INR", "rupee": "INR",
-          "euros": "EUR", "euro": "EUR", "pounds": "GBP", "yen": "JPY"}
+          "euros": "EUR", "euro": "EUR", "pounds": "GBP", "yen": "JPY", "bucks": "USD", "buck": "USD"}
 _WORD_RX = "|".join(sorted(_WORDS, key=len, reverse=True))
 _NUM = r"(?:(?<![\w.])-)?\d+(?:\.\d+)?"
 _SCALES = {"hundred": 100, "thousand": 10**3, "k": 10**3, "grand": 10**3, "lakh": 10**5, "lakhs": 10**5,
            "million": 10**6, "mn": 10**6, "m": 10**6, "crore": 10**7, "crores": 10**7, "billion": 10**9, "bn": 10**9}
-_SCALE_RX = re.compile(rf"({_NUM})(?:\s?(hundred|thousand|lakhs?|million|crores?|billion|grand)|(k|mn|bn|m))\b", re.I)
+_SCALE_RX = re.compile(rf"({_NUM})(?:\s?(hundred|thousand|lakhs?|million|crores?|billion|grand)|\s?(k|mn|bn)|(m))\b", re.I)
 _MONTHS = "jan feb mar apr may jun jul aug sep oct nov dec".split()
 _MON = r"Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?|Sept?(?:ember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?"
 _DMY = re.compile(rf"\b(\d{{1,2}})(?:st|nd|rd|th)? ({_MON})\.?,? (\d{{4}})\b")
@@ -44,7 +44,7 @@ def _iso(d: int, m: int, y: int, orig: str) -> str:
 
 
 def _scale(t: str) -> str:
-    return _SCALE_RX.sub(lambda m: _fmt(Decimal(m[1]) * _SCALES[(m[2] or m[3]).lower()]), t)
+    return _SCALE_RX.sub(lambda m: _fmt(Decimal(m[1]) * _SCALES[(m[2] or m[3] or m[4]).lower()]), t)
 
 
 def _numeric_date(m: re.Match) -> str:

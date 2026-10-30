@@ -4,7 +4,7 @@ from fleck_core.types import Passage
 from fleck_core.validate import check_fallback, check_library_answer
 
 # 1: real chunk of clients/_firm/rate-card.md (heading + Senior engineer row).
-# 2: real text of clients/_firm/delivery-faq.md (SLA answer), preceded by a clause-style number as in a contract chunk.
+# 2: real text of clients/_firm/delivery-faq.md (SLA answer).
 # 3: clients/_reference/photronics/outsourcing-agreement.pdf, Article 9 limitation of liability, clause (B), verbatim
 #    (extracted with pypdf, whitespace joined).
 P = [
@@ -140,3 +140,48 @@ def test_adverb_rate_periods(answer, ok):
 def test_dozen():
     from fleck_core.numbers import extract_figures
     assert extract_figures("a dozen") == {"12"} and extract_figures("two dozen") == {"24"}
+
+
+def _mk(text, kind="firm", n=1):
+    return [Passage(n=n, doc_id="d", chunk_id="c", title="t", client=None, kind=kind, text=text)]
+
+
+@pytest.mark.parametrize("answer,text", [
+    ("It costs $5,200 per year. [1]", "## Rates per person per month\n| Senior | $5,200 |"),
+    ("It costs $5,200 per year. [1]", "Senior engineer, per month: $5,200"),
+    ("It costs $5,200, billed per year. [1]", None),
+    ("It costs $5,200 for each year. [1]", None),
+    ("It costs $5,200/yr. [1]", None),
+    ("It costs 5,200 dollars per annum. [1]", None),
+    ("Per year, it costs $5,200. [1]", None),
+    ("We onboarded 1 million users. [1]", "1.5 Million users onboarded."),
+    ("Fees are $1 million. [1]", "Fees are high.\n2.5 Million USD total."),
+    ("Liability is capped at 7 months of fees. [1]", "7. Limitation of Liability. (a) NEITHER PARTY SHALL BE LIABLE FOR CONSEQUENTIAL DAMAGES."),
+])
+def test_round2_false_accepts(answer, text):
+    ps = P if text is None else _mk(text)
+    assert not check_library_answer(answer, ps).ok
+
+
+def test_clause_number_still_stripped_but_real_figure_kept():
+    ps = _mk("7. Limitation of Liability. Cap is 12 months of fees.")
+    assert check_library_answer("The cap is 12 months of fees. [1]", ps).ok
+
+
+@pytest.mark.parametrize("text", ["$10 bn", "$2.5 mn", "3 k dollars"])
+def test_spaced_scale_abbreviations(text):
+    from fleck_core.numbers import extract_figures
+    assert extract_figures(text) == {{"$10 bn": "10000000000 USD", "$2.5 mn": "2500000 USD", "3 k dollars": "3000 USD"}[text]}
+    assert extract_figures("5 m long") == {"5"}
+
+
+@pytest.mark.parametrize("answer", [
+    "Most vendors are ISO 27001 certified.", "Review SOC 2 reports before signing.", "Use TLS 1.3 and OAuth 2.",
+])
+def test_fallback_allows_standards(answer):
+    assert check_fallback(answer, []).ok
+
+
+@pytest.mark.parametrize("answer", ["Costs 5000 bucks.", "Availability of 99.9.", "Aim for three nines.", "Aim for four nines."])
+def test_fallback_more_blocks(answer):
+    assert not check_fallback(answer, []).ok

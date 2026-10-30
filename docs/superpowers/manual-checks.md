@@ -8,5 +8,5 @@
 4. When the "Fleck probe" notification appears, click **Record** (within 20 s of it posting).
 5. `cat /tmp/probe.json`: expect `menubar` true, `mic_rms` > 0, `system_rms` > 0.01 (afplay tone plays for 3 s; keep volume up), `notification_authorized` true, `action_received` true.
 6. Optional: rebuild (`make helper-app`) and re-run; permissions should persist without new prompts.
-7. Optional: trust the cert so `security find-identity -v -p codesigning` lists it: `security add-trusted-cert -r trustRoot -p codeSign -k ~/Library/Keychains/login.keychain-db` on the cert (needs your login password). Signing works without it.
+7. Optional: trust the cert so `security find-identity -v -p codesigning` lists it (needs your login password): `security find-certificate -c "Fleck Local Signing" -p > /tmp/fleck.pem && security add-trusted-cert -r trustRoot -p codeSign -k ~/Library/Keychains/login.keychain-db /tmp/fleck.pem`. Signing works without it.
 If a denied entry is stuck: `tccutil reset ScreenCapture ai.fleck.helper`.

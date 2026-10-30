@@ -118,11 +118,11 @@ def probe_system_audio(out: dict) -> None:
     if not _wait(lambda: started, 10) or started[0] is not None:
         out["system_audio_error"] = f"start failed: {started and started[0]}"
         return
-    wav = tempfile.mktemp(suffix=".wav")
-    _write_tone(wav)
-    player = subprocess.Popen(["afplay", wav])
-    time.sleep(3)
-    player.terminate()
+    with tempfile.NamedTemporaryFile(suffix=".wav") as f:
+        _write_tone(f.name)
+        player = subprocess.Popen(["afplay", f.name])
+        time.sleep(3)
+        player.terminate()
     done = []
     stream.stopCaptureWithCompletionHandler_(lambda e: done.append(e))
     _wait(lambda: done, 5)
@@ -180,13 +180,15 @@ def run_probe(out_path: str) -> None:
     app = rumps.App("Fleck", title="Fleck", quit_button=None)
 
     def work():
-        for step in (probe_mic, probe_system_audio, probe_notification):
-            try:
-                step(result)
-            except Exception as e:  # record, keep probing the other edges
-                result[f"{step.__name__}_exception"] = repr(e)
-        Path(out_path).write_text(json.dumps(result, indent=2))
-        rumps.quit_application()
+        try:
+            for step in (probe_mic, probe_system_audio, probe_notification):
+                try:
+                    step(result)
+                except Exception as e:  # record, keep probing the other edges
+                    result[f"{step.__name__}_exception"] = repr(e)
+            Path(out_path).write_text(json.dumps(result, indent=2))
+        finally:
+            rumps.quit_application()
 
     def start(_):
         t.stop()

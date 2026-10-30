@@ -10,5 +10,6 @@ ensure-ollama:
 
 helper-app:
 	scripts/make_cert.sh
+	rm -rf build dist
 	cd helper/packaging && uv run --package fleck-helper python setup.py py2app  # cwd without pyproject.toml: py2app rejects install_requires
 	helper/packaging/sign.sh "dist/Fleck Helper.app"

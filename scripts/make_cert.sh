@@ -22,5 +22,6 @@ openssl pkcs12 -export -legacy -inkey "$T/k.pem" -in "$T/c.pem" -out "$T/i.p12" 
   || openssl pkcs12 -export -inkey "$T/k.pem" -in "$T/c.pem" -out "$T/i.p12" -passout pass:fleck
 security import "$T/i.p12" -k "$KC" -P fleck -T /usr/bin/codesign
 # Trust for code signing in the user domain (may ask for your login password once).
-security add-trusted-cert -r trustRoot -p codeSign -k "$KC" "$T/c.pem"
-security find-identity -v -p codesigning | grep "$NAME"
+security add-trusted-cert -r trustRoot -p codeSign -k "$KC" "$T/c.pem" \
+  || echo "note: cert left untrusted (needs a GUI password); codesign still works"
+security find-identity -p codesigning | grep "$NAME" || true

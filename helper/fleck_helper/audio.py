@@ -221,7 +221,7 @@ class LiveSource:
                         if abs(arrived - dur - host_s) > self.BAD_STAMP_S:
                             _once(warned, kind, f"{kind} timestamps are {host_s - arrived + dur:+.1f} s off the host clock; using arrival time")
                             host_s = arrived - dur
-                        st.lag = max(arrived - host_s - dur, st.lag * 0.99)
+                        st.lag = max(arrived - host_s, st.lag * 0.99)  # from buffer start: a long buffer covers slots that already went out
                         if hole := st.place(x, round((host_s - t0) * SR)):
                             yield Gap(hole[0] // 16, hole[1] // 16, kind)
                     elif kind == "stopped":
@@ -389,7 +389,8 @@ class _MacCapture:
                 self.start_mic()
             except Exception as e:
                 log.warning("mic restart failed: %s", e)
-                self._mic_again = True
+                with self._lock:
+                    self._mic_again = True
                 time.sleep(self.MIC_RETRY_S[min(i, len(self.MIC_RETRY_S) - 1)])
 
     def _stop_mic(self):

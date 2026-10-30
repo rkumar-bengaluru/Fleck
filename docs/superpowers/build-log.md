@@ -244,3 +244,10 @@ Live §8 questions (title, kind, nearest-vector distance):
   - Mic and system start/stop are serialized and only one mic restart runs at a time; "interrupted" is sent at notification time.
   - Live mic check: 250 frames, continuous after 0.8 s of startup, no late-drop logs.
   - Suites: `uv run pytest -m "not ollama" -q` 292 passed, EXIT 0; `uv run pytest helper/tests -q` 42 passed, EXIT 0.
+
+## Task 11 review rounds (2026-10-30)
+- Round 1 (7a1045e, 0ef0a54): host-clock slotting, bounded queue, Discard < 300 ms voiced, 75% gate dominance, bleed match ≥3 words / 0.6 length, stateful resampler, replay loops, gaps only on real outages. PyObjC completion-handler crash caught by the live check.
+- Round 2 (a3d6b06): late / mis-stamped client audio (adaptive slot wait 0.3–1.0 s, >2 s stamps placed by arrival), control messages never dropped on overflow, serialized capture start/stop, "interrupted" at notification time.
+- Controller fix: lag measured from buffer start; `_mic_again` under the lock. Reviewer fakes: 0.5 s buffers 0/150 client slots lost (was 37), 0.4 s late 0 lost, +50 s offset 0 lost (30 MB peak), mic stall and quiet client unchanged.
+- Tests: 292 passed, 5 deselected; helper 42 passed (exit codes checked).
+- Not verified: ScreenCaptureKit on hardware (manual-checks step 4 logs delay, offset and Final-minus-end_ms).

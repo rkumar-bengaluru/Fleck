@@ -190,6 +190,12 @@ def check_library_answer(answer: str, passages: list[Passage], client_names: lis
             if (not all(_matches(f, pfigs, cur) for f in figs) or not _labels_ok(bare, figs, known, cur)
                     or (per and (aper := _periods(normalize_numbers(bare))) and not aper <= per)):
                 reason = "figure_not_in_cited_passage"
+            else:  # a past client's price is never a quote for this client: money must come from a non-client passage
+                own = [_HEADING_NUM.sub("", by_n[n].text) for n in cited if by_n[n].kind != "client"]
+                ofigs = set().union(*(extract_figures(t) for t in own))
+                ocur = set(_CODES.findall(" ".join(normalize_numbers(t) for t in own)))
+                if any(_parse(f)[1] in _CODE_SET and not _matches(f, ofigs, ocur) for f in figs):
+                    reason = "client_price"
         sentences.append(SentenceCheck(s, NOT_IN_MATERIAL if reason else bare, cited, figs, reason is None, reason))
     reasons = [s.reason for s in sentences if s.reason]
     good = {n for s in sentences if s.ok for n in s.cited}

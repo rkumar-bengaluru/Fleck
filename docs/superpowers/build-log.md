@@ -347,3 +347,28 @@ Live §8 questions (title, kind, nearest-vector distance):
 - Latency bench (quiet machine): est first words 0.6 + 0.41 + 0.17 + 0.15 + 1.77 = 3.10 s, **FAIL**. Start-early path: 2.14 s, PASS.
   - Cause: Qwen cold TTFT p95 is 1.77 s against 1.24 s in decision 72. With both embedders unloaded, TTFT p50 drops 1.63 → 1.19 s, so the cause is memory pressure (17.6 GB swap after 18 days of uptime), not code.
   - Carried to Task 13: start on the client Final (recovers the 0.3 s merge wait), start-early prefill, and a re-bench after a reboot.
+
+## Task 13: streamed library answers (2026-10-30)
+- Built `stream_library_answer` (Delta / Sentence / Done, with Superseded defined for Task 14), `prefill`, `prompts.py`, the `client_price` check, the BM25 reference slot in search, and `scripts/measure_answers.py`. Decisions 97–100.
+- System prompt: 151 tokens. A full prompt with 3 passages is ~670 tokens.
+- Prefill (Ollama 0.40.1): `num_predict` 0 means unlimited, so prefill sends 1. On a 1,079-token prompt, TTFT is 1.0–2.1 s cold and 0.09–0.10 s after prefill. The @ollama test measures cold 0.38–0.44 s vs prefilled 0.087–0.089 s.
+- measure_answers.py results (final code). first_words is measured from the answer's start, not from the end of audio:
+
+| q | expect | kind | cites | rejected | first_words ms (cold / prefilled) | full ms | §8 |
+|---|---|---|---|---|---|---|---|
+| q_rate | library, Rate card | answer | Rate card FY2026 | 0 | 431 / 88 | 850 | PASS |
+| q_start | library, Delivery FAQ | answer | Delivery FAQ | 0 | 207 / 94 | 882 | PASS |
+| q_ip | library, Delivery FAQ | answer | Delivery FAQ | 0 | 198 / 93 | 1106 | PASS |
+| q_sla | library, Delivery FAQ | answer ("30 minutes.") | Delivery FAQ | 0 | 368 / 241 | 368 | PASS |
+| q_case | library, Calloway & Marsh | answer | Calloway & Marsh case study, Capabilities | 0 | 436 / 94 | 1946 | PASS |
+| q_general | general | NONE | – | – | – | 448 | PASS (handed to the fallback) |
+| q_liability | reference, Photronics | NONE | – | – | – | 552 | **FAIL** |
+| q_price | not_in_material | NONE | – | – | – | 299 | PASS |
+
+  - Totals: cite rate 5/8, NONE rate 3/8, sentence rejection 0/9.
+  - first_words p50/p95: 368/436 ms without prefill, 94/241 ms with prefill.
+  - **7/8 PASS.**
+- Before the fixes: 6/8. q_price quoted Larkspur's USD 38,000 and 1.42M, and q_liability lacked Photronics in its top 3.
+  - The fixes: the direct "reply NONE" price rule, the `client_price` code check, and the BM25 reference slot.
+  - Photronics art. 9 is now passage [3]. qwen3:4b still replies NONE while the rate card's "Other terms" passage is present.
+- Suites: `uv run pytest -m "not ollama" -q` 359 passed, EXIT 0; helper 98 passed, EXIT 0; `-m ollama` 11 passed, EXIT 0.

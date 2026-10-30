@@ -1,0 +1,178 @@
+import os
+import re
+import statistics
+import threading
+import time
+
+import pytest
+
+from fleck_core import answer
+from fleck_core.answer import Delta, Done, OllamaClient, Sentence, prefill, stream_library_answer
+from fleck_core.prompts import build_messages
+from fleck_core.types import Passage
+from fleck_core.validate import NOT_IN_MATERIAL
+
+RATE = Passage(n=1, doc_id="d1", chunk_id="d1-0", title="Rate card FY2026", client=None, kind="firm",
+               text="Rate card FY2026 · Time and materials (USD per person per month)\nSenior engineer · Offshore (Bengaluru): 5,200")
+FAQ = Passage(n=2, doc_id="d2", chunk_id="d2-0", title="Delivery FAQ", client=None, kind="firm",
+              text="Delivery FAQ · Can you work with our in-house team?\nYes. Mixed teams are common.")
+
+
+class FakeOllama:
+    def __init__(self, tokens, first_delay=0.0, delay=0.0, forever=False):
+        self.tokens, self.first_delay, self.delay, self.forever = tokens, first_delay, delay, forever
+        self.calls, self.closed = [], threading.Event()
+
+    def stream(self, messages, model, options=None, **kw):
+        self.calls.append((messages, options))
+        try:
+            time.sleep(self.first_delay)
+            while True:
+                for t in self.tokens:
+                    yield t
+                    time.sleep(self.delay)
+                if not self.forever:
+                    return
+        finally:
+            self.closed.set()
+
+
+def run(tokens, passages=(RATE, FAQ), **kw):
+    now = time.time()
+    return list(stream_library_answer("q?", list(passages), [], FakeOllama(tokens, **kw), now, now))
+
+
+def test_streams_figureless_sentence_token_by_token():
+    ev = run(["Mixed", " teams", " are", " common", " [2]", "."])
+    deltas = [e for e in ev if isinstance(e, Delta)]
+    assert len(deltas) >= 4 and all(d.index == 0 for d in deltas)
+    assert "".join(d.text for d in deltas).strip() == "Mixed teams are common."
+    s = [e for e in ev if isinstance(e, Sentence)]
+    assert s == [Sentence(0, "Mixed teams are common.", True, None)]
+    done = ev[-1]
+    assert isinstance(done, Done) and done.check.ok and done.check.kind == "library"
+    assert done.first_words_ms is not None and done.full_ms >= done.first_words_ms
+
+
+def test_holds_and_replaces_sentence_with_wrong_figure():
+    ev = run(["A", " senior", " engineer", " costs", " USD", " 9", ",999", " a", " month", " [1]", ".",
+              " Senior", " engineer", " offshore", " is", " USD", " 5,200", " a", " month", " [1]", "."])
+    shown = "".join(e.text for e in ev if isinstance(e, Delta))
+    assert "9" not in shown and "5,200" not in shown  # figures are held until the sentence is checked
+    s = [e for e in ev if isinstance(e, Sentence)]
+    assert s[0] == Sentence(0, NOT_IN_MATERIAL, False, "figure_not_in_cited_passage")
+    assert s[1] == Sentence(1, "Senior engineer offshore is USD 5,200 a month.", True, None)
+    assert ev[-1].check.ok  # the good sentence carries the answer
+
+
+def test_none_reply_returns_not_in_material():
+    ev = run(["NO", "NE"])
+    assert len(ev) == 1 and ev[0].check.kind == "not_in_material" and ev[0].check.reasons == ["none"]
+    assert ev[0].first_words_ms is None
+
+
+def test_n_start_that_is_not_none_still_streams():
+    ev = run(["No", " outside", " storage", " is", " used", " [2]", "."])
+    assert [e.text for e in ev if isinstance(e, Sentence)] == ["No outside storage is used."]
+
+
+def test_markers_stripped_from_display():
+    ev = run(["Mixed", " teams", " are", " common", ".", " [", "2", "]", " We", " name", " a", " lead", " [2", "]", "."])
+    shown = "".join(e.text for e in ev if isinstance(e, Delta))
+    assert "[" not in shown and "]" not in shown and not re.search(r"\d", shown)
+    assert [e.text for e in ev if isinstance(e, Sentence)] == ["Mixed teams are common.", "We name a lead."]
+    assert ev[-1].check.ok and [c.title for c in ev[-1].check.citations] == ["Delivery FAQ"]
+
+
+def test_answer_timeout_degrades(monkeypatch):
+    assert (answer.FIRST_TOKEN_S, answer.DONE_S) == (4.0, 8.0)
+    monkeypatch.setattr(answer, "FIRST_TOKEN_S", 0.2)  # first token never arrives in time
+    ev = run(["x"], passages=[RATE], first_delay=1.0)
+    assert len(ev) == 1 and ev[0].check.kind == "not_in_material" and ev[0].check.reasons == ["timeout"]
+    assert [c.title for c in ev[0].check.citations] == ["Rate card FY2026"]  # the closest document
+    monkeypatch.setattr(answer, "DONE_S", 0.5)  # tokens flow, but the answer is not done in time
+    ev = run(["Mixed", " teams"], passages=[FAQ], delay=0.05, forever=True)
+    assert ev[-1].check.reasons == ["timeout"] and any(isinstance(e, Delta) for e in ev)
+
+
+def test_consumer_stopping_closes_the_stream():
+    fake = FakeOllama(["Mixed", " teams"], delay=0.01, forever=True)
+    now = time.time()
+    gen = stream_library_answer("q?", [FAQ], [], fake, now, now)
+    assert isinstance(next(gen), Delta)
+    gen.close()  # Task 14 abandons a speculative answer (Superseded)
+    assert fake.closed.wait(1.0)
+
+
+def test_client_name_in_uncited_sentence_rejected():
+    now = time.time()
+    ev = list(stream_library_answer("q?", [FAQ], ["Larkspur Retail Group"], FakeOllama(["Larkspur", " liked", " it", "."]), now, now))
+    assert [e for e in ev if isinstance(e, Sentence)][0].reason == "uncited_claim"
+
+
+def test_prefill_sends_the_answer_prefix():
+    fake = FakeOllama(["x"])
+    prefill([RATE, FAQ], "What does a senior", fake)
+    now = time.time()
+    list(stream_library_answer("What does a senior engineer cost?", [RATE, FAQ], [], fake, now, now))
+    (pre, opts), (real, _) = fake.calls
+    assert opts["num_predict"] == 1 and pre[0] == real[0]
+    assert real[1]["content"].startswith(pre[1]["content"])  # passages first, then the question
+    assert real[1]["content"].index(RATE.text) < real[1]["content"].index("What does a senior engineer cost?")
+
+
+# ---------- live models (Ollama on 11434, the seeded library in Weaviate on 8080) ----------
+
+CLIENTS = ["Larkspur Retail Group", "Calloway & Marsh", "Brightwater Insurance", "Meridian Intelligence"]
+
+
+def _live(question):
+    from fleck_core.retrieval import Embedder, Retriever
+    passages = Retriever("http://localhost:8080", Embedder("http://localhost:11434", timeout=30), timeout=10).search(question)
+    now = time.time()
+    ev = list(stream_library_answer(question, passages, CLIENTS, OllamaClient(), now, now))
+    return passages, ev
+
+
+@pytest.mark.ollama
+def test_real_rate_question_cites_rate_card():
+    _, ev = _live("What does a senior engineer cost per month, offshore?")
+    done = ev[-1]
+    assert done.check.ok and [c.title for c in done.check.citations] == ["Rate card FY2026"]
+    assert "5,200" in " ".join(e.text for e in ev if isinstance(e, Sentence) and e.ok)
+
+
+@pytest.mark.ollama
+def test_price_question_never_quotes_past_client():
+    passages, ev = _live("Ballpark, what would the whole project cost us?")
+    assert any(p.client == "Larkspur Retail Group" for p in passages)  # the trap is in the prompt
+    done = ev[-1]
+    shown = " ".join(e.text for e in ev if isinstance(e, Sentence) and e.ok)
+    assert not re.search(r"1\.42|1,420|38,000|Larkspur", shown)
+    if done.check.ok:
+        assert all(c.kind == "firm" for c in done.check.citations)
+    else:
+        assert done.check.kind == "not_in_material"
+
+
+def _ttft(ollama, passages, question):
+    t = time.perf_counter()
+    for _ in ollama.stream(build_messages(question, passages), answer.MODEL, options=answer.OPTIONS):
+        return time.perf_counter() - t
+
+
+@pytest.mark.ollama
+def test_prefill_halves_first_token_time():
+    ol = OllamaClient()
+    base = [RATE, FAQ]
+    cold, warm = [], []
+    for _ in range(3):
+        # a fresh passage each round, so nothing is cached
+        ps = [*base, Passage(n=3, doc_id="x", chunk_id=f"x-{os.urandom(4).hex()}", title="Capabilities", client=None,
+                             kind="firm", text=f"Capabilities {time.time_ns()}\n" + "We build data platforms. " * 60)]
+        cold.append(_ttft(ol, ps, "What does a senior engineer cost per month, offshore?"))
+        ps[2] = ps[2].model_copy(update={"text": ps[2].text + " v2"})
+        prefill(ps, "What does a senior", ol)
+        warm.append(_ttft(ol, ps, "What does a senior engineer cost per month, offshore?"))
+    print(f"ttft cold {cold} prefilled {warm}")
+    assert statistics.median(warm) <= 0.5 * statistics.median(cold)

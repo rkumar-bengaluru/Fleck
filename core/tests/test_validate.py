@@ -278,3 +278,14 @@ TABLE = "| Role | Offshore (Bengaluru) | Onsite (US/UK) |\n|---|---|---|\n| Seni
 ])
 def test_table_labels_bind_figures(answer, ok):
     assert check_library_answer(answer, _mk(TABLE)).ok is ok
+
+
+def test_past_client_price_is_never_a_quote():
+    # clients/larkspur-retail/proposal-2025.md, Commercials (a past client's price; Task 13 ruling 1)
+    prop = Passage(n=4, doc_id="larkspur-proposal", chunk_id="c4", title="Proposal: Order management modernisation for Larkspur Retail Group",
+                   client="Larkspur Retail Group", kind="client",
+                   text="## Commercials\n\nDiscovery fixed at USD 38,000. Build and cutover on fixed price USD 1.42M, milestone billing. Hypercare: 8 weeks included.")
+    r = check_library_answer("Discovery is fixed at USD 38,000 [4]. Hypercare is 8 weeks [4].", [*P, prop])
+    assert [s.reason for s in r.sentences] == ["client_price", None]
+    assert not check_library_answer("Build and cutover is USD 1.42M [4][1].", [*P, prop]).sentences[0].ok  # a firm cite doesn't launder it
+    assert check_library_answer("A senior engineer offshore is USD 5,200 a month [1][4].", [*P, prop]).ok

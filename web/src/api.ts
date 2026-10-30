@@ -17,6 +17,14 @@ export interface Me { id: number; email: string; name: string | null }
 
 export class Unauthorized extends Error {}
 
+// Any 401 (session expired mid-use too) goes to sign-in with a return path. An object so tests can replace it.
+export const session = {
+  signIn: (next: string) => window.location.assign(`/signin?next=${encodeURIComponent(next)}`),
+};
+
+/** A same-site path to return to after sign-in, or null (never another origin: "//evil.test" is rejected). */
+export const safeNext = (next: string | null) => (next && next.startsWith("/") && !next.startsWith("//") ? next : null);
+
 export async function api<T>(path: string, init?: { method?: string; body?: unknown }): Promise<T> {
   const r = await fetch(path, {
     method: init?.method ?? "GET",
@@ -24,7 +32,10 @@ export async function api<T>(path: string, init?: { method?: string; body?: unkn
     headers: init?.body === undefined ? undefined : { "Content-Type": "application/json" },
     body: init?.body === undefined ? undefined : JSON.stringify(init.body),
   });
-  if (r.status === 401) throw new Unauthorized();
+  if (r.status === 401) {
+    session.signIn(window.location.pathname + window.location.search);
+    throw new Unauthorized();
+  }
   if (!r.ok) throw new Error(`${init?.method ?? "GET"} ${path}: ${r.status}`);
   return (r.status === 204 ? undefined : await r.json()) as T;
 }
@@ -32,3 +43,5 @@ export async function api<T>(path: string, init?: { method?: string; body?: unkn
 export const browserZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 export const domain = (email: string | null) => email?.split("@")[1]?.toLowerCase() ?? "";
+
+export const setTitle = (page: string) => { document.title = `Fleck: ${page}`; };

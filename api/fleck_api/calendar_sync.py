@@ -1,9 +1,11 @@
 """Google Calendar sync (read-only), the events REST routes and the Today page's devices pill."""
+import html
 import json
 import logging
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 from typing import Literal
+from urllib.parse import parse_qs, urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from cryptography.fernet import InvalidToken
@@ -17,29 +19,51 @@ from fleck_api import auth
 from fleck_api.auth import current_user
 from fleck_api.config import setting
 from fleck_api.db import get_session
-from fleck_api.jobs import enqueue, job
-from fleck_api.models import Brief, CalendarEvent, Client, Device, GoogleToken, Job, Meeting, User
+from fleck_api.jobs import enqueue_once, job
+from fleck_api.models import Brief, CalendarEvent, Client, Device, GoogleToken, Meeting, User
 
 log = logging.getLogger("fleck.calendar")
-LINK = re.compile(r"https://[\w.-]*(?:zoom\.us|teams\.microsoft\.com|teams\.live\.com|webex\.com|meet\.google\.com)/[^\s\"'<>]*")
+_HOST_END = r"(?![\w-]|\.[\w-])"  # zoom.us, not zoom.us.evil.test
+LINK = re.compile(r"https?://(?:[\w-]+\.)*(?:zoom\.us|teams\.microsoft\.com|teams\.live\.com|webex\.com|meet\.google\.com)"
+                  + _HOST_END + r"[^\s\"'<>]*", re.I)
+SAFELINK = re.compile(r"https?://(?:[\w-]+\.)*safelinks\.protection\.outlook\.com" + _HOST_END + r"[^\s\"'<>]*", re.I)
+TRAILING = ".,;:!?)]}>'\""
 
 
 def _now() -> datetime:  # tests pin the clock
     return datetime.now(timezone.utc)
 
 
+def _web(url: str | None) -> str | None:
+    return url if url and re.match(r"https?://", url, re.I) else None
+
+
+def _unwrap_safelink(m: re.Match) -> str:
+    url = parse_qs(urlparse(m.group(0)).query).get("url")
+    return url[0] if url else m.group(0)
+
+
 def meeting_link(ev: dict) -> str | None:
-    if ev.get("hangoutLink"):
+    if _web(ev.get("hangoutLink")):
         return ev["hangoutLink"]
     for ep in (ev.get("conferenceData") or {}).get("entryPoints", []):
-        if ep.get("entryPointType") == "video" and ep.get("uri"):
+        if ep.get("entryPointType") == "video" and _web(ep.get("uri")):
             return ep["uri"]
-    m = LINK.search(f"{ev.get('location') or ''} {ev.get('description') or ''}")
-    return m.group(0).rstrip(".,;:)") if m else None
+    text = html.unescape(f"{ev.get('location') or ''} {ev.get('description') or ''}")
+    m = LINK.search(SAFELINK.sub(_unwrap_safelink, text))
+    return m.group(0).rstrip(TRAILING) if m else None
 
 
 class RefreshFailed(Exception):
     pass
+
+
+class TokensRevoked(Exception):  # Google said 401 (or invalid_grant): the grant is dead until the user signs in again
+    pass
+
+
+def _status(e: Exception) -> int | None:
+    return getattr(getattr(e, "response", None), "status_code", None)
 
 
 def _access_token(s: Session, user_id: int) -> str | None:
@@ -63,6 +87,8 @@ def _access_token(s: Session, user_id: int) -> str | None:
         blob |= {"access_token": tok["access_token"],
                  "expires_at": (_now() + timedelta(seconds=tok.get("expires_in", 3600))).isoformat()}
     except Exception as e:  # any refresh failure skips the user; never log the response: it may carry tokens
+        if _status(e) in (400, 401):
+            raise TokensRevoked(f"refresh {_status(e)}")
         raise RefreshFailed(type(e).__name__)
     row.token_enc = auth._fernet().encrypt(json.dumps(blob).encode()).decode()
     s.commit()
@@ -90,6 +116,16 @@ def _keep(ev: dict) -> bool:
 
 def sync_user(s: Session, user_id: int) -> None:
     try:
+        _sync(s, user_id)
+    except TokensRevoked as e:  # forget the dead grant: no retries, the scheduler stops until the next sign-in
+        s.rollback()
+        s.execute(delete(GoogleToken).where(GoogleToken.user_id == user_id))
+        s.commit()
+        log.warning("calendar sync for user %s skipped: Google refused the tokens (%s); they were removed", user_id, e)
+
+
+def _sync(s: Session, user_id: int) -> None:
+    try:
         token = _access_token(s, user_id)
     except RefreshFailed as e:  # revoked or broken grant: skip this user until they sign in again
         log.warning("calendar sync for user %s skipped: token refresh failed (%s)", user_id, e)
@@ -97,13 +133,19 @@ def sync_user(s: Session, user_id: int) -> None:
     if token is None:
         return
     lo, hi = _now() - timedelta(hours=12), _now() + timedelta(days=7)
+    try:
+        items = _fetch(token, lo, hi)
+    except Exception as e:
+        if _status(e) != 401:
+            raise  # transient: the job retries
+        raise TokensRevoked("calendar 401")
     rows = [{"user_id": user_id, "google_event_id": ev["id"], "title": ev.get("summary") or "(no title)",
              "description": ev.get("description"), "start_at": datetime.fromisoformat(ev["start"]["dateTime"]),
              "end_at": datetime.fromisoformat(ev["end"]["dateTime"]), "meeting_link": meeting_link(ev),
              "recurring_event_id": ev.get("recurringEventId"), "cancelled": False,
              "attendees": [{"email": a.get("email"), "name": a.get("displayName"), "self": bool(a.get("self"))}
                            for a in ev.get("attendees", [])]}
-            for ev in _fetch(token, lo, hi) if _keep(ev)]
+            for ev in items if _keep(ev)]
     if rows:
         stmt = insert(CalendarEvent).values(rows)
         s.execute(stmt.on_conflict_do_update(  # client_id is the user's, never overwritten
@@ -132,12 +174,8 @@ SCHEDULE_S = 300
 
 def schedule_syncs(s: Session) -> int:
     """Enqueue sync_calendar for every user with tokens unless one is already queued or running for them."""
-    pending = exists().where(Job.kind == "sync_calendar", Job.status.in_(("queued", "running")),
-                             Job.payload["user_id"].as_integer() == GoogleToken.user_id)
-    users = s.scalars(select(GoogleToken.user_id).where(~pending)).all()
-    for uid in users:
-        enqueue(s, "sync_calendar", {"user_id": uid})
-    return len(users)
+    return sum(enqueue_once(s, "sync_calendar", {"user_id": uid}) is not None
+               for uid in s.scalars(select(GoogleToken.user_id)).all())
 
 
 # ---------- routes (plain def: sync DB work runs in FastAPI's threadpool) ----------
@@ -165,11 +203,12 @@ def _repeats(s: Session, e: CalendarEvent) -> str | None:
 def list_events(range: Literal["today", "upcoming"] = "today", tz: str | None = None,
                 u: User = Depends(current_user), s: Session = Depends(get_session)):
     try:
-        zone = ZoneInfo(tz) if tz else datetime.now().astimezone().tzinfo
+        zone = ZoneInfo(tz or setting("TZ", "")) if tz or setting("TZ", "") else datetime.now().astimezone().tzinfo
     except (ZoneInfoNotFoundError, ValueError):
         raise HTTPException(422, "unknown time zone")
-    midnight = _now().astimezone(zone).replace(hour=0, minute=0, second=0, microsecond=0)
-    lo, hi = (midnight, midnight + timedelta(days=1)) if range == "today" else (midnight + timedelta(days=1), None)
+    day = _now().astimezone(zone).date()  # midnights by date arithmetic: a DST-change day is 23 or 25 hours long
+    midnight, next_midnight = (datetime.combine(d, time(0), tzinfo=zone) for d in (day, day + timedelta(days=1)))
+    lo, hi = (midnight, next_midnight) if range == "today" else (next_midnight, None)
     q = select(CalendarEvent).where(CalendarEvent.user_id == u.id, CalendarEvent.start_at >= lo)
     if hi:
         q = q.where(CalendarEvent.start_at < hi)

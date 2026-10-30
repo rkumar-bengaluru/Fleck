@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from fleck_api.config import setting
 from fleck_api.db import get_session
-from fleck_api.jobs import enqueue
+from fleck_api.jobs import enqueue_once
 from fleck_api.models import GoogleToken, User, UserSession
 
 log = logging.getLogger("fleck.auth")
@@ -163,7 +163,7 @@ def callback(request: Request, code: str | None = None, state: str | None = None
     s.add(UserSession(user_id=user.id, token_hash=_hash(raw),
                       expires_at=datetime.now(timezone.utc) + timedelta(days=SESSION_DAYS)))
     s.commit()
-    enqueue(s, "sync_calendar", {"user_id": user.id})
+    enqueue_once(s, "sync_calendar", {"user_id": user.id})
     r = RedirectResponse(f"{_web()}/", 302)
     r.delete_cookie(STATE_COOKIE)
     r.set_cookie(COOKIE, raw, max_age=SESSION_DAYS * 86400, httponly=True, samesite="lax", secure=_secure())

@@ -23,17 +23,20 @@ export function suggestedClient(event: CalendarEvent, myDomain: string): string 
 export const isExternal = (e: CalendarEvent, myDomain: string) => e.attendees.some(a => !a.self && domain(a.email) !== myDomain);
 
 export default function ClientSelect({ event, clients, myDomain, onChange }: {
-  event: CalendarEvent; clients: ClientRef[]; myDomain: string;
+  event: CalendarEvent; clients: ClientRef[] | null; myDomain: string;  // null while the client list loads
   onChange: (e: CalendarEvent, created?: ClientRef) => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
   const id = `client-${event.id}`;
   const unset = !event.client && isExternal(event, myDomain);
   const suggestion = suggestedClient(event, myDomain);
-  const offerNew = unset && suggestion && !clients.some(c => c.name.toLowerCase() === suggestion.toLowerCase());
+  const offerNew = unset && suggestion && clients !== null && !clients.some(c => c.name.toLowerCase() === suggestion.toLowerCase());
 
   async function choose(value: string) {
+    if (busy) return;
     setBusy(true);
+    setFailed(false);
     try {
       let created: ClientRef | undefined;
       let clientId: number | null = value === NONE ? null : Number(value);
@@ -42,16 +45,19 @@ export default function ClientSelect({ event, clients, myDomain, onChange }: {
         clientId = created.id;
       }
       onChange(await api<CalendarEvent>(`/api/events/${event.id}/client`, { method: "PUT", body: { client_id: clientId } }), created);
+    } catch {
+      setFailed(true);  // the select snaps back to the saved value; a 401 has already gone to sign-in
     } finally {
       setBusy(false);
     }
   }
 
-  const options = clients.map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>);
+  const list = clients ?? (event.client ? [event.client] : []);
+  const options = list.map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>);
   return (
     <>
       <label htmlFor={id}>Client</label>
-      <select id={id} className={unset ? "client-select unset" : "client-select"} disabled={busy}
+      <select id={id} className={unset ? "client-select unset" : "client-select"} aria-busy={busy}
         value={event.client ? String(event.client.id) : unset ? "" : NONE} onChange={e => choose(e.target.value)}>
         {unset && <option value="" disabled>Choose a client</option>}
         {unset && offerNew && <option value={NEW}>New client: {suggestion}</option>}
@@ -59,7 +65,8 @@ export default function ClientSelect({ event, clients, myDomain, onChange }: {
         {options}
         {event.client && <option value={NONE}>No client</option>}
       </select>
-      {unset && <span className="hint">Link a client for a fuller brief.</span>}
+      {unset && !failed && <span className="hint">Link a client for a fuller brief.</span>}
+      {failed && <span className="error" role="alert">Couldn't save the client. Try again.</span>}
     </>
   );
 }

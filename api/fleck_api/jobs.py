@@ -33,6 +33,15 @@ def enqueue(session: Session, kind: str, payload: dict, run_after: datetime | No
     return j.id
 
 
+def enqueue_once(session: Session, kind: str, payload: dict) -> int | None:
+    """enqueue unless an identical job is already queued or running; returns None when skipped.
+    shortcut: check-then-insert, two callers racing can both enqueue; fine while handlers are idempotent."""
+    if session.scalar(select(Job.id).where(Job.kind == kind, Job.payload == payload,
+                                           Job.status.in_(("queued", "running"))).limit(1)):
+        return None
+    return enqueue(session, kind, payload)
+
+
 def _fail(session: Session, j: Job, error: str) -> None:
     j.status, j.last_error = "failed", error[:2000]
     session.commit()

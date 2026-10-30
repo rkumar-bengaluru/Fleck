@@ -187,3 +187,12 @@ Live §8 questions (title, kind, nearest-vector distance):
 - Web (`web/`, Vite 8 + React 19 + TS 7, pnpm): shell with nav, Sign in with Google, Today as in `WebToday.dc.html`, Settings (sign out). Compose service `web` (vite on 5173, `/api` proxied to `api:8000`, Origin kept). CI: pnpm install, `tsc --noEmit`, vitest. Playwright needs the whole stack and runs locally only.
 - Suites: `uv run --all-packages pytest -m "not ollama" -q` 223 passed EXIT 0; vitest 3 passed; `tsc --noEmit` exit 0; Playwright `web/e2e/signin-today.spec.ts` 1 passed (1.1 s) against `make up` (sign in through gsim as rupak@northbeam.test, see Presales: demo prospect, link Harbourline Legal, reload, still linked).
 - Screenshot of Today on the live stack: [docs/superpowers/screenshots/today.png](screenshots/today.png).
+- Fix rounds 1-2:
+  - Open brief and Record on every open meeting; containers use the host's `TZ` (from `.env` via `make up`), so the demo now starts at the next whole local hour.
+  - Upcoming shows each recurring series once; events that are gone from Google but used are kept as cancelled.
+  - The "New client" name comes from the guests' domain.
+  - Central 401 handling sends the browser to sign-in with a return path, and failed loads and saves show inline errors.
+  - Link extraction is anchored and unescaped, and unwraps Teams safelinks.
+  - A Google 401 removes the tokens without retrying; one enqueue guard covers sign-in and the scheduler.
+  - Day bounds are DST-safe; page titles are set; the dark nav has a light focus ring.
+  - Suites: pytest `-m "not ollama"` 247 passed EXIT 0; vitest 9 passed; tsc 0; Playwright 1 passed. Screenshot re-taken.

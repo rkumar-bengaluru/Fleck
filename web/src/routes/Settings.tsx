@@ -1,6 +1,8 @@
-import { api, type Me } from "../api";
+import { useEffect } from "react";
+import { api, setTitle, type Me } from "../api";
 
 export default function Settings({ me }: { me: Me }) {
+  useEffect(() => setTitle("Settings"), []);
   async function signOut() {
     await api("/api/auth/logout", { method: "POST" });
     window.location.href = "/signin";

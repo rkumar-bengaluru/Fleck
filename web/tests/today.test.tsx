@@ -1,8 +1,10 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import type { CalendarEvent } from "../src/api";
+import { safeNext, session, type CalendarEvent } from "../src/api";
 import { suggestedClient } from "../src/components/ClientSelect";
+import Settings from "../src/routes/Settings";
+import SignIn from "../src/routes/SignIn";
 import Today, { whoLine } from "../src/routes/Today";
 
 const me = { id: 1, email: "rupak@northbeam.test", name: "Rupak K" };
@@ -29,11 +31,16 @@ const orion: CalendarEvent = { ...demo, id: 9, title: "Discovery: Orion Freight"
   client: { id: 3, name: "Harbourline Legal" } };
 
 let calls: { method: string; url: string; body?: string }[];
+// per-test overrides: url prefix -> response (or a promise of one)
+let override: Record<string, () => Response | Promise<Response>>;
 
 beforeEach(() => {
   calls = [];
+  override = {};
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
     calls.push({ method: init?.method ?? "GET", url, body: init?.body as string | undefined });
+    const hit = Object.keys(override).find(k => url.startsWith(k));
+    if (hit) return override[hit]();
     const json = (b: unknown) => new Response(JSON.stringify(b), { status: 200 });
     if (url.startsWith("/api/events?range=today")) return json([ended, demo, pricing, dropped]);
     if (url.startsWith("/api/events?range=upcoming")) return json([standup, orion]);
@@ -43,7 +50,7 @@ beforeEach(() => {
     return new Response("{}", { status: 404 });
   }));
 });
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 test("renders today's events from /api/events", async () => {
   render(<MemoryRouter><Today me={me} /></MemoryRouter>);
@@ -96,4 +103,66 @@ test("new-client suggestion comes from the guests' email domain, else the title"
   expect(suggestedClient(guest("sam@eu.acme.com"), "northbeam.test")).toBe("Acme");
   expect(suggestedClient(guest("sam@gmail.com"), "northbeam.test")).toBe("Orion Freight");  // personal mail: use the title
   expect(suggestedClient(pricing, "northbeam.test")).toBeNull();
+});
+
+test("a 401 anywhere sends the browser to sign-in with a return path, never the empty day", async () => {
+  const signIn = vi.spyOn(session, "signIn").mockImplementation(() => {});
+  override["/api/events"] = () => new Response("{}", { status: 401 });
+  render(<MemoryRouter><Today me={me} /></MemoryRouter>);
+  await waitFor(() => expect(signIn).toHaveBeenCalledWith(window.location.pathname + window.location.search));
+  expect(screen.queryByText(/No meetings/)).toBeNull();
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(safeNext("/events/7")).toBe("/events/7");
+  expect(safeNext("//evil.test")).toBeNull();
+  expect(safeNext("https://evil.test")).toBeNull();
+});
+
+test("a failed load shows an inline error with Retry, never the empty day", async () => {
+  override["/api/events?range=today"] = () => new Response("{}", { status: 500 });
+  render(<MemoryRouter><Today me={me} /></MemoryRouter>);
+  expect((await screen.findByRole("alert")).textContent).toContain("Couldn't load your meetings.");
+  expect(screen.queryByText(/No meetings/)).toBeNull();
+  delete override["/api/events?range=today"];
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  expect(await screen.findByRole("heading", { name: "Presales: demo prospect" })).toBeTruthy();
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(document.title).toBe("Fleck: Today");
+});
+
+test("a failed client save shows an error and keeps focus on the select", async () => {
+  override["/api/events/7/client"] = () => new Response("{}", { status: 500 });
+  render(<MemoryRouter><Today me={me} /></MemoryRouter>);
+  const select = (await screen.findAllByLabelText("Client"))[1] as HTMLSelectElement;
+  await waitFor(() => expect(select.querySelectorAll("option").length).toBe(3));
+  select.focus();
+  fireEvent.change(select, { target: { value: "3" } });
+  expect(select.getAttribute("aria-busy")).toBe("true");
+  expect(select.disabled).toBe(false);
+  expect((await screen.findByRole("alert")).textContent).toBe("Couldn't save the client. Try again.");
+  expect(document.activeElement).toBe(select);
+  expect(select.value).toBe("");  // back to the saved value
+});
+
+test("New client is offered only once clients have loaded; a failed client load is shown", async () => {
+  let release!: (r: Response) => void;
+  override["/api/clients"] = () => new Promise(r => { release = r; });
+  render(<MemoryRouter><Today me={me} /></MemoryRouter>);
+  const select = (await screen.findAllByLabelText("Client"))[1] as HTMLSelectElement;
+  expect([...select.querySelectorAll("option")].map(o => o.textContent)).toEqual(["Choose a client"]);
+  release(new Response(JSON.stringify([{ id: 4, name: "Harbourline", slug: "harbourline" }]), { status: 200 }));
+  await waitFor(() => expect([...select.querySelectorAll("option")].map(o => o.textContent)).toEqual(["Choose a client", "Harbourline"]));
+  cleanup();
+  override["/api/clients"] = () => new Response("{}", { status: 500 });
+  render(<MemoryRouter><Today me={me} /></MemoryRouter>);
+  expect((await screen.findByRole("alert")).textContent).toContain("Couldn't load your clients.");
+});
+
+test("page titles and the sign-in heading", async () => {
+  render(<MemoryRouter initialEntries={["/signin?next=/events/7"]}><SignIn nextKey="k" /></MemoryRouter>);
+  expect(screen.getByRole("heading", { level: 1, name: "Fleck" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Sign in with Google" })).toBeTruthy();
+  expect(document.title).toBe("Fleck: Sign in");
+  cleanup();
+  render(<MemoryRouter><Settings me={me} /></MemoryRouter>);
+  expect(document.title).toBe("Fleck: Settings");
 });

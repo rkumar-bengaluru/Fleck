@@ -4,7 +4,7 @@ const ORIGIN = { Origin: "http://localhost:5173" };  // the api refuses cookie-a
 
 test("sign in through gsim, see Today, link a client and keep it after reload", async ({ page }) => {
   await page.goto("/");
-  await expect(page).toHaveURL(/\/signin$/);
+  await expect(page).toHaveURL(/\/signin\?next=%2F$/);
   await page.getByRole("button", { name: "Sign in with Google" }).click();
   await page.getByRole("button", { name: "rupak@northbeam.test" }).click();
   await page.getByRole("button", { name: "Allow" }).click();

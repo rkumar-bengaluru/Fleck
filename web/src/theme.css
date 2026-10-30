@@ -2,7 +2,7 @@
 :root {
   --ground: #EDF0F3; --ink: #17222D; --muted: #566270; --body: #3D4955; --teal: #0B6B63; --teal-hover: #084F49;
   --card: #FFFFFF; --line: #D5DBE1; --rule: #E3E8ED; --field: #B8C2CC; --dash: #8A97A4; --field-soft: #F6F8FA;
-  --nav: #17222D; --nav-text: #E3E9EF; --nav-link: #C9D3DC; --nav-active: #263442; --brand-dot: #2FB8A8; --ok: #1F8F5A;
+  --nav: #17222D; --nav-text: #E3E9EF; --nav-link: #C9D3DC; --nav-active: #263442; --brand-dot: #2FB8A8; --ok: #1F8F5A; --focus-on-dark: #5ED1C3;
 }
 body { margin: 0; background: var(--ground); }
 a { color: var(--teal); } a:hover { color: var(--teal-hover); }
@@ -16,6 +16,7 @@ a:focus-visible, button:focus-visible, select:focus-visible { outline: 2px solid
 .brand { font-size: 22px; font-weight: 700; padding: 0 10px 20px; display: flex; align-items: center; gap: 8px; }
 .brand-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--brand-dot); }
 .nav a { padding: 9px 10px; border-radius: 7px; color: var(--nav-link); text-decoration: none; }
+.nav a:focus-visible { outline-color: var(--focus-on-dark); }  /* Main.dc.html: the teal ring vanishes on the dark nav */
 .nav a[aria-current="page"] { background: var(--nav-active); color: #FFFFFF; font-weight: 700; }
 .main { flex: 999 1 560px; min-width: 0; box-sizing: border-box; padding: 32px clamp(16px, 4vw, 48px); display: flex;
   flex-direction: column; gap: 28px; max-width: 1040px; }
@@ -63,3 +64,4 @@ h1 { margin: 0; font-size: 34px; line-height: 1.15; font-weight: 700; }
 .signin-card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 32px; display: flex;
   flex-direction: column; gap: 20px; align-items: flex-start; }
 .error { color: #A63A2B; font-size: 15px; margin: 0; }
+.error .btn { height: 30px; margin-left: 8px; }

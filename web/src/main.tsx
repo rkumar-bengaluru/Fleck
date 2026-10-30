@@ -1,19 +1,32 @@
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
-import { api, Unauthorized, type Me } from "./api";
+import { BrowserRouter, Route, Routes, useNavigate } from "react-router-dom";
+import { api, safeNext, Unauthorized, type Me } from "./api";
 import Nav from "./components/Nav";
 import Settings from "./routes/Settings";
 import SignIn from "./routes/SignIn";
 import Today, { EventPage } from "./routes/Today";
 import "./theme.css";
 
+const NEXT_KEY = "fleck-next";
+
 function Shell() {
-  const [me, setMe] = useState<Me | null | "signed-out">(null);
-  useEffect(() => {
-    api<Me>("/api/me").then(setMe).catch(e => { if (e instanceof Unauthorized) setMe("signed-out"); });
-  }, []);
-  if (me === "signed-out") return <Navigate to="/signin" replace />;
+  const [me, setMe] = useState<Me | null | "error">(null);
+  const navigate = useNavigate();
+  const load = () => {
+    setMe(null);
+    api<Me>("/api/me").then(m => {
+      setMe(m);
+      let next: string | null = null;
+      try { next = safeNext(sessionStorage.getItem(NEXT_KEY)); sessionStorage.removeItem(NEXT_KEY); } catch { /* storage blocked */ }
+      if (next) navigate(next, { replace: true });
+    }).catch(e => { if (!(e instanceof Unauthorized)) setMe("error"); });  // 401: api() already went to sign-in
+  };
+  useEffect(load, []);
+  if (me === "error") {
+    return <div className="shell signin"><p className="error" role="alert">Couldn't reach Fleck.{" "}
+      <button type="button" className="btn" onClick={load}>Retry</button></p></div>;
+  }
   if (me === null) return null;
   return (
     <div className="shell">
@@ -34,7 +47,7 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <BrowserRouter>
       <Routes>
-        <Route path="/signin" element={<SignIn />} />
+        <Route path="/signin" element={<SignIn nextKey={NEXT_KEY} />} />
         <Route path="/*" element={<Shell />} />
       </Routes>
     </BrowserRouter>

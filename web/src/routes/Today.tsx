@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, browserZone, domain, type CalendarEvent, type ClientRef, type Device, type Me } from "../api";
+import { api, browserZone, domain, setTitle, Unauthorized, type CalendarEvent, type ClientRef, type Device, type Me } from "../api";
 import ClientSelect from "../components/ClientSelect";
 
 const CONNECTED_MS = 60_000;
@@ -29,7 +29,7 @@ export function whoLine(e: CalendarEvent, myDomain: string): string {
 }
 
 export function MeetingCard({ event, clients, me, next, now, onChange }: {
-  event: CalendarEvent; clients: ClientRef[]; me: Me; next: boolean; now: number;
+  event: CalendarEvent; clients: ClientRef[] | null; me: Me; next: boolean; now: number;
   onChange: (e: CalendarEvent, created?: ClientRef) => void;
 }) {
   const navigate = useNavigate();
@@ -63,24 +63,42 @@ export function MeetingCard({ event, clients, me, next, now, onChange }: {
   );
 }
 
+function Failed({ what, retry }: { what: string; retry: () => void }) {
+  return <p className="error" role="alert">Couldn't load your {what}.<button type="button" className="btn" onClick={retry}>Retry</button></p>;
+}
+
+/** Library clients: null while loading, so no "New client" is offered for a name that already exists. */
 function useClients() {
-  const [clients, setClients] = useState<ClientRef[]>([]);
-  useEffect(() => { api<ClientRef[]>("/api/clients").then(setClients).catch(() => {}); }, []);
-  const add = (c?: ClientRef) => c && setClients(cs => [...cs, c].sort((a, b) => a.name.localeCompare(b.name)));
-  return [clients, add] as const;
+  const [clients, setClients] = useState<ClientRef[] | null>(null);
+  const [failed, setFailed] = useState(false);
+  const load = () => {
+    setFailed(false);
+    api<ClientRef[]>("/api/clients").then(setClients).catch(e => { if (!(e instanceof Unauthorized)) setFailed(true); });
+  };
+  useEffect(load, []);
+  const add = (c?: ClientRef) => c && setClients(cs => [...(cs ?? []), c].sort((a, b) => a.name.localeCompare(b.name)));
+  const error = failed ? <Failed what="clients" retry={load} /> : null;
+  return [clients, add, error] as const;
 }
 
 export default function Today({ me }: { me: Me }) {
   const [today, setToday] = useState<CalendarEvent[] | null>(null);
+  const [failed, setFailed] = useState(false);
   const [upcoming, setUpcoming] = useState<CalendarEvent[]>([]);
   const [devices, setDevices] = useState<Device[]>([]);
-  const [clients, addClient] = useClients();
+  const [clients, addClient, clientsError] = useClients();
   const [now, setNow] = useState(Date.now());
 
-  useEffect(() => {
+  const load = () => {
     const tz = encodeURIComponent(browserZone());
-    api<CalendarEvent[]>(`/api/events?range=today&tz=${tz}`).then(setToday).catch(() => setToday([]));
-    api<CalendarEvent[]>(`/api/events?range=upcoming&tz=${tz}`).then(setUpcoming).catch(() => {});
+    setFailed(false);
+    const fail = (e: unknown) => { if (!(e instanceof Unauthorized)) setFailed(true); };
+    api<CalendarEvent[]>(`/api/events?range=today&tz=${tz}`).then(setToday).catch(fail);
+    api<CalendarEvent[]>(`/api/events?range=upcoming&tz=${tz}`).then(setUpcoming).catch(fail);
+  };
+  useEffect(() => {
+    setTitle("Today");
+    load();
     const poll = () => api<Device[]>("/api/devices").then(setDevices).catch(() => {});
     poll();
     const t = setInterval(() => { setNow(Date.now()); poll(); }, 30_000);
@@ -103,13 +121,15 @@ export default function Today({ me }: { me: Me }) {
           <h1>Today</h1>
           <p className="subtitle">
             {new Date(now).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}.{" "}
-            {today === null ? "" : n ? `${n} meeting${n === 1 ? "" : "s"} from your Google Calendar.` : "No meetings from your Google Calendar."}
+            {today === null || failed ? "" : n ? `${n} meeting${n === 1 ? "" : "s"} from your Google Calendar.` : "No meetings from your Google Calendar."}
           </p>
         </div>
         <div className="pill"><span className={connected ? "pill-dot on" : "pill-dot"} />
           {connected ? "Desktop app connected" : "Desktop app not connected"}</div>
       </header>
 
+      {failed && <Failed what="meetings" retry={load} />}
+      {clientsError}
       <section aria-label="Today's meetings" className="meetings">
         {today?.map(e => <MeetingCard key={e.id} event={e} clients={clients} me={me} next={e.id === nextId} now={now} onChange={replace} />)}
       </section>
@@ -139,12 +159,13 @@ export default function Today({ me }: { me: Me }) {
 export function EventPage({ me }: { me: Me }) {
   const { id } = useParams();
   const [event, setEvent] = useState<CalendarEvent | null>(null);
-  const [clients, addClient] = useClients();
-  useEffect(() => { api<CalendarEvent>(`/api/events/${id}`).then(setEvent).catch(() => {}); }, [id]);
+  const [clients, addClient, clientsError] = useClients();
+  useEffect(() => { api<CalendarEvent>(`/api/events/${id}`).then(e => { setEvent(e); setTitle(e.title); }).catch(() => {}); }, [id]);
   if (!event) return null;
   return (
     <>
       <h1>{event.title}</h1>
+      {clientsError}
       <section className="meetings">
         <MeetingCard event={event} clients={clients} me={me} next={false} now={Date.now()}
           onChange={(e, c) => { addClient(c); setEvent(e); }} />

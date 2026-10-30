@@ -1,9 +1,9 @@
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 
 from fleck_api import jobs
-from fleck_api.models import Base, Job
+from fleck_api.models import Base, Job, Meeting
 
 
 def test_migration_creates_every_orm_table(make_session):
@@ -34,8 +34,8 @@ def test_failing_job_retries_three_times_then_failed(make_session):
             j = s.get(Job, jid)
             assert j.attempts == attempt
             if attempt < 3:
-                assert j.status == "queued" and j.run_after > datetime.now(timezone.utc)  # backed off
-                j.run_after = datetime.now(timezone.utc) - timedelta(seconds=1)
+                assert j.status == "queued" and s.scalar(select(Job.run_after > func.now()))  # backed off
+                j.run_after = func.now() - timedelta(seconds=1)
                 s.commit()
         assert (j.status, j.last_error) == ("failed", "ValueError: nope")
         assert jobs.run_once(s) is False
@@ -70,7 +70,7 @@ def test_stale_running_job_is_reclaimed_then_failed_past_cap(make_session):
         j.status, j.attempts, j.locked_at = "running", 1, datetime.now(timezone.utc) - timedelta(minutes=5)
         s.commit()
         assert jobs.run_once(s) is False  # lock still fresh
-        j.locked_at = datetime.now(timezone.utc) - timedelta(minutes=11)
+        j.locked_at = func.now() - timedelta(minutes=11)
         s.commit()
         assert jobs.run_once(s) is True
         assert (j.status, j.attempts) == ("done", 2)
@@ -78,3 +78,39 @@ def test_stale_running_job_is_reclaimed_then_failed_past_cap(make_session):
         s.commit()
         assert jobs.run_once(s) is True
         assert (j.status, j.last_error) == ("failed", "worker lost")
+
+
+def test_on_fail_hook_marks_meeting_failed(make_session):
+    def boom(s, p):
+        raise RuntimeError("no audio")
+
+    def mark(s, p, error):
+        s.get(Meeting, p["meeting_id"]).status = "failed"
+        s.get(Meeting, p["meeting_id"]).failure_reason = error
+
+    jobs.job("t_hook", on_fail=mark)(boom)
+    with make_session() as s:
+        m = Meeting(title="m")
+        s.add(m)
+        s.commit()
+        jid = jobs.enqueue(s, "t_hook", {"meeting_id": m.id})
+        for _ in range(3):
+            jobs.run_once(s)
+            s.execute(Job.__table__.update().values(run_after=func.now()))
+            s.commit()
+        assert s.get(Job, jid).status == "failed"
+        s.refresh(m)
+        assert (m.status, m.failure_reason) == ("failed", "RuntimeError: no audio")
+
+
+def test_on_fail_that_raises_is_logged_not_fatal(make_session):
+    def bad(s, p, error):
+        raise RuntimeError("hook broke")
+
+    jobs.job("t_hook2", on_fail=bad)(lambda s, p: 1 / 0)
+    with make_session() as s:
+        jid = jobs.enqueue(s, "t_hook2", {})
+        s.execute(Job.__table__.update().values(attempts=2))
+        s.commit()
+        assert jobs.run_once(s) is True
+        assert s.get(Job, jid).status == "failed"

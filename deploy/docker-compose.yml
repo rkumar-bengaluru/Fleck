@@ -1,4 +1,9 @@
 name: fleck
+x-api-env: &api-env
+  FLECK_DATABASE_URL: postgresql://fleck:fleck@postgres:5432/fleck
+  FLECK_MINIO_URL: http://minio:9000
+  FLECK_WEAVIATE_URL: http://weaviate:8080
+  FLECK_OLLAMA_URL: http://host.docker.internal:11434
 services:
   postgres:
     restart: unless-stopped
@@ -34,11 +39,7 @@ services:
     restart: unless-stopped
     build: {context: .., dockerfile: api/Dockerfile}
     env_file: [{path: ../.env, required: false}]
-    environment:
-      FLECK_DATABASE_URL: postgresql://fleck:fleck@postgres:5432/fleck
-      FLECK_MINIO_URL: http://minio:9000
-      FLECK_WEAVIATE_URL: http://weaviate:8080
-      FLECK_OLLAMA_URL: http://host.docker.internal:11434
+    environment: *api-env
     ports: ["127.0.0.1:8000:8000"]
     # port open == migrations done and uvicorn up; /api/health is 503 whenever ollama is down, too fragile to gate on
     healthcheck: {test: ["CMD", "python3", "-c", "import socket; socket.create_connection(('localhost', 8000), 2)"], interval: 3s, timeout: 3s, retries: 40}
@@ -51,8 +52,7 @@ services:
     build: {context: .., dockerfile: api/Dockerfile}
     command: ["uv", "run", "--no-sync", "--package", "fleck-api", "python", "-m", "fleck_api.worker"]
     env_file: [{path: ../.env, required: false}]
-    environment:
-      FLECK_DATABASE_URL: postgresql://fleck:fleck@postgres:5432/fleck
+    environment: *api-env
     depends_on:
       postgres: {condition: service_healthy}
       api: {condition: service_healthy}

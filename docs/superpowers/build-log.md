@@ -220,3 +220,4 @@ Live §8 questions (title, kind, nearest-vector distance):
 - Full replay of conversation.wav (382.5 s) at realtime=False through both Segmenters + whisper-large-v3-turbo on every final, sequentially: 21.7 s total (whisper 21.5 s, VAD + WAV read 0.2 s), 56 finals for 58 scripted turns, 299 partials (not transcribed in this run), 0 empty finals.
 - Live: mic capture from a terminal (AVAudioEngine voice processing, 48 kHz tap → 16 kHz) gave 3.00 s of audio in 3 s. System audio could not be checked outside the signed bundle (TCC -3801 for the terminal); added to manual-checks.md.
 - Suites: `uv run --all-packages pytest -m "not ollama" -q` 271 passed, 5 deselected, EXIT 0; `pytest helper/tests -v` 21 passed.
+- Fix: bleed() now uses a unit-energy impulse and calibrates to -14 dB on the left during client-only speech (measured -14.00 dB, asserted within 1 dB); only conversation-bleed.wav changed; temp say dir removed at exit.

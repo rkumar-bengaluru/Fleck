@@ -3,9 +3,11 @@
 # dependencies = ["numpy>=2", "pyyaml>=6"]
 # ///
 """Build the scripted test audio with macOS `say`. Same scripts -> same bytes. Run: make fixtures"""
+import atexit
 import hashlib
 import json
 import random
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -20,6 +22,7 @@ SR = 16000
 OVERLAP_S, QUESTION_GAP_S, DEFAULT_GAP_S = 0.4, 2.5, 0.6
 _cache: dict[tuple[str, str], np.ndarray] = {}
 _tmp = Path(tempfile.mkdtemp(prefix="fleck-say-"))
+atexit.register(shutil.rmtree, _tmp, ignore_errors=True)
 
 
 def speak(voice: str, text: str) -> np.ndarray:
@@ -71,15 +74,23 @@ class Timeline:
 
 
 def bleed(left: np.ndarray, right: np.ndarray) -> np.ndarray:
-    """Call audio leaking into the mic: right channel at -14 dB, 30 ms delay, 250 ms decaying reverb tail."""
+    """Call audio leaking into the mic: 30 ms delay, 250 ms decaying reverb tail, level -14 dB re the right channel."""
     rng = np.random.default_rng(1234)
     t = np.arange(SR // 4) / SR
     ir = rng.standard_normal(len(t)) * np.exp(-t / 0.06) * 0.35
     ir[0] = 1.0
+    ir /= np.sqrt(np.sum(ir ** 2))  # unit energy: the reverb adds no gain of its own
     n = len(right) + len(ir)
     wet = np.fft.irfft(np.fft.rfft(right.astype(np.float64), n) * np.fft.rfft(ir, n), n)[:len(right)]
-    wet = np.concatenate([np.zeros(SR * 30 // 1000), wet])[:len(right)] * 10 ** (-14 / 20)
-    return np.clip(left + np.rint(wet), -32768, 32767).astype(np.int16)
+    wet = np.concatenate([np.zeros(SR * 30 // 1000), wet])[:len(right)]
+    only_client = (left == 0) & (right != 0)  # client speaking, you silent: left carries only the leak
+    rms = lambda x: np.sqrt(np.mean(x.astype(np.float64) ** 2))  # noqa: E731
+    wet *= 10 ** (-14 / 20) * rms(right[only_client]) / rms(wet[only_client])  # speech is not white, so calibrate on the signal
+    out = np.clip(left + np.rint(wet), -32768, 32767).astype(np.int16)
+    level = 20 * np.log10(rms(out[only_client]) / rms(right[only_client]))
+    assert abs(level + 14) <= 1, f"bleed level {level:.2f} dB, wanted -14 dB"
+    print(f"  bleed level on left during client-only speech: {level:.2f} dB re right")
+    return out
 
 
 def build_conversation():

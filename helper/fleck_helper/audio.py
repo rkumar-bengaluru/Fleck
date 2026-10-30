@@ -100,15 +100,15 @@ class _Stream:
 
     def __init__(self):
         self.buf, self.start = np.zeros(0, np.float32), 0  # buf[0] is sample `start` = the next slot to emit
-        self.last_end = 0  # end of the last real audio; a later start means a hole
-        self.force_gap = False  # report the next hole whatever its size (stream stopped, buffers dropped)
+        self.last_end = 0  # end of the last real audio
+        self.down = False  # the stream stopped, failed or restarted: the next audio closes a Gap
 
     def place(self, x: np.ndarray, idx: int) -> tuple[int, int] | None:
-        """Adds audio starting at sample idx; returns the hole (start, end) it closes, if any."""
+        """Adds audio starting at sample idx; returns the outage (start, end) it ends, if the stream was down.
+        Missing buffers alone are silence, not a Gap: ScreenCaptureKit may send nothing while the call is quiet."""
         hole = None
-        if idx - self.last_end > LiveSource.GAP_S * SR or (self.force_gap and idx - self.last_end > 2):  # 2: timestamp rounding
-            hole = (self.last_end, idx)
-            self.force_gap = False
+        if self.down:
+            hole, self.down = (self.last_end, max(idx, self.last_end)), False
         self.last_end = max(self.last_end, idx + len(x))
         end = self.start + len(self.buf)
         if idx > end:  # missing audio becomes silence
@@ -130,10 +130,10 @@ class LiveSource:
     its first sample, push("stopped") when the system stream ends, and push("interrupted", stream) after
     it restarted a stream itself (mic route change). Frames are 20 ms wall-clock slots: a slot is emitted
     once both streams cover it, or STALL_S after its end with silence for a stream that has nothing.
-    A hole over GAP_S, a stop, an interruption or dropped buffers yields a Gap when audio returns."""
+    Only a real outage yields a Gap: a stopped or failed stream or a restart (when its audio returns), or
+    buffers dropped from a full queue (one Gap, stream "both" when both lost audio)."""
 
     STALL_S = 0.3
-    GAP_S = 1.0
     QUEUE_MAX = 250  # capture buffers: >= 5 s at the smallest (20 ms) buffers
     BACKOFF_S = (1, 2, 4, 8, 15, 30)
 
@@ -143,7 +143,7 @@ class LiveSource:
     def frames(self) -> Iterator[Frame | Gap | Unavailable]:
         q: queue.Queue = queue.Queue(maxsize=self.QUEUE_MAX)
         warned, closed, restarting = [], threading.Event(), threading.Event()
-        dropped: set = set()  # streams that lost buffers to a full queue
+        dropped: dict = {}  # stream -> [first, last] host seconds of buffers lost to a full queue
 
         def push(kind, x=None, host_s=None):
             while True:
@@ -155,7 +155,8 @@ class LiveSource:
                     except queue.Empty:
                         continue
                     if old[0] in ("you", "client"):
-                        dropped.add(old[0])
+                        span = dropped.setdefault(old[0], [old[2], old[2]])
+                        span[1] = old[2] + len(old[1]) / SR
                         if not warned:
                             warned.append(1)
                             log.warning("live audio queue full: dropping the oldest buffers")
@@ -202,19 +203,22 @@ class LiveSource:
                         items.append(q.get_nowait())
                 except queue.Empty:
                     pass
-                for s in list(dropped):
-                    dropped.discard(s)
-                    streams[s].force_gap = True
+                if dropped:  # one Gap per overflow episode, whichever streams lost audio
+                    lost = {k: dropped.pop(k) for k in list(dropped)}
+                    yield Gap(round((min(a for a, _ in lost.values()) - t0) * 1000),
+                              round((max(b for _, b in lost.values()) - t0) * 1000),
+                              "both" if len(lost) == 2 else next(iter(lost)))
                 for kind, x, host_s in items:
                     if kind in streams:
                         if hole := streams[kind].place(x, round((host_s - t0) * SR)):
                             yield Gap(hole[0] // 16, hole[1] // 16, kind)
                     elif kind == "stopped":
-                        streams["client"].force_gap = True
+                        streams["client"].down = True
                         restart_system()
                     elif kind == "interrupted":
-                        streams[x].force_gap = True
+                        streams[x].down = True
                     elif kind == "unavailable":
+                        streams["client"].down = True
                         yield Unavailable("client", streams["client"].start // 16, x)
                 deadline = cap.now() - t0 - self.STALL_S  # slots ending before this are emitted regardless
                 you, client = streams["you"], streams["client"]

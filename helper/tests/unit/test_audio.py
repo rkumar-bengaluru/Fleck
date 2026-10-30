@@ -163,10 +163,17 @@ def test_capture_restart_marks_gap():
 def test_stall_of_either_stream_keeps_the_other_and_alignment(stalled, other):
     _, frames, gaps, _ = _live(6000, stall={stalled: (1.0, 4.0)})
     _continuous(frames, other, 500, 6000)  # nothing of the other stream is lost
-    assert [g.stream for g in gaps] == [stalled]
-    assert abs(gaps[0].start_ms - 1000) < 100 and abs(gaps[0].end_ms - 4000) < 100
+    assert gaps == []  # no buffers is silence, not an outage
     assert all(getattr(f, stalled)[0] == 0 for f in frames if 1100 <= f.t_ms < 3900)
     _continuous(frames, stalled, 4100, 6000)
+    _skew_ok(frames)
+
+
+def test_quiet_call_without_client_buffers_makes_no_gap():
+    _, frames, gaps, _ = _live(12000, stall={"client": (0.5, 10.5)})  # ScreenCaptureKit silent for 10 s
+    assert gaps == []
+    _continuous(frames, "you", 500, 12000)
+    _continuous(frames, "client", 10600, 12000)
     _skew_ok(frames)
 
 
@@ -183,7 +190,7 @@ def test_queue_overflow_drops_oldest_and_marks_gap(monkeypatch, caplog):
     monkeypatch.setattr(LiveSource, "QUEUE_MAX", 20)
     with caplog.at_level(logging.WARNING, logger="fleck_helper.audio"):
         _, frames, gaps, _ = _live(7000, pause_after=1000)
-    assert sorted(g.stream for g in gaps) == ["client", "you"]
+    assert len(gaps) == 1 and gaps[0].stream == "both" and gaps[0].start_ms < gaps[0].end_ms
     assert len([r for r in caplog.records if "queue full" in r.message]) == 1
     _continuous(frames, "client", 6000, 7000)
     _skew_ok(frames)

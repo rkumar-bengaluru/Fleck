@@ -17,5 +17,5 @@ Mic capture was checked from a terminal; system audio needs Screen Recording, wh
 1. Record for a minute while a video plays: Client frames carry the video's audio, You frames your voice, and the helper's own sounds are absent.
 2. Stop the capture mid-recording (System Settings > Privacy & Security > Screen & System Audio Recording, toggle Fleck Helper off and on, or stop sharing from the menu-bar privacy indicator): the transcript shows one gap marker and Client audio resumes.
 3. Connect AirPods (or another headset) mid-recording: expect a short "you" gap marker, then your speech is transcribed again from the new mic.
-4. Leave the call silent for 10 s: expect no gap marker. If one appears, ScreenCaptureKit sends no buffers during silence and `LiveSource.GAP_S` must ignore client holes while the stream is running.
+4. Leave the call silent for 10 s: expect no gap marker (missing buffers are treated as silence; only a stopped stream marks a gap).
 5. System notification sounds (Mail, Slack, the Fleck notification) are played by macOS, not the helper, so `excludesCurrentProcessAudio` does not remove them; they reach the Client stream. Expect no transcript line for them (the segmenter discards under 300 ms of speech); note any that get through.

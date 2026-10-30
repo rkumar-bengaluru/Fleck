@@ -233,3 +233,4 @@ Live §8 questions (title, kind, nearest-vector distance):
   - Live mic from a terminal: mic buffers arrive 0.105–0.115 s after their host timestamp, on the same clock as `now()`. The system-audio start failed (TCC) and the source went on mic-only, emitting `Unavailable`.
   - Replay of conversation.wav is unchanged: 56 finals, 21.8 s.
   - Suites: `pytest -m "not ollama" -q` 283 passed, EXIT 0; `pytest helper/tests -v` 33 passed, EXIT 0.
+  - Gap rule tightened: only a stopped/failed stream, a mic restart or a queue overflow (one Gap, stream "both") marks a gap; 10 s with no client buffers gives none. Suites: `pytest -m "not ollama" -q` 284 passed, EXIT 0; `pytest helper/tests -v` 34 passed, EXIT 0.

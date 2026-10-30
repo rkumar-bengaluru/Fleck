@@ -57,6 +57,16 @@ def _table_cells(text: str):
                 yield cells[0].lower(), header[i], c
 
 
+_LABELLED = re.compile(r"(.+) · (.+?): (.+)")
+
+
+def _line_cells(text: str):
+    """Yield (row_label, column_label, cell_text) from chunk lines "<row> · <column>: <value>" (line 1 is the caption)."""
+    for line in text.splitlines()[1:]:
+        if m := _LABELLED.fullmatch(line.strip()):
+            yield m[1].strip().lower(), re.split(r"[(/]", m[2])[0].strip().lower(), m[3].strip()
+
+
 def _labels_ok(sentence: str, figs: set[str], known: list[Passage], cur: set[str]) -> bool:
     """A table row or column label in the sentence binds its figures to that row and column of the passage table."""
     low = sentence.lower()
@@ -65,7 +75,7 @@ def _labels_ok(sentence: str, figs: set[str], known: list[Passage], cur: set[str
         return bool(label) and re.search(rf"\b{re.escape(label)}s?\b", low) is not None
 
     for p in known:
-        cells = list(_table_cells(p.text))
+        cells = [*_table_cells(p.text), *_line_cells(p.text)]
         rows = {r for r, _, _ in cells if hit(r)}
         cols = {c for _, c, _ in cells if hit(c)}
         rows = {r for r in rows if not any(r != o and r in o for o in rows)}  # "senior engineer" beats "engineer"

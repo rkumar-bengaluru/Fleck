@@ -1,4 +1,4 @@
-.PHONY: up down test gen-types ensure-ollama helper-app
+.PHONY: up down test gen-types ensure-ollama seed-library helper-app
 up:
 	docker compose -f deploy/docker-compose.yml up -d --build --wait
 down:
@@ -7,6 +7,9 @@ test:
 	uv run --all-packages pytest core api gsim helper/tests/unit
 ensure-ollama:
 	scripts/ensure_ollama.sh
+
+seed-library:
+	uv run --package fleck-api python scripts/seed_library.py
 
 helper-app:
 	scripts/make_cert.sh

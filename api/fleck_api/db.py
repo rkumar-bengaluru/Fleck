@@ -21,3 +21,9 @@ def session_factory() -> sessionmaker[Session]:
     if _sessionmaker is None:
         _sessionmaker = sessionmaker(make_engine(), expire_on_commit=False)
     return _sessionmaker
+
+
+def get_session():
+    """FastAPI dependency: one session per request."""
+    with session_factory()() as s:
+        yield s

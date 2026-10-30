@@ -130,3 +130,11 @@ Result: 119 passed. Known limits accepted as decision 79. The Milestone B critiq
 ### Milestone B critique
 
 Verdict: Agree with changes. Verified by the controller: "A team can start within two weeks of signature. [1]" passed against "within 4 weeks"; "Our SLA response time is two hours." and "Northbeam has done this before for many banks." passed the fallback. Job-queue flakiness reported by the critic (2 of 5 runs) did not reproduce in 5 runs here; host and Postgres clocks agree within 0.1 s, but `run_after` moves to server time anyway. Follow-up work: spoken small numbers, uncited-sentence checks, no first-person firm claims in the fallback, label-on-same-line check, job `on_fail` hook, server-time scheduling, worker environment. Doc drift fixed (decisions 6, 70; spec §7 "Why"; plan architecture line).
+
+### Task 7: upload, parse, chunk, embed, index, hybrid search
+
+`core/fleck_core/retrieval.py`: block types, `chunk_blocks` (text ~1400 chars with 200 overlap on paragraph boundaries; tables by 8 rows, first line `<title> · <caption/heading incl. unit>`, then `<row> · <col>: <value>` lines), `Embedder`, `ensure_schema`, `put_passages`, `Retriever` (nearVector distance gate at `FLECK_RETRIEVAL_MAX_DISTANCE` 0.55, then hybrid alpha 0.5; Weaviate over REST/GraphQL via httpx, no client library). `api/fleck_api/library.py`: markitdown/openpyxl parsing, MinIO storage, idempotent `index_document` job with `on_fail`, REST routes, `seed_library`. `validate.py` label binding now also reads `<row> · <col>: <value>` lines. Worker now imports `library` (found when the first seed failed every job with `KeyError: 'index_document'`).
+
+Tests: `uv run --all-packages pytest -m "not ollama" -q` 160 passed (EXIT 0); `-m ollama` 3 passed (search finds the rate row; "capital of Peru" returns `[]`; plus the Task 1 Ollama test). API tests index into a throwaway Weaviate collection with a fake embedder; the Ollama tests use a real one.
+
+`make seed-library` (host, against compose ports; 22 s): firm 3 documents / 8 chunks, reference 6 / 349, client 6 / 10, all indexed; a second run queued 0. Live search on the seeded index: "senior engineer offshore monthly cost" returns the Rate card chunks first; "capital of Peru" returns nothing.

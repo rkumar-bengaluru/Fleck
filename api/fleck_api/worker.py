@@ -1,6 +1,7 @@
 import logging
 import time
 
+from fleck_api import library  # noqa: F401  (importing registers the index_document handler)
 from fleck_api.db import session_factory
 from fleck_api.jobs import run_once
 

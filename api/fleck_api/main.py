@@ -1,8 +1,12 @@
 import httpx
 import psycopg
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
+from fleck_api import library
 from fleck_api.config import setting
 
 
@@ -19,7 +23,16 @@ def _get(url: str):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="fleck-api")
+    @asynccontextmanager
+    async def lifespan(_app):
+        try:
+            library.ensure_index()
+        except Exception:  # weaviate may still be starting; /api/health reports it and the indexer retries
+            logging.getLogger("fleck.api").exception("could not create the Weaviate schema at startup")
+        yield
+
+    app = FastAPI(title="fleck-api", lifespan=lifespan)
+    app.include_router(library.router)
 
     @app.get("/api/health")
     def health():

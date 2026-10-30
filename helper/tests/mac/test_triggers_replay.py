@@ -26,7 +26,7 @@ def _counts(wav: Path) -> dict:
     from fleck_helper.classify import live_embed
     # a 2 s embed budget: Whisper keeps the GPU busy in a non-realtime replay, and this test measures the model,
     # not the 300 ms fallback (measure.py reports how often the live budget falls back)
-    events = measure.replay(wav, _transcriber(), embed=lambda q: live_embed(q, timeout=2))
+    events, _ = measure.replay(wav, _transcriber(), embed=lambda q: live_embed(q, timeout=2))
     return measure.counts(events, json.loads((wav.parent / "reference.json").read_text()))
 
 

@@ -4,6 +4,7 @@ under CLASSIFY_TASK (search stays on 0.6b).
   uv run python scripts/train_classifier.py              train on fixtures/classifier/train.json; writes
                                                           helper/fleck_helper/question_model.json and the CI embedding cache
   uv run python scripts/train_classifier.py --eval F     score a held-out {"trigger": [...], "no_trigger": [...]} file
+  uv run python scripts/train_classifier.py --eval F --rules-only   score the CPU rules fallback on it instead
 
 Never tune on a held-out file: the threshold comes from 5-fold cross-validation on train only. Needs Ollama with
 qwen3-embedding:4b (classifier) and qwen3-embedding:0.6b (search); scripts/ensure_ollama.sh pulls both."""
@@ -11,6 +12,7 @@ import argparse
 import datetime
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -36,14 +38,36 @@ CI_EXTRA = [
     "we close our budget cycle just before that. Who owns the code you write for us?",
     "Okay, that is about what we expected. How quickly could you have a team working on this?",
     "Does Thursday work for the follow up?",
+    # re-review 2: names go to the model, the vendor's own name included; the client's colleagues must not trigger
+    "Rupak, what would the onsite rate be?",
+    "Rupak, can you walk us through the support model?",
+    "Bengaluru, is that where the whole team sits?",
+    "Arjun, can you check with the infra team?",
+    "Meera, what did the vendor team say about the integration?",
+    "Dana, can you tell them about our volumes?",
+    "Marcus, did you want to ask about the iManage integration?",
+    # share + information, not a document to send
+    "Could you share some numbers on how much review time it saved?",
+    "Could you share details on your security certifications?",
+    "Can you share your experience with Indian contract law?",
+    "Could you share a case study where the pilot failed?",
+    # the second look's negative turn (pipeline test), whole and last segment
+    "I just shared the deck in the chat. Are you able to open it on your side?",
+    "Are you able to open it on your side?",
 ]
 URL = os.environ.get("FLECK_OLLAMA_URL", "http://localhost:11434")
 
 
 def _texts(path: Path) -> tuple[list[str], np.ndarray]:
+    """Lines and labels, deduplicated ignoring case and punctuation (the first line and its label win), so one text
+    can't sit in a CV train and test fold at once."""
     d = json.loads(path.read_text())
-    return [t if isinstance(t, str) else t["text"] for t in d["trigger"] + d["no_trigger"]], \
-        np.array([1] * len(d["trigger"]) + [0] * len(d["no_trigger"]))
+    seen: dict[str, tuple[str, int]] = {}
+    for label, key in ((1, "trigger"), (0, "no_trigger")):
+        for t in d[key]:
+            t = t if isinstance(t, str) else t["text"]
+            seen.setdefault(" ".join(re.findall(r"[a-z0-9]+", t.lower())), (t, label))
+    return [t for t, _ in seen.values()], np.array([label for _, label in seen.values()])
 
 
 def embed(questions: list[str]) -> np.ndarray:
@@ -107,6 +131,9 @@ def train(l2: float = L2):
         oof[te] = _prob(x[te], w, b)
     candidates = sorted(set(np.round(oof[shaped], 4)) | {0.5})
     ok = [t for t in candidates if t > 0 and metrics(oof, y, t)["fpr"] <= MAX_CV_FPR]
+    if not ok:
+        raise SystemExit(f"no threshold keeps the CV false-positive rate at or under {MAX_CV_FPR}: "
+                         "add no_trigger lines or change --l2")
     threshold = min(ok)
     cv = metrics(oof, y, threshold)
     cv_05 = metrics(oof, y, 0.5)
@@ -142,10 +169,11 @@ def train(l2: float = L2):
     print(f"wrote {CACHE.relative_to(ROOT)}: {len(keys)} texts, {CACHE.stat().st_size / 1e6:.2f} MB")
 
 
-def evaluate(path: Path):
+def evaluate(path: Path, rules_only: bool = False):
     texts, y = _texts(path)
-    pred = np.array([classify.triggers(t, "client", embed=lambda q: classify.live_embed(q, timeout=30)) for t in texts])
-    print(f"recall {int(pred[y == 1].sum())}/{int(y.sum())}, false triggers {int(pred[y == 0].sum())}/{int((1 - y).sum())}"
+    emb = classify.rules_only if rules_only else lambda q: classify.live_embed(q, timeout=30)
+    pred = np.array([classify.triggers(t, "client", embed=emb) for t in texts])
+    print(f"{'rules fallback' if rules_only else 'model'}: recall {int(pred[y == 1].sum())}/{int(y.sum())}, false triggers {int(pred[y == 0].sum())}/{int((1 - y).sum())}"
           f" at threshold {classify.trigger_threshold()}")
     print("missed:", *[t for t, p, l in zip(texts, pred, y) if l and not p], sep="\n  ")
     print("false triggers:", *[t for t, p, l in zip(texts, pred, y) if p and not l], sep="\n  ")
@@ -154,7 +182,8 @@ def evaluate(path: Path):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--eval", type=Path)
+    ap.add_argument("--rules-only", action="store_true", help="with --eval: score the CPU rules fallback")
     ap.add_argument("--l2", type=float, default=L2, help="ridge strength (compare CV metrics across runs)")
     a = ap.parse_args()
-    evaluate(a.eval) if a.eval else train(a.l2)
+    evaluate(a.eval, a.rules_only) if a.eval else train(a.l2)
     sys.exit(0)

@@ -53,8 +53,6 @@ def test_conversation_recall(cached_embed):
     "Can you see my screen? No, sorry… Can you see yours",  # logistics beats "?"
     "So the IP would belong to us, right?",  # tag questions confirm, they don't ask (decision 93)
     "And you'd sign an NDA before we share data, correct?",
-    "Arjun, can you check with the infra team?",  # the client talking to a colleague
-    "Meera, what did the vendor team say about the integration?",
     "Can you send the pricing deck after the call?",  # send/share requests are to-dos
     "Could you please share the deck?",
     "Please send the security whitepaper to my email.",
@@ -69,9 +67,27 @@ def test_hard_policy_never_reaches_the_model(text):
     assert not v.is_question and v.confidence == 0.0, v
 
 
-def test_honorifics_and_topics_are_not_vocatives():
-    assert question_text("Sir, what is the expected timeline for phase one?") is not None
-    assert question_text("Ballpark, what would the whole project cost us?") is not None
+@pytest.mark.parametrize("text", [
+    "Rupak, what would the onsite rate be?",  # the vendor's own name: names are the model's call (re-review 2)
+    "Rupak, can you walk us through the support model?",
+    "Bengaluru, is that where the whole team sits?",
+    "Could you share some numbers on how much review time it saved?",  # share + information, not a document
+    "Could you share details on your security certifications?",
+    "Can you share your experience with Indian contract law?",
+    "Could you share a case study where the pilot failed?",
+])
+def test_names_and_information_requests_reach_the_model_and_trigger(text, cached_embed):
+    assert question_text(text) == text and triggers(text, "client", embed=cached_embed)
+
+
+@pytest.mark.parametrize("text", [
+    "Arjun, can you check with the infra team?",  # the client talking to a colleague: the model, not a veto
+    "Meera, what did the vendor team say about the integration?",
+    "Dana, can you tell them about our volumes?",
+    "Marcus, did you want to ask about the iManage integration?",
+])
+def test_own_colleague_lines_reach_the_model_and_do_not_trigger(text, cached_embed):
+    assert question_text(text) == text and not triggers(text, "client", embed=cached_embed)
 
 
 @pytest.mark.parametrize("text", [
@@ -118,13 +134,60 @@ def test_rules_decide_when_the_embedder_fails(caplog, monkeypatch):
     monkeypatch.setattr(clf, "_fell_back", False)
 
     def down(q):
-        raise TimeoutError("over 150 ms")
+        raise TimeoutError("over 300 ms")
     with caplog.at_level(logging.WARNING):
         assert triggers("What does a senior engineer cost per month?", "client", embed=down)
         assert not triggers("Does Thursday work for the follow up?", "client", embed=down)
         v = classify("Who owns the code you write for us?", "client", down)
     assert v.reason.startswith("rules fallback") and v.embedding is None
     assert sum("fell back to rules" in r.message for r in caplog.records) == 1  # logged once
+
+
+def test_slow_embed_falls_back_within_one_shared_deadline(monkeypatch):
+    import fleck_core.retrieval
+
+    class SlowSearch:  # the 0.6b search embed stalls while the 4b classify embed is quick
+        def __init__(self, *a, **k):
+            pass
+
+        def embed_query(self, text):
+            time.sleep(0.6)
+            return [0.0]
+    monkeypatch.setattr(fleck_core.retrieval, "Embedder", SlowSearch)
+    monkeypatch.setattr(clf, "embed_classify", lambda texts, timeout: (time.sleep(0.25), [[1.0]])[1])
+    t = time.perf_counter()
+    v = classify("Who owns the code you write for us?", "client")
+    assert time.perf_counter() - t <= 0.35 and v.reason.startswith("rules fallback"), v
+
+
+class _Tags:
+    def __init__(self, digests):
+        self.digests = digests
+
+    def json(self):
+        return {"models": [{"name": n, "digest": d} for n, d in self.digests.items()]}
+
+
+def test_digest_mismatch_hands_the_session_to_the_rules(monkeypatch, caplog):
+    from fleck_helper import pipeline
+    m = clf.model()
+    good = {m["classify_model"]: m["classify_digest"], m["search_model"]: m["search_digest"]}
+    monkeypatch.setattr(clf.httpx, "get", lambda *a, **k: _Tags(good))
+    assert clf.digests_ok()
+    monkeypatch.setattr(clf.httpx, "get", lambda *a, **k: _Tags({**good, m["classify_model"]: "re-pulled"}))
+    with caplog.at_level(logging.ERROR):
+        assert not clf.digests_ok()
+    assert any("digest" in r.message for r in caplog.records)
+
+    def no_warm_up(*a, **k):
+        raise AssertionError("warmed up a model with the wrong weights")
+    monkeypatch.setattr(pipeline, "live_embed", no_warm_up)
+    p = pipeline.Pipeline("m1", transcriber=object(), min_confidence=0.5)
+
+    class Empty:
+        def frames(self):
+            return iter(())
+    assert list(p.run(Empty())) == [] and p.embed is clf.rules_only
 
 
 def test_rules_still_precision_first():

@@ -28,9 +28,11 @@ def _matches(trigger, turn) -> bool:
     return not turn["question_id"] or len(q & _words(trigger.question)) >= MIN_WORD_OVERLAP * len(q)
 
 
-def replay(wav: Path, transcriber=None, embed=None) -> list:
-    """`embed` defaults to the live 300 ms path, where a slow embed hands the decision to the rules."""
-    return list(Pipeline("measure", transcriber, embed=embed).run(ReplaySource(wav, realtime=False)))
+def replay(wav: Path, transcriber=None, embed=None) -> tuple[list, int]:
+    """The events and the run's rules-fallback count. `embed` defaults to the live 300 ms path, where a slow embed
+    hands the decision to the rules."""
+    p = Pipeline("measure", transcriber, embed=embed)
+    return list(p.run(ReplaySource(wav, realtime=False))), p.fallbacks
 
 
 def counts(events: list, ref: dict) -> dict:
@@ -58,10 +60,10 @@ def main():
     a = ap.parse_args()
     ref = json.loads(a.reference.read_text())
     t = time.monotonic()
-    events = replay(a.wav)
+    events, fallbacks = replay(a.wav)
     c = counts(events, ref)
-    trig = [e for e in events if isinstance(e, Trigger)]
-    print(f"triggers decided by the rules fallback (embedder failed or over the 300 ms budget): {sum(e.embedding is None for e in trig)}/{len(trig)}")
+    print(f"classify calls decided by the rules fallback (embedder failed, over the 300 ms budget or wrong digest): "
+          f"{fallbacks}")
     hit, total = c["conversation_recall"]
     print(f"{a.wav.name}: {ref['duration_ms'] / 1000:.1f} s audio, replayed in {time.monotonic() - t:.1f} s")
     for name in ("negative_set_short", "negative_set_medium"):

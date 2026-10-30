@@ -181,18 +181,36 @@ def test_client_gap_drops_the_whole_turn():
     assert not any(isinstance(e, Trigger) for e in out)
 
 
-def test_last_segment_gets_its_own_look_when_a_preamble_dilutes_the_turn():
+def test_last_segment_gets_its_own_look_when_a_preamble_dilutes_the_turn(monkeypatch):
     """Replay showed q_ip lost behind "The 15th of November would suit us. We close our budget cycle…" (decision 95).
-    The whole turn is given a statement's vector here; the last segment alone scores as the question it is."""
+    The whole turn scores between the floor and the threshold; the last segment alone scores as the question it is."""
+    from fleck_helper import pipeline
+    from fleck_helper.classify import QuestionVerdict
     q = "Who owns the code you write for us?"
     preamble = "The 15th of November would suit us. We close our budget cycle just before that."
     calls = []
 
-    def embed(text):
+    def fake(text, speaker, embed):
         calls.append(text)
-        return EMBED(q if text == q else "Okay, that works for us.")
+        return QuestionVerdict(True, 0.9 if text == q else 0.3, "model", text)
+    monkeypatch.setattr(pipeline, "classify", fake)
     a = _clip(1)
     audio = np.concatenate([_silence(500), a, _silence(700), a, _silence(1500)])
-    out = list(Pipeline("m1", FakeTranscriber({"client": [preamble, q]}), embed=embed).run(Src(_frames(audio))))
+    out = list(Pipeline("m1", FakeTranscriber({"client": [preamble, q]}), 0.6, embed=EMBED).run(Src(_frames(audio))))
     assert [e.question for e in out if isinstance(e, Trigger)] == [q]
     assert calls == [f"{preamble} {q}", q]  # one trigger, at most two looks
+
+
+def test_no_second_look_when_the_whole_turn_is_plainly_logistics():
+    """Re-review 2: the last segment alone scores as a question; the whole turn shows it is call logistics."""
+    calls = []
+
+    def embed(text):
+        calls.append(text)
+        return EMBED(text)
+    a = _clip(1)
+    audio = np.concatenate([_silence(500), a, _silence(700), a, _silence(1500)])
+    texts = ["I just shared the deck in the chat.", "Are you able to open it on your side?"]
+    out = list(Pipeline("m1", FakeTranscriber({"client": list(texts)}), embed=embed).run(Src(_frames(audio))))
+    assert not any(isinstance(e, Trigger) for e in out)
+    assert calls == [" ".join(texts)]

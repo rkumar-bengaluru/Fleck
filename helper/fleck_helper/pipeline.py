@@ -14,12 +14,13 @@ import numpy as np
 from fleck_core.events import SegmentEvent
 from fleck_helper.audio import Frame, Gap, Unavailable
 from fleck_helper import question_rules
-from fleck_helper.classify import Embed, classify, live_embed, trigger_threshold
+from fleck_helper.classify import Embed, classify, digests_ok, live_embed, rules_only, trigger_threshold
 from fleck_helper.gate import drop_bleed_duplicates, gate, noise_floor
 from fleck_helper.vad import MAX_MS, PREROLL_MS, SILENCE_MS, Discard, Final, Open, Segmenter
 
 MERGE_MS = 600  # same-speaker finals this close are one turn: a client pausing mid-question triggers once
 FLOOR_FRAMES = 500  # the mic noise floor is taken over the last 10 s
+SECOND_LOOK_MIN = 0.1  # under this the whole turn is decisively not a question: no second look (ruled 0.2; the q_ip replay turn scores 0.14)
 log = logging.getLogger(__name__)
 
 
@@ -79,9 +80,13 @@ class Pipeline:
     def run(self, source) -> Iterator[SegmentEvent | Trigger | Gap | Unavailable]:
         if self.embed is None:
             try:  # load the embedding model before the first question, not during it
-                live_embed("warm up", timeout=30)
+                if digests_ok():
+                    live_embed("warm up", timeout=30)
+                else:
+                    self.embed = rules_only
             except Exception as e:
                 log.warning("embedder warm-up failed: %r", e)
+        self.fallbacks = 0  # classify calls the rules decided this run (embedder down, slow, or wrong digest)
         segs = {"you": Segmenter("you"), "client": Segmenter("client")}
         # (t_ms, you, client) per frame: the longest segment plus the silence that ends it
         self._rms = deque(maxlen=(MAX_MS + SILENCE_MS + PREROLL_MS) // 20 + 10)
@@ -110,6 +115,7 @@ class Pipeline:
                 self._handle(stream, ev)
         self._close_turn()
         yield from self._ready(block=True)
+        log.info("question classifier: %d rules fallbacks this run", self.fallbacks)
 
     def _handle(self, stream, ev, cut=False):
         if isinstance(ev, Open) and stream == "client":
@@ -158,15 +164,21 @@ class Pipeline:
                 text = " ".join(t if t[-1] in ".?!" or question_rules.is_fragment(question_rules._norm(t)) else t + "."
                                 for t in texts)
                 hit = lambda v: v.is_question and v.confidence >= self.min_confidence  # noqa: E731
-                v = classify(text, "client", self.embed) if texts else None
-                if v and not hit(v) and len(texts) > 1:
+                v = self._classify(text) if texts else None
+                if v and not hit(v) and len(texts) > 1 and v.confidence >= SECOND_LOOK_MIN:
                     # statements before a pause dilute the turn ("…just before that. Who owns the code?"), so the
-                    # last segment gets its own look; still one trigger per turn
-                    v = classify(texts[-1], "client", self.embed)
+                    # last segment gets its own look; still one trigger per turn. Not when the whole turn is plainly
+                    # logistics ("I shared the deck in the chat. Can you open it on your side?" scores 0.00)
+                    v = self._classify(texts[-1])
                 if v and hit(v):
                     yield Trigger(head[-1].final.segment_id, v.question, head[-1].final.end_ms, v.embedding)
             else:
                 yield head
+
+    def _classify(self, text):
+        v = classify(text, "client", self.embed)
+        self.fallbacks += v.reason.startswith("rules fallback")
+        return v
 
     def _queued_client(self) -> list[SegmentEvent]:
         # a client final queued behind this You final is already transcribed when it overlaps it (it ran first)

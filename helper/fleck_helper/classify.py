@@ -9,7 +9,7 @@ import json
 import logging
 import os
 import re
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from functools import cache
 from pathlib import Path
@@ -32,24 +32,25 @@ Embed = Callable[[str], tuple[list[float], list[float] | None]]
 log = logging.getLogger(__name__)
 _URL = os.environ.get("FLECK_OLLAMA_URL", "http://localhost:11434")
 
-_OPENING = re.compile(rules._FILLER + rf"({rules._WH}|{rules._AUX}|whats|hows|whos|wheres|whens|any)\b")
-# Hard policy: asking the vendor to send a document is a to-do, not a question for the library. "Can you share how
-# you…" or "…share some of the challenges…" are questions, so the veto needs a document-like object or none at all.
+# Hard policy: asking the vendor to send a document is a to-do, not a question for the library. Only when the
+# document-like object ends the line or is followed by a delivery phrase: "share some numbers on how much time it
+# saved" or "share your experience with contract law" ask for information and go to the model (re-review 2).
 _REQUEST = re.compile(rules._FILLER + r"((can|could|will) (you|someone|somebody)( please)? (send|email|forward|cc|share)"
                       r"|would you (please )?(send|email|forward)|would you mind (sending|sharing|emailing|forwarding)"
                       r"|(would|will) you be able to (send|share|email|forward)|please (send|share|email|forward))\b(?P<rest>.*)")
-_DOCUMENT = re.compile(r"^(( (me|us|over|across|it|them|that|this|those|these|please|again|the|a|an|your|our|its|their"
-                       r"|copy|of|soft|full|latest|final|updated|signed|draft|whole|same|one|some|any))*( \w+){0,3} "
-                       r"(deck|decks|slides?|invite|minutes|link|agenda|recording|notes|documents?|docs?|files?|sow|proposal"
-                       r"|contracts?|template|quote|rate card|whitepaper|certificates?|reports?|diagram|policy|presentation"
-                       r"|pdf|case stud(y|ies)|numbers|details|requirements|draft|summary|email|mail|form|brochure"
-                       r"|checklist|spreadsheet|sheet|screenshot|demo link|credentials|nda|msa|invoice)\b"
-                       r"|( (me|us|over|across|it|them|that|this|please|again|later|afterwards|after the call))*$)")
-# Hard policy: "Arjun, can you check…" is the client talking to a colleague. Words that open a clause but are not names:
-_NOT_NAMES = frozenset("""sir madam maam ma'am hey hi hello right sure fine great alright hmm brilliant okay ok so and but
-also now then sorry yes yeah no well actually ballpark honestly perfect thanks good cool understood interesting quickly
-basically lastly finally firstly secondly again otherwise besides anyway still plus roughly approximately just oh ah
-look listen see one""".split())
+_FILL = r"( (me|us|over|across|it|them|that|this|those|these|please|again|the|a|an|your|our|its|their|my" \
+        r"|copy|of|soft|full|latest|final|updated|signed|draft|whole|same|one|some|any))*"
+_NOUN = (r"(deck|decks|slides?|invite|minutes|link|agenda|recording|notes|documents?|docs?|files?|sow|proposal"
+         r"|contracts?|template|quote|rate card|whitepaper|certificates?|reports?|diagram|policy|presentation"
+         r"|pdf|case stud(y|ies)|numbers|details|requirements|draft|summary|email|mail|form|brochure"
+         r"|checklist|spreadsheet|sheet|screenshot|demo link|credentials|nda|msa|invoice)")
+_DELIVERY = (r"( (to|with) (me|us|everyone|the team|all of us|(my|our) (e-?mail|inbox|email id|email address)))?"
+             r"( (over|across|again|please|afterwards|later|today|tomorrow|(later|sometime) today"
+             r"|(after|before|post) (the|this|our) (call|meeting)|after the session"
+             r"|(by|over|via|on|through|in an?) (e-?mail|mail|whatsapp|slack|teams)|in the chat|on the chat"
+             r"|by (eod|end of day|tomorrow|monday|tuesday|wednesday|thursday|friday)))*")
+_DOCUMENT = re.compile(rf"^({_FILL}( (?!(on|about|with|where|how|what|why|which|who|for|regarding|from|in|that)\b)\w+){{0,3}}"
+                       rf" {_NOUN}|( (me|us|over|across|it|them|that|this|please|again))*){_DELIVERY}$")
 
 
 @dataclass(frozen=True)
@@ -61,23 +62,14 @@ class QuestionVerdict:
     embedding: list[float] | None = field(default=None, repr=False, compare=False)
 
 
-def _vocative(s: str) -> bool:
-    m = re.match(r"([a-z']+), (.*)", s)
-    if not m or m[1] in _NOT_NAMES or m[1] in rules.LEXICON or m[1].rstrip("s") in rules.LEXICON:
-        return False
-    return bool(_OPENING.match(m[2]) or m[2].startswith("please "))
-
-
 def shape(s: str) -> str | None:
     """Why a normalised sentence is hard-vetoed, or None: everything else, statements included, goes to the model."""
     # a trailing particle is fine here ("…support single sign on"); the model judges the rest
     if (why := rules.veto(s)) and why != "fragment" or rules.is_fragment(s, prepositions=False):
         return why or "fragment"
-    if (m := _REQUEST.match(s)) and _DOCUMENT.match(m["rest"].rstrip("?.!, ")):
+    if (m := _REQUEST.match(s)) and _DOCUMENT.match(m["rest"].replace(",", "").rstrip("?.! ")):
         return "request to send or share a document"
-    if _vocative(s):
-        return "addressed to a colleague"
-    return None
+    return None  # "Arjun, can you check…" (a colleague) and "Rupak, what would…" (the vendor) are the model's call
 
 
 def _sentences(transcript: str) -> list[str]:
@@ -133,7 +125,26 @@ def live_embed(text: str, timeout: float = EMBED_TIMEOUT_S) -> tuple[list[float]
     from fleck_core.retrieval import Embedder
     search = _pool.submit(Embedder(_URL, timeout=timeout).embed_query, text)
     cls = _pool.submit(embed_classify, [text], timeout)
-    return cls.result(timeout=timeout + 0.05)[0], search.result(timeout=timeout + 0.05)
+    if len(wait([cls, search], timeout)[0]) < 2:  # one deadline for the pair, not one per call
+        raise TimeoutError(f"embeds over {timeout * 1000:.0f} ms")
+    return cls.result()[0], search.result()
+
+
+def digests_ok() -> bool:
+    """Ollama serves the exact embedding weights question_model.json was trained on; a re-pull scores other vectors."""
+    m = model()
+    served = {x["name"]: x["digest"] for x in httpx.get(f"{_URL}/api/tags", timeout=5).json()["models"]}
+    bad = [n for n, d in ((m["classify_model"], m["classify_digest"]), (m["search_model"], m["search_digest"]))
+           if served.get(n) != d]
+    if bad:
+        log.error("embedding model digest differs from question_model.json for %s: the rules decide this session "
+                  "(run scripts/ensure_ollama.sh or retrain)", bad)
+    return not bad
+
+
+def rules_only(text: str):
+    """An `embed` that always hands the decision to the CPU rules."""
+    raise RuntimeError("rules only")
 
 
 def classify(transcript: str, speaker: Literal["client", "you", "overlap"], embed: Embed | None = None) -> QuestionVerdict:

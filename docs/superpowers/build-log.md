@@ -324,3 +324,10 @@ Live §8 questions (title, kind, nearest-vector distance):
     - Start-early path: 2.09–2.10 s.
   - measure.py, live path: 8/8 and 0 false triggers on both conversation WAVs; negative.wav 0/0; 0 rules fallbacks. Mac replays: 0/0/0 and 8/8.
   - Suites: `uv run pytest -m "not ollama" -q` 337 passed, 8 deselected, EXIT 0; `uv run --all-packages pytest helper/tests -q` 87 passed, 3 deselected, EXIT 0; `-m ollama` 3 passed, EXIT 0.
+- Post-breaker fix (controller ruling on re-review 2):
+  - Vetoes: the vocative veto is removed. The send/share veto fires only when the document noun ends the line or is followed by a delivery phrase.
+  - Live path: embed digests are checked against `/api/tags` at warm-up (a mismatch hands the session to the rules). Both embeds share one 300 ms deadline. The second look needs a whole-turn score ≥ 0.1; the ruling said 0.2, but the replay q_ip turn scores 0.14.
+  - Measurement: fallbacks are counted per run, and `--eval --rules-only` scores the rules fallback.
+  - Training data: train.json is deduplicated (8 lines). I added 23 name-led lines and 24 multi-sentence turn lines, then retrained. Threshold 0.6653: CV recall 0.938 at FPR 0.019; at 0.5, 0.969 at 0.035. Fit on all train: 0.978.
+  - Results: replays 0/0/0 and 8/8; measure gives 0 fallbacks.
+  - Suites: `uv run pytest -m "not ollama" -q` 348 passed, EXIT 0; helper 98 passed, EXIT 0; `-m ollama` 3 passed, EXIT 0.

@@ -81,3 +81,30 @@ No edge was found technically impossible; ScreenCaptureKit and UNUserNotificatio
 ## 2026-10-30 Task 4: number normalisation and answer validators
 
 `fleck_core.numbers` (`normalize_numbers` via text2num `alpha2digit` plus currency, percent, comma and ISO-date rules; `extract_figures`), `types.py` (`Passage`, `Citation`), `validate.py` (`split_sentences`, `check_library_answer`, `check_fallback`). Figures match by numeric value; a unit mismatches only when both sides state one, and a bare passage number inherits the currency named anywhere in the cited passage ("(USD)" heading). Full suite `uv run --all-packages pytest -m "not ollama" -q`: 44 passed.
+
+### Milestone A critique follow-up: latency gate corrected, live model now qwen3:4b (decision 72)
+
+The critique agent found the 2.39 s gate above was wrong: its "warm" first-token time resent an identical prompt, so Ollama had the passages and question cached, which never happens live. The contended-trial description above was also wrong: no You window runs in that trial (the code sets `stop` before the thread starts); the contention is the client partial in flight plus Qwen generating.
+
+Re-measured with fresh passages and a fresh question each time (`prefill.py`, 12 trials, 1,045 prompt tokens):
+
+| Model | First token, fresh prompt p50 / p95 | First token, passages read early (start-early) p95 |
+|---|---|---|
+| qwen3:8b-q4_K_M | 2.38 / 2.59 s | 0.19 s |
+| qwen3:4b-q4_K_M | 1.06 / 1.11 s | 0.10 s |
+
+`qwen3:8b` puts first words at 0.6 + 0.45 + 0.2 + 2.59 ≈ 3.8 s, missing 3 s. Spec §7.1 item 4 applies: live model switched to `qwen3:4b-q4_K_M` (`2bfd38a7daaf`), start-early made mandatory for Task 13. `bench_latency.py` now gates on the uncached case. Full run on qwen3:4b, 30 trials:
+
+| Measure | p50 | p95 |
+|---|---|---|
+| (a) transcribe final, realistic | 0.40 s | 0.50 s |
+| (a) transcribe final, contended | 1.15 s | 1.26 s |
+| (b) TTFT, fresh passages + question | 1.15 s | 1.24 s |
+| (b) TTFT, cached (start-early) | 0.03 s | 0.04 s |
+| total generation fresh / cached | 1.91 / 1.03 s | 2.20 / 1.08 s |
+
+Gate: 0.6 + 0.50 + 0.2 + 1.24 = **2.54 s <= 3.0 s: PASS**. Contended with start-early: 2.10 s. Worst untested combination (contended, start-early missed): ≈ 3.3 s, which Task 13's end-to-end p95 test will expose. Helper RSS 41 MB; qwen3:4b 3.3 GB on GPU. `qwen3:8b` unloaded.
+
+### Task 2b follow-up: all four macOS edges proven
+
+rupak.k ran the probe after granting Screen & System Audio Recording and notifications: `menubar` true, `mic_rms` 0.053 (speech), `system_rms` 0.338 (test tone via ScreenCaptureKit), `notification_authorized` true, `action_received` true. The earlier instant denials were un-granted permissions, not the self-signed certificate.

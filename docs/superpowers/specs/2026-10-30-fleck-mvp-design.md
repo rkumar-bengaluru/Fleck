@@ -30,7 +30,7 @@ A desktop assistant that sits openly in the meeting with the salesperson. It lis
 3. **Library.** The team uploads past material (PDF, Word, PowerPoint, Excel, Markdown), filed by client, plus firm-wide material and reference material. Fleck indexes it for search. Each document has a kind: **client** (our past work for that client), **firm** (rate card, capabilities, FAQ) or **reference** (third-party examples). Reference documents may be quoted for their terms but are never presented as the firm's past work. **(Claude's call.)**
 4. **Pre-meeting brief.** Before a meeting with a known client: the questions this client is likely to ask, each with the best answer from the library and its source. **(Claude's call, accepted by rupak.k to review.)**
 5. **Meeting kick-off.** A macOS notification 5 minutes before a meeting starts recording with one click; an ad-hoc **Start recording** for unplanned calls. Fleck captures the user's mic and the call audio, and transcribes both live on the Mac.
-6. **Help during the meeting.** When the client asks a question, a short answer (2–3 lines plus the source) appears next to the live transcript, written by a local model from the library. When the library has nothing relevant, Claude answers from the question text alone, labelled **General knowledge, not from our material** (§6).
+6. **Help during the meeting.** When the client asks a question, a short answer (2–3 lines plus the source) appears in a floating panel on top of every window (§7.8), so the salesperson never switches window or tab. It is written by a local model from the library. When the library has nothing relevant, Claude answers from the question text alone, labelled **General knowledge, not from our material** (§6).
 7. **After the meeting.** The recording, full transcript and the user's own notes are saved. A summary keeps the user's notes word for word and adds what was discussed. The notes mark every moment Fleck helped: the question, the answer it showed, its source, and whether the salesperson's reply used it (§7.3).
 8. **Team chat on notes.** The team asks Claude questions about one meeting or across all meetings and the library; answers cite meetings, timestamps and documents.
 9. **Testable end to end, and left running for review.** A scripted presales conversation, recorded as audio, drives the whole flow in tests. At hand-over the stack is up on rupak.k's Mac with that conversation already processed, so they can play the recording, read the notes and see where the model helped.
@@ -57,7 +57,7 @@ iOS, Android, Windows; Outlook calendar; several teams with separate data (one t
 - **A made-up fact shown as ours.** Prices, rates, team sizes, dates, client names and results come only from the library, quoted with their source. If no document backs a number, the answer says so. Claude's fallback answers never contain prices or claims about the firm's past work.
 - **Help that arrives too late.** Target: the first words of an answer appear within **3 s** of the client finishing the question; the full answer within **6 s** (p95, on the test conversation, on rupak.k's Mac).
 - **Missed or misheard questions.** Target: on the test conversation, at least 90% of the client's questions trigger an answer, and no more than one false trigger per 10 minutes.
-- **Getting in the way.** Nothing pops up over the call; answers appear in Fleck's own window, newest on top, and never make a sound.
+- **Getting in the way.** Reading an answer must never need a window or tab switch, a click, or a sound. The answer panel (§7.8) floats over the call, never takes keyboard focus, and stays out of screen shares.
 
 ## 6. Constraints
 
@@ -301,6 +301,22 @@ Presales meetings run 30–60 minutes. The stack must stay steady for that long.
 
 Results go into the hand-over note (§9).
 
+### 7.8 The answer panel (rupak.k's requirement: no window switching; design: Claude's call)
+
+A native macOS panel drawn by the helper (PyObjC `NSPanel`), not a browser window.
+
+- **Always on top, never in the way.** A non-activating floating panel: shown over every app and every Space, including full-screen Zoom, Meet and Teams. It never takes keyboard focus or makes a sound.
+- **Placement.** Top-centre, just under the camera, about 480 × 160 pt, so reading it keeps the eyes near the lens. It can be dragged, and remembers where it was put.
+- **Content**, newest only:
+  - while working: the client's question and **Thinking…**
+  - then: the question (one line), the answer streaming in, and the source line rendered from Weaviate metadata (§7.4), or the **General knowledge, not from our material** / **Not in our material** / **Reference contract, not our work** labels
+- **History.** ◀ ▶ step through this meeting's earlier answers; a new answer always jumps back to the newest.
+- **Show / hide.** The global shortcut ⌥⌘F, or the menu-bar item. It appears automatically when recording starts and hides when recording stops.
+- **Direct from the helper.** The helper produces the answer (§6), so the panel shows it with no trip through the api and browser. The same answer is also sent to the api for storage and the browser.
+- **Screen sharing.** The panel is excluded from screen capture (`NSWindow.sharingType = .none`). Some macOS versions and sharing apps ignore this, so the manual check shares the full screen in Zoom and in Meet. If the panel leaks, the user guide says to share a single window instead.
+- **Browser.** The meeting page keeps the full live transcript, the user's notes, and the answer history, for everything not needed mid-sentence.
+- **Testable.** The panel's content is driven by the same events the browser receives. Tests assert the event sequence (question → thinking → answer tokens → source); the panel itself is checked by hand and by a screenshot in the build log.
+
 ## 8. The test conversation
 
 A 6–8 minute presales call between rupak.k as salesperson (left channel) and a prospect (right channel), voiced by two different `say` voices. The prospect is a fictional firm wanting AI automation of an existing document workflow. **(Claude's call.)** The script includes, in order:
@@ -333,7 +349,7 @@ Content work never blocks development: the case studies are written in the same 
 
 The hand-over runs on `gsim` by default: the demo meeting is linked to a fixed event in the simulated calendar, so it works without any Google setup. Real Google sign-in and calendar are switched on by putting OAuth credentials in `.env`; the hand-over note gives the Google Cloud setup steps and rupak.k checks real sign-in by hand. **(Claude's call.)**
 
-Live capture is checked by hand before hand-over: one real call on speakers in a browser (Google Meet) and one in a desktop app (Zoom), recorded with whole-system audio capture, with the results in the hand-over note. The automated tests use replay. The helper is signed with a local self-signed certificate so macOS keeps its Screen Recording and Microphone permissions across rebuilds; no Apple Developer ID needed. **(Claude's call.)**
+Live capture and the answer panel are checked by hand before hand-over: one real call on speakers in a browser (Google Meet) and one in a desktop app (Zoom), each with a full-screen share to confirm the panel doesn't appear in it, recorded with whole-system audio capture, with the results in the hand-over note. The automated tests use replay. The helper is signed with a local self-signed certificate so macOS keeps its Screen Recording and Microphone permissions across rebuilds; no Apple Developer ID needed. **(Claude's call.)**
 
 ## 10. How the work runs after this is approved
 

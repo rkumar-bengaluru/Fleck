@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Never change: macOS ties Screen Recording and Microphone permission to this id plus the signing certificate. -->
+	<key>CFBundleIdentifier</key>
+	<string>ai.fleck.helper</string>
+	<key>CFBundleName</key>
+	<string>Fleck Helper</string>
+	<!-- Menu-bar only, no Dock icon. -->
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Fleck listens to your microphone during meetings you record, to transcribe what you say.</string>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>Fleck captures your Mac's call audio during meetings you record, to transcribe what the client says. It does not record your screen.</string>
+</dict>
+</plist>

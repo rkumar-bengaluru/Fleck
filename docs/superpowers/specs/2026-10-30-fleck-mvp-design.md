@@ -73,11 +73,11 @@ iOS, Android, Windows; Outlook calendar; several teams with separate data (one t
 | Desktop helper | Python 3.12, `rumps` + PyObjC menu-bar app, packaged with py2app | Python end to end; one language with the api |
 | Call audio | ScreenCaptureKit (system audio); mic via AVAudioEngine with Apple voice processing (echo cancellation, since rupak.k uses speakers) | No bot joins the call |
 | Live transcription | `mlx-whisper`, `large-v3-turbo`, on the Mac's GPU | Fast enough to keep up with speech, no network |
-| Local model | Ollama, `qwen3:8b` (4-bit, ~5 GB), thinking mode off | Best ~8B model at answering only from the passages it's given; fits next to Whisper in 24 GB |
-| Embeddings | Ollama `qwen3-embedding:0.6b`, called by Weaviate's `text2vec-ollama` module | Better retrieval than smaller embedders for ~0.5 GB more; one model server for both (rupak.k's suggestion) |
+| Local model | Ollama, `qwen3:8b-q4_K_M` (pinned, §7.5), thinking mode off | Best ~8B model at answering only from the passages it's given; fits next to Whisper in 24 GB |
+| Embeddings | Ollama `qwen3-embedding:0.6b`, called by the api; vectors pushed to Weaviate as self-provided vectors (no Weaviate vectoriser module) | Better retrieval for ~0.5 GB more (rupak.k's suggestion); one hop instead of two, and query-embedding time is measured in the api (rupak.k's suggestion) |
 | Ollama placement | Native on macOS, not in Docker | Docker on macOS can't use the GPU |
 | Vector search | Weaviate, hybrid (keyword + vector) search. Multi-tenancy on, with a single tenant `default`, created by the api at startup (idempotent), never on sign-in | Hybrid search catches exact terms like "SLA"; keeping the tenant means splitting teams later needs no query changes |
-| Document parsing | `markitdown` (PDF, DOCX, PPTX, XLSX → Markdown) | One library for every format the team uses |
+| Document parsing | `markitdown` for PDF, DOCX, PPTX, Markdown; a small `openpyxl` reader for XLSX (§7.5) | markitdown loses XLSX headers and number formats (tested, §7.5) |
 | api + worker | FastAPI, SQLAlchemy, Alembic, `uv`; background jobs in a Postgres table (no Redis) | Fewer moving parts |
 | Storage | Postgres (data, traces, cost); MinIO (audio, transcripts, original documents) | MinIO swaps for S3 in the cloud |
 | Web | React + Vite + TypeScript, `pnpm` | |
@@ -172,6 +172,31 @@ The model never decides what a source is called. Rules enforced in code, not onl
 **Every rejection or block** is kept in the trace with its reason and shown nowhere else.
 
 **Tests.** Unit tests feed the validators crafted bad answers: no citation, out-of-range citation, a correct citation with a wrong number, a fallback with a price, a fallback naming a library client. Each must be rejected. The test conversation's pricing question with no backing document must end in **Not in our material**.
+
+### 7.5 Stack risks and how they're handled (rupak.k's review, with Claude's adjustments marked)
+
+**macOS permissions.** Committed now in `helper/packaging/`:
+- `Info.plist`: bundle id `ai.fleck.helper` (never changes), `LSUIElement` (menu bar only), `NSMicrophoneUsageDescription`, `NSScreenCaptureUsageDescription`.
+- `entitlements.plist`: `com.apple.security.device.audio-input`, needed under the hardened runtime.
+- **No screen-capture entitlement exists.** macOS grants Screen Recording per app through the privacy prompt, keyed to bundle id + signing certificate. So the stable bundle id and the one self-signed certificate (§9) are what keep the permission across rebuilds. **(Claude's correction of the suggested `com.apple.security.screen-capture`.)**
+- The first build task proves all four edges together from the signed bundle: menu-bar app runs, mic records, system audio records, notification action fires.
+
+**Document parsing, tested on 2026-10-30** with a rate card built as XLSX and PPTX:
+- PPTX table: clean Markdown table, headers and values intact.
+- XLSX: values intact, but a merged title row became the header (`Unnamed: 1`, `Unnamed: 2`), pushing the real header into the data, and number formats were dropped (`$9,800` → `9800`).
+- PDF (CUAD contract): text clean; PDF tables not yet tested.
+
+So: XLSX is read with `openpyxl` directly (already a markitdown dependency, no docling or unstructured): header row = first row with every cell filled, displayed (formatted) values kept, merged title kept as a caption. **Every table, from any format, is chunked by rows with the header repeated in each chunk**, so a passage like "Tech lead · Offshore (Bengaluru): $6,900" carries its own column meaning. A test fixture (XLSX with a merged title row and currency formats) guards this. **(Row chunking: Claude's call.)**
+
+**Embeddings.** Computed in the api and pushed as vectors; Weaviate still does the keyword half of hybrid search. The suggested `text2vec-nomic` is moot since the model is now `qwen3-embedding:0.6b`.
+
+**Ollama models pinned.** `make ensure-ollama` pulls these tags and fails unless the local model id matches the pinned manifest digest (Ollama shows the first 12 characters as the model ID). Ollama can't pull by digest, so the check runs after the pull. **(Check-after-pull: Claude's adjustment.)**
+
+| Model | Tag | Manifest digest (registry, 2026-10-30) | Size |
+|---|---|---|---|
+| Answer model | `qwen3:8b-q4_K_M` | `sha256:500a1f067a9f782620b40bee6f7b0c89e17ae61f686b92c24933e4ca4b2b8b41` | 5.2 GB |
+| Embeddings | `qwen3-embedding:0.6b` | `sha256:ac6da0dfba84a81fdbfbaf330198c33cd77c4cdfc53e8bc50eb581914a15621d` | 0.64 GB |
+| Fallback answer model (only if §7.1 needs it) | `qwen3:4b`, pinned when first used | | |
 
 ## 8. The test conversation
 

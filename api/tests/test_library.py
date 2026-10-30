@@ -1,5 +1,5 @@
-import re
 import uuid
+from types import SimpleNamespace
 from pathlib import Path
 
 import httpx
@@ -30,6 +30,7 @@ def test_xlsx_header_and_currency_kept():
     xl = _chunks(FIX / "rate-card.xlsx")
     assert any("Senior engineer · Offshore (Bengaluru): $5,200" in c and "(USD per person per month)" in c.splitlines()[0] for c in xl)
     md = _chunks(ROOT / "clients/_firm/rate-card.md")
+    assert any("Tech lead · Offshore (Bengaluru): 6,900" in c for c in md)
     row = next(c for c in md if "Senior engineer · Offshore (Bengaluru): 5,200" in c)
     assert "(USD per person per month)" in row.splitlines()[0] and "|" not in row
 
@@ -97,12 +98,13 @@ def _drain(make_session):
 
 def test_bad_upload_marked_failed(api):
     c, make_session, _ = api
-    bad1, bad2 = _upload(c, "empty.pdf", b""), _upload(c, "deck.key", b"keynote")
+    bad1 = _upload(c, "empty.pdf", b"")
+    bad2 = _upload(c, "corrupt.xlsx", b"not a zip")
     good = _upload(c, "faq.md", b"# Delivery FAQ\n\nWe start within 4 weeks of signature.\n")
     _drain(make_session)
     docs = {d["id"]: d for d in c.get("/api/library/documents").json()}
     assert docs[bad1["id"]]["status"] == "failed" and docs[bad1["id"]]["error"] == "The file is empty."
-    assert docs[bad2["id"]]["status"] == "failed" and "Unsupported file type '.key'" in docs[bad2["id"]]["error"]
+    assert docs[bad2["id"]]["status"] == "failed" and docs[bad2["id"]]["error"].startswith("Could not read the file")
     assert docs[good["id"]]["status"] == "indexed" and docs[good["id"]]["title"] == "Delivery FAQ" and docs[good["id"]]["chunk_count"] == 1
     assert [d["id"] for d in c.get("/api/library/documents", params={"q": "faq"}).json()] == [good["id"]]
 
@@ -158,3 +160,94 @@ def test_seed_skips_jf(api, tmp_path):
         library.seed_library(s, tmp_path)  # idempotent
         got = sorted((d.kind, d.filename) for d in s.scalars(select(Document)))
     assert got == [("client", "b.md"), ("firm", "a.md"), ("reference", "c.md")]
+
+
+@pytest.mark.parametrize("fmt,v,want", [
+    ("[$€-407]#,##0", 5200, "€5,200"), ("[$₹-4009] #,##0", 5200, "₹5,200"), ("[$£-809]#,##0.00", 5200, "£5,200.00"),
+    ('_($* #,##0_);_($* (#,##0);_($* "-"??_);_(@_)', 5200, "$5,200"), ('_($* #,##0_);_($* (#,##0)', -5200, "-$5,200"),
+    ('"$"#,##0.00_);[Red]("$"#,##0.00)', 5200, "$5,200.00"), ("0.0%", 0.05, "5.0%"), ('"$"#,##0', 9800, "$9,800"), ("General", 5200.0, "5200"),
+])
+def test_excel_display_values(fmt, v, want):
+    assert library._display(SimpleNamespace(value=v, number_format=fmt)) == want
+
+
+def test_xlsx_blank_corner_header(tmp_path):
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["Rates (INR lakh per year)", None, None])
+    ws.append([None, "Offshore", "Onsite"])
+    ws.append(["Tech lead", 52, 90])
+    ws.append(["Senior engineer", 40, 70])
+    wb.save(tmp_path / "m.xlsx")
+    c = _chunks(tmp_path / "m.xlsx")
+    assert len(c) == 1 and "Tech lead · Offshore: 52" in c[0] and "Senior engineer · Onsite: 70" in c[0] and "INR lakh per year" in c[0].splitlines()[0]
+
+
+def test_caption_keeps_parent_heading_units(tmp_path):
+    (tmp_path / "r.md").write_text("# Rates\n\n## Rates (INR lakh per year)\n\n### Offshore\n\n| Role | Rate |\n|---|---|\n| Tech lead | 52 |\n")
+    c = _chunks(tmp_path / "r.md")
+    assert c[-1].splitlines()[0] == "Rates · Rates (INR lakh per year) · Offshore"
+
+
+def test_upload_rules(api):
+    c, *_ = api
+    assert c.post("/api/library/documents", files={"file": ("x.html", b"<b>")}, data={"kind": "firm"}).status_code == 415
+    assert c.post("/api/library/documents", files={"file": ("x.md", b"# x")}, data={"kind": "client"}).status_code == 422
+    big = c.post("/api/library/documents", files={"file": ("x.md", b"x")}, data={"kind": "firm"}, headers={"content-length": str(60 * 1024 * 1024)})
+    assert big.status_code == 413
+
+
+def test_download_non_ascii_name_is_attachment(api):
+    c, make_session, _ = api
+    d = _upload(c, "Rate card \u2013 FY26.md", b"# Rates\n")
+    r = c.get(f"/api/library/documents/{d['id']}/file")
+    assert r.status_code == 200 and r.content == b"# Rates\n"
+    assert r.headers["content-disposition"].startswith("attachment;") and "filename*=UTF-8''Rate%20card%20%E2%80%93%20FY26.md" in r.headers["content-disposition"]
+    assert r.headers["x-content-type-options"] == "nosniff"
+
+
+def test_delete_removes_blob(api):
+    c, make_session, _ = api
+    d = _upload(c, "a.md", b"# A\n\ntext\n")
+    with make_session() as s:
+        key = s.get(Document, d["id"]).blob_key
+    c.delete(f"/api/library/documents/{d['id']}")
+    with pytest.raises(Exception):
+        library._minio().stat_object(library.BUCKET, key)
+
+
+def test_delete_during_indexing_leaves_no_passages(api, monkeypatch):
+    c, make_session, coll = api
+    d = _upload(c, "a.md", b"# A\n\ntext\n")
+
+    def embed_then_delete(self, texts):
+        c.delete(f"/api/library/documents/{d['id']}")  # the user deletes while the worker is embedding
+        return [[0.1, 0.2, 0.3, 0.4]] * len(texts)
+    monkeypatch.setattr(library.Embedder, "embed", embed_then_delete)
+    _drain(make_session)
+    assert _count(coll) == 0
+
+
+def _texts(coll):
+    q = f'{{Get{{{coll}(tenant:"{TENANT}"){{text}}}}}}'
+    return [o["text"] for o in httpx.post(f"{WEAVIATE}/v1/graphql", json={"query": q}).json()["data"]["Get"][coll]]
+
+
+def test_seed_reindexes_changed_file_and_drops_removed(api, tmp_path):
+    _, make_session, coll = api
+    (tmp_path / "_firm").mkdir()
+    rc, gone = tmp_path / "_firm/rates.md", tmp_path / "_firm/old.md"
+    rc.write_text("# Rates\n\n## T&M (USD per month)\n\n| Role | Offshore |\n|---|---|\n| Senior engineer | 5,200 |\n")
+    gone.write_text("# Old\n\ntext\n")
+    with make_session() as s:
+        assert len(library.seed_library(s, tmp_path)) == 2
+        _drain(make_session)
+        assert library.seed_library(s, tmp_path) == []  # unchanged
+        rc.write_text(rc.read_text().replace("5,200", "5,600"))
+        gone.unlink()
+        assert len(library.seed_library(s, tmp_path)) == 1
+        _drain(make_session)
+        assert [d.filename for d in s.scalars(select(Document))] == ["rates.md"]
+    t = " ".join(_texts(coll))
+    assert "5,600" in t and "5,200" not in t and "Old" not in t

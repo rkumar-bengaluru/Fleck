@@ -32,6 +32,12 @@ def test_text_chunks_overlap_on_paragraph_boundaries():
     assert all(c.startswith("Doc\n") for c in chunks)
 
 
+def test_wide_table_chunks_stop_at_character_cap():
+    t = Table("Wide", ["Role"] + [f"Column {i}" for i in range(30)], [[f"Row {r}"] + ["x" * 40] * 30 for r in range(8)])
+    chunks = chunk_blocks([t], "T")
+    assert len(chunks) > 1 and all(len(c) < 4500 for c in chunks)
+
+
 def test_oversize_paragraph_is_split():
     assert len(chunk_blocks([Text("Sentence here. " * 400)], "D")) > 2
 

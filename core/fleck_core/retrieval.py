@@ -1,5 +1,6 @@
 """Chunking, embeddings (Ollama) and hybrid search (Weaviate over REST/GraphQL, vectors pushed by us)."""
 import json
+import logging
 import os
 import re
 import uuid
@@ -12,6 +13,8 @@ from .types import Passage
 TENANT = "default"
 COLLECTION = "Passage"
 EMBED_MODEL = "qwen3-embedding:0.6b"
+TABLE_CHARS, EMBED_CHARS = 3000, 6000  # a wide table chunk stops early; nothing longer than EMBED_CHARS is embedded
+log = logging.getLogger("fleck.retrieval")
 CHUNK_CHARS, OVERLAP_CHARS, TABLE_ROWS = 1400, 200, 8  # ~350 and ~50 tokens at 4 chars/token
 
 
@@ -63,11 +66,19 @@ def chunk_blocks(blocks: list[Block], title: str) -> list[str]:
         if isinstance(b, Text):
             out += [f"{title}\n{c}" for c in _text_chunks(b.text)]
             continue
-        head = f"{title} · {b.caption}" if b.caption and b.caption != title else title
-        for i in range(0, len(b.rows), TABLE_ROWS):
-            lines = []
-            for row in b.rows[i:i + TABLE_ROWS]:
-                lines += [f"{row[0]} · {h}: {v}" if h else f"{row[0]}: {v}" for h, v in zip(b.header[1:], row[1:]) if v] or [" · ".join(row)]
+        cap = b.caption
+        if cap and cap.startswith(f"{title} · "):
+            cap = cap[len(title) + 3:]  # the title already leads line 1
+        head = f"{title} · {cap}" if cap and cap != title else title
+        lines, n = [], 0
+        for row in b.rows:
+            rl = [f"{row[0]} · {h}: {v}" if h and row[0] else f"{row[0] or h}: {v}" for h, v in zip(b.header[1:], row[1:]) if v] or [" · ".join(row)]
+            if n and (n >= TABLE_ROWS or sum(map(len, lines)) + sum(map(len, rl)) > TABLE_CHARS):
+                out.append("\n".join([head, *lines]))
+                lines, n = [], 0
+            lines += rl
+            n += 1
+        if lines:
             out.append("\n".join([head, *lines]))
     return out
 
@@ -78,6 +89,10 @@ class Embedder:
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         out: list[list[float]] = []
+        for t in texts:
+            if len(t) > EMBED_CHARS:
+                log.warning("truncating a %d-character text to %d for embedding", len(t), EMBED_CHARS)
+        texts = [t[:EMBED_CHARS] for t in texts]
         for i in range(0, len(texts), 32):
             r = httpx.post(f"{self.url}/api/embed", json={"model": EMBED_MODEL, "input": texts[i:i + 32]}, timeout=120)
             r.raise_for_status()
@@ -143,9 +158,6 @@ class Retriever:
     def search(self, question: str, limit: int = 3, client_slug: str | None = None) -> list[Passage]:
         vec = json.dumps(self.embedder.embed([question])[0])
         where = f'where:{{path:["client_slug"],operator:Equal,valueText:{json.dumps(client_slug)}}},' if client_slug else ""
-        near = self._get(f"{where}nearVector:{{vector:{vec}}},limit:1", "distance")
         max_d = float(os.environ.get("FLECK_RETRIEVAL_MAX_DISTANCE", "0.55"))
-        if not near or near[0]["_additional"]["distance"] > max_d:
-            return []
-        hits = self._get(f"{where}hybrid:{{query:{json.dumps(question)},vector:{vec},alpha:0.5,properties:[\"text\",\"title\"]}},limit:{limit}", "score")
+        hits = self._get(f"{where}hybrid:{{query:{json.dumps(question)},vector:{vec},alpha:0.5,maxVectorDistance:{max_d},properties:[\"text\",\"title\"]}},limit:{limit}", "score")
         return [Passage(n=i, **{k: h[k] for k in ("doc_id", "chunk_id", "text", "title", "client", "kind")}) for i, h in enumerate(hits, 1)]

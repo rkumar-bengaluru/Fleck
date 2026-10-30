@@ -32,6 +32,7 @@ def create_app() -> FastAPI:
         yield
 
     app = FastAPI(title="fleck-api", lifespan=lifespan)
+    app.middleware("http")(library.size_guard)
     app.include_router(library.router)
 
     @app.get("/api/health")

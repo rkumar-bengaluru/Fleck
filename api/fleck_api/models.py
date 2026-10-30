@@ -85,6 +85,8 @@ class Document(Base):
     error: Mapped[str | None] = mapped_column(Text)
     chunk_count: Mapped[int] = mapped_column(Integer, default=0)
     used_count: Mapped[int] = mapped_column(Integer, default=0)
+    content_hash: Mapped[str | None]  # sha256 of file + client name; the seed re-indexes when it changes
+    source_path: Mapped[str | None]  # path under clients/ for seed-created documents
     created_at: Mapped[datetime] = _now()
 
 

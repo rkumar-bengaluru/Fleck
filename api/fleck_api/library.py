@@ -1,5 +1,7 @@
 """Library: upload, parse, chunk, embed, index (spec 7.5), plus the REST routes and the seed import."""
 import datetime as dt
+import hashlib
+import io
 import logging
 import mimetypes
 import re
@@ -7,7 +9,9 @@ import tempfile
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Response, UploadFile
+from urllib.parse import quote
+
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import StreamingResponse
 from fleck_core.retrieval import (Block, Embedder, Table, Text, chunk_blocks, delete_document_passages, ensure_schema,
                                   put_passages, weaviate_client)
@@ -26,7 +30,7 @@ log = logging.getLogger("fleck.library")
 BUCKET = "fleck-documents"
 KINDS = ("client", "firm", "reference")
 MAX_BYTES = 50 * 1024 * 1024
-SUPPORTED = (".pdf", ".docx", ".pptx", ".xlsx", ".md", ".markdown", ".txt")
+SUPPORTED = (".pdf", ".docx", ".pptx", ".xlsx", ".md", ".txt")
 
 
 class ParseError(Exception):
@@ -39,7 +43,7 @@ def _markdown_blocks(md: str) -> list[Block]:
     """Pipe tables become Tables (caption = nearest heading above); everything else is Text."""
     blocks: list[Block] = []
     buf: list[str] = []
-    heading: str | None = None
+    path: dict[int, str] = {}  # heading level -> text; the caption is the whole path so units in a parent heading survive
     rows: list[list[str]] = []
 
     def flush_text():
@@ -49,7 +53,7 @@ def _markdown_blocks(md: str) -> list[Block]:
 
     def flush_table():
         if len(rows) >= 2:  # header + at least one row
-            blocks.append(Table(heading, rows[0], rows[1:]))
+            blocks.append(Table(" · ".join(path[k] for k in sorted(path)) or None, rows[0], rows[1:]))
         rows.clear()
 
     for line in md.splitlines():
@@ -64,16 +68,20 @@ def _markdown_blocks(md: str) -> list[Block]:
                 rows.append(cells)
             continue
         flush_table()
-        if m := re.match(r"#{1,6}\s+(.*)", s):
-            heading = m[1].strip()
+        if m := re.match(r"(#{1,6})\s+(.*)", s):
+            path = {k: v for k, v in path.items() if k < len(m[1])} | {len(m[1]): m[2].strip()}
         buf.append(line)
     flush_table()
     flush_text()
     return blocks
 
 
+_FMT_TOKEN = re.compile(r'"([^"]*)"|\[\$([^\]\-]*)[^\]]*\]|\[[^\]]*\]|_.|\*.|\\(.)')
+
+
 def _display(cell) -> str:
-    """Value as Excel shows it. shortcut: first format section only, no scientific, fractions or conditions."""
+    """Value as Excel shows it, from the positive section of the format.
+    shortcut: no scientific, fractions, conditions or thousands scaling; '#' decimals count as fixed."""
     v, fmt = cell.value, cell.number_format.split(";")[0]
     if v is None:
         return ""
@@ -83,12 +91,12 @@ def _display(cell) -> str:
         return str(v)
     if fmt == "General":
         return str(int(v)) if float(v).is_integer() else f"{v:g}"
+    fmt = _FMT_TOKEN.sub(lambda m: m[1] or m[2] or m[3] or "", fmt)  # literals and [$€-407] symbols kept; padding and colours dropped
     m = re.search(r"[#0?][#0?,]*(?:\.([0?#]+))?", fmt)
     if not m:
         return str(v)
-    pre = re.sub(r'["\\_*]|\[[^\]]*\]', "", fmt[:m.start()])
-    suf = re.sub(r'["\\_*]|\[[^\]]*\]', "", fmt[m.end():])
-    if "%" in suf:
+    pre, suf = fmt[:m.start()].strip(), fmt[m.end():].strip()
+    if "%" in pre + suf:
         v *= 100
     n = f"{abs(v):{',' if ',' in m[0] else ''}.{len(m[1] or '')}f}"
     return f"{'-' if v < 0 else ''}{pre}{n}{suf}"
@@ -100,12 +108,13 @@ def _xlsx_blocks(path: Path) -> list[Block]:
     blocks: list[Block] = []
     for ws in wb.worksheets:
         grid = [[c for c in row] for row in ws.iter_rows(max_col=ws.max_column)]
-        hdr = next((i for i, row in enumerate(grid) if row and all(c.value not in (None, "") for c in row)), None)
+        # the header is the first row filled except possibly its first cell (a blank corner above the row labels)
+        hdr = next((i for i, row in enumerate(grid) if len(row) > 1 and all(c.value not in (None, "") for c in row[1:])), None)
         if hdr is None:
             continue
         caption = " ".join(str(c.value) for row in grid[:hdr] for c in row if c.value not in (None, "")) or ws.title
         rows = [[_display(c) for c in row] for row in grid[hdr + 1:]]
-        blocks.append(Table(caption, [str(c.value) for c in grid[hdr]], [r for r in rows if any(r)]))
+        blocks.append(Table(caption, [str(c.value or "") for c in grid[hdr]], [r for r in rows if any(r)]))
     return blocks
 
 
@@ -209,10 +218,22 @@ def index_document(session: Session, payload: dict) -> None:
     vectors = Embedder(setting("FLECK_OLLAMA_URL", "http://localhost:11434")).embed(chunks)
     rows = [{"text": c, "doc_id": str(doc.id), "chunk_id": f"{doc.id}-{i}", "title": title, "client": client.name if client else None,
              "client_slug": client.slug if client else None, "kind": doc.kind} for i, c in enumerate(chunks)]
+    doc_id = doc.id
+
+    def exists() -> bool:  # fresh read: the document may have been deleted while we parsed and embedded
+        session.commit()
+        return session.scalar(select(Document.id).where(Document.id == doc_id)) is not None
+
     with weaviate_client(setting("FLECK_WEAVIATE_URL", "http://localhost:8080")) as w:
         ensure_schema(w, _collection())
-        delete_document_passages(w, str(doc.id), _collection())
+        if not exists():
+            return
+        delete_document_passages(w, str(doc_id), _collection())
         put_passages(w, rows, vectors, _collection())
+        if not exists():  # deleted mid-write: take back what we wrote
+            delete_document_passages(w, str(doc_id), _collection())
+            return
+    doc = session.get(Document, doc_id)
     doc.title, doc.chunk_count, doc.status = title, len(chunks), "indexed"
 
 
@@ -220,25 +241,36 @@ def _slug(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
 
 
-def get_or_create_client(session: Session, name: str) -> Client:
+def get_or_create_client(session: Session, name: str, slug: str | None = None) -> Client:
     name = name.strip()
-    c = session.scalar(select(Client).where(Client.slug == _slug(name)))
+    c = session.scalar(select(Client).where(Client.slug == (slug or _slug(name))))
     if c is None:
-        c = Client(name=name, slug=_slug(name))
+        c = Client(name=name, slug=slug or _slug(name))
         session.add(c)
-        session.commit()
+    elif c.name != name:
+        c.name = name
+    session.commit()
     return c
 
 
-def store_document(session: Session, filename: str, data: bytes, kind: str, client_id: int | None) -> Document:
-    """Save the original to MinIO, add the row, queue indexing."""
+def _put_blob(key: str, data: bytes, filename: str) -> None:
+    _bucket().put_object(BUCKET, key, io.BytesIO(data), len(data), content_type=mimetypes.guess_type(filename)[0] or "application/octet-stream")
+
+
+def store_document(session: Session, filename: str, data: bytes, kind: str, client_id: int | None,
+                   source_path: str | None = None, content_hash: str | None = None) -> Document:
+    """Add the row, save the original to MinIO, queue indexing. A failed upload leaves neither."""
     key = f"documents/{uuid.uuid4().hex}/{filename}"
-    m = _bucket()
-    import io
-    m.put_object(BUCKET, key, io.BytesIO(data), len(data), content_type=mimetypes.guess_type(filename)[0] or "application/octet-stream")
-    doc = Document(client_id=client_id, kind=kind, title=Path(filename).stem, filename=filename, blob_key=key, status="queued")
+    doc = Document(client_id=client_id, kind=kind, title=Path(filename).stem, filename=filename, blob_key=key, status="queued",
+                   source_path=source_path, content_hash=content_hash)
     session.add(doc)
     session.commit()
+    try:
+        _put_blob(key, data, filename)
+    except Exception:
+        session.delete(doc)
+        session.commit()
+        raise
     doc.job_id = enqueue(session, "index_document", {"document_id": doc.id})
     return doc
 
@@ -283,16 +315,30 @@ def list_documents(kind: str | None = None, q: str | None = None, s: Session = D
     return [_row(s, d) for d in s.scalars(stmt)]
 
 
+async def size_guard(request: Request, call_next):
+    """Refuse an oversized upload from its Content-Length before the body is read and spooled."""
+    if request.method == "POST" and request.url.path == "/api/library/documents" and int(request.headers.get("content-length") or 0) > MAX_BYTES + 4096:
+        return Response("File is larger than 50 MB", status_code=413)
+    return await call_next(request)
+
+
 @router.post("/library/documents", status_code=202)
 def upload_document(file: UploadFile, kind: str = Form(...), client_id: int | None = Form(None), s: Session = Depends(get_session)):
     if kind not in KINDS:
         raise HTTPException(422, f"kind must be one of {', '.join(KINDS)}")
+    if kind == "client" and client_id is None:
+        raise HTTPException(422, "A client document needs a client_id")
     if client_id is not None and s.get(Client, client_id) is None:
         raise HTTPException(422, "Unknown client")
-    data = file.file.read(MAX_BYTES + 1)
-    if len(data) > MAX_BYTES:
-        raise HTTPException(413, "File is larger than 50 MB")
-    doc = store_document(s, Path(file.filename or "upload").name, data, kind, client_id)
+    name = Path(file.filename or "upload").name
+    if Path(name).suffix.lower() not in SUPPORTED:
+        raise HTTPException(415, f"Unsupported file type. Upload one of: {', '.join(SUPPORTED)}")
+    data = b""
+    while chunk := file.file.read(1024 * 1024):
+        data += chunk
+        if len(data) > MAX_BYTES:
+            raise HTTPException(413, "File is larger than 50 MB")
+    doc = store_document(s, name, data, kind, client_id)
     return {**_row(s, doc), "job_id": doc.job_id}
 
 
@@ -306,6 +352,9 @@ def _doc(s: Session, doc_id: int) -> Document:
 @router.get("/library/documents/{doc_id}/file")
 def document_file(doc_id: int, s: Session = Depends(get_session)):
     d = _doc(s, doc_id)
+    ascii_name = re.sub(r'[^A-Za-z0-9._-]+', "_", d.filename)
+    headers = {"Content-Disposition": f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(d.filename)}",
+               "X-Content-Type-Options": "nosniff"}
     obj = _bucket().get_object(BUCKET, d.blob_key)
 
     def body():
@@ -315,13 +364,11 @@ def document_file(doc_id: int, s: Session = Depends(get_session)):
             obj.close()
             obj.release_conn()
 
-    return StreamingResponse(body(), media_type=mimetypes.guess_type(d.filename)[0] or "application/octet-stream",
-                             headers={"Content-Disposition": f'inline; filename="{d.filename}"'})
+    return StreamingResponse(body(), media_type=mimetypes.guess_type(d.filename)[0] or "application/octet-stream", headers=headers)
 
 
-@router.delete("/library/documents/{doc_id}", status_code=204)
-def delete_document(doc_id: int, s: Session = Depends(get_session)):
-    d = _doc(s, doc_id)
+def remove_document(s: Session, d: Document) -> None:
+    """Passages, original and row."""
     with weaviate_client(setting("FLECK_WEAVIATE_URL", "http://localhost:8080")) as w:
         ensure_schema(w, _collection())
         delete_document_passages(w, str(d.id), _collection())
@@ -331,35 +378,57 @@ def delete_document(doc_id: int, s: Session = Depends(get_session)):
         log.warning("blob %s already gone", d.blob_key)
     s.delete(d)
     s.commit()
+
+
+@router.delete("/library/documents/{doc_id}", status_code=204)
+def delete_document(doc_id: int, s: Session = Depends(get_session)):
+    remove_document(s, _doc(s, doc_id))
     return Response(status_code=204)
 
 
 # ---------- seed ----------
 
+# Display names that differ from the folder name; any other folder is title-cased.
+CLIENT_NAMES = {"calloway-marsh": "Calloway & Marsh", "meridian-intel": "Meridian Intelligence", "larkspur-retail": "Larkspur Retail Group",
+                "brightwater-insurance": "Brightwater Insurance", "healthgate": "HealthGate", "sphere3d": "Sphere3D"}
+
+
 def seed_library(session: Session, root: Path) -> list[Document]:
-    """Import clients/: folder -> client; _firm -> firm; _reference/<name> -> reference with client <name>.
-    Never touches jf/. Idempotent: a file already imported (same kind, client, filename) is not added again."""
+    """Import clients/: folder -> client; _firm -> firm; _reference/<name> -> reference with client <name>. Never touches jf/.
+    Idempotent: unchanged files are skipped, changed or failed ones are re-uploaded and re-indexed, and seed-created
+    documents whose file is gone are removed."""
     docs: list[Document] = []
+    seen: set[str] = set()
     for f in sorted(p for p in root.rglob("*") if p.is_file() and p.suffix.lower() in SUPPORTED):
         parts = f.relative_to(root).parts
         if len(parts) < 2 or "jf" in parts or parts[-1].lower() == "readme.md":
             continue
-        if parts[0] == "_firm":
-            kind, client = "firm", None
-        elif parts[0] == "_reference":
-            kind, client = "reference", get_or_create_client(session, parts[1].replace("-", " ").title()) if len(parts) > 2 else None
-        else:
-            kind, client = "client", get_or_create_client(session, parts[0].replace("-", " ").title())
+        rel = "/".join(parts)
+        seen.add(rel)
+        folder = parts[1] if parts[0] == "_reference" and len(parts) > 2 else None if parts[0] in ("_firm", "_reference") else parts[0]
+        kind = "firm" if parts[0] == "_firm" else "reference" if parts[0] == "_reference" else "client"
+        client = get_or_create_client(session, CLIENT_NAMES.get(folder, folder.replace("-", " ").title()), folder) if folder else None
         cid = client.id if client else None
-        doc = session.scalar(select(Document).where(Document.kind == kind, Document.filename == f.name,
-                                                    Document.client_id.is_(None) if cid is None else Document.client_id == cid))
-        if doc and doc.status == "indexed":
-            continue
+        data = f.read_bytes()
+        h = hashlib.sha256(data + b"\0" + (client.name if client else "").encode()).hexdigest()
+        doc = session.scalar(select(Document).where(Document.source_path == rel)) or session.scalar(select(Document).where(
+            Document.source_path.is_(None), Document.kind == kind, Document.filename == f.name,
+            Document.client_id.is_(None) if cid is None else Document.client_id == cid))
         if doc is None:
-            doc = store_document(session, f.name, f.read_bytes(), kind, cid)
-        else:
-            doc.status = "queued"
+            docs.append(store_document(session, f.name, data, kind, cid, rel, h))
+        elif doc.content_hash != h or doc.status == "failed":
+            old = doc.blob_key
+            doc.blob_key = f"documents/{uuid.uuid4().hex}/{f.name}"
+            _put_blob(doc.blob_key, data, f.name)
+            doc.source_path, doc.content_hash, doc.status, doc.error, doc.client_id = rel, h, "queued", None, cid
             session.commit()
+            try:
+                _bucket().remove_object(BUCKET, old)
+            except S3Error:
+                pass
             enqueue(session, "index_document", {"document_id": doc.id})
-        docs.append(doc)
+            docs.append(doc)
+    for d in session.scalars(select(Document).where(Document.source_path.is_not(None))).all():
+        if d.source_path not in seen:
+            remove_document(session, d)
     return docs

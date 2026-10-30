@@ -4,14 +4,13 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Literal
 
-from .numbers import extract_figures, normalize_numbers
+from .numbers import CODES, extract_figures, normalize_numbers
 from .types import Citation, Passage
 
 NOT_IN_MATERIAL = "Not in our material"
 _MARK = re.compile(r"\s*\[(\d+)\]")
 _END = re.compile(r"[.!?]+(?:\s*\[\d+\])*(?=\s|$)")
 _ABBREV = {"e.g", "i.e", "etc", "vs", "mr", "mrs", "ms", "dr", "approx", "inc", "ltd", "no", "st"}
-_CURRENCIES = {"USD", "INR", "EUR", "GBP"}
 
 
 def split_sentences(text: str) -> list[str]:
@@ -28,23 +27,36 @@ def split_sentences(text: str) -> list[str]:
     return out
 
 
-def _parse(fig: str) -> tuple[Decimal | str, str | None]:
-    if "-" in fig:
-        return fig, None
-    num, _, unit = fig.partition(" ")
-    return Decimal(num), unit or None
+_FIGURE = re.compile(r"(-?[\d.]+)(?: ([^/\s]+)(?:/(\w+))?)?")
+_CODES = re.compile(rf"\b(?:{CODES})\b")
+_CODE_SET = set(CODES.split("|"))
+_PERIOD_WORD = re.compile(r"\bper\s+(?:person\s+per\s+)?(hour|day|week|month|year)\b|(?<=/)(hour|day|week|month|year)\b", re.I)
+# clause or list numbers at the start of a passage or sentence ("7. Limitation", "2.17 OF THE") are not figures
+_HEADING_NUM = re.compile(r"(?:^|(?<=[.;:]\s)|(?<=\n))\d{1,2}(?:\.\d+)*\.?\s+(?=[A-Z])")
 
 
-def _matches(fig: str, passage_figs: set[str], passage_currencies: set[str]) -> bool:
-    v, u = _parse(fig)
+def _parse(fig: str) -> tuple[Decimal | str, str | None, str | None]:
+    if "-" in fig[1:]:
+        return fig, None, None  # ISO date
+    m = _FIGURE.fullmatch(fig)
+    return Decimal(m[1]), m[2], m[3]
+
+
+def _matches(fig: str, passage_figs: set[str], currencies: set[str], periods: set[str]) -> bool:
+    v, u, per = _parse(fig)
     for p in passage_figs:
-        pv, pu = _parse(p)
+        pv, pu, pper = _parse(p)
         if pv != v:
             continue
-        if u is None or pu == u:
+        if u is None:
             return True
-        if pu is None and (u not in _CURRENCIES or not passage_currencies or u in passage_currencies):
-            return True  # bare passage number inherits the passage's heading currency
+        if pu == u:  # same unit: a period mismatches only when both sides state one
+            if per is None or pper is None or per == pper:
+                return True
+        elif pu is None and u in _CODE_SET:
+            # bare table cell: currency and period come from the passage's heading
+            if (not currencies or u in currencies) and (per is None or not periods or per in periods):
+                return True
     return False
 
 
@@ -89,9 +101,12 @@ def check_library_answer(answer: str, passages: list[Passage]) -> LibraryCheck:
             reason = "figure_without_citation"
         elif figs:
             known = [by_n[n] for n in cited]
-            pfigs = set().union(*(extract_figures(p.text) for p in known))
-            cur = set(re.findall(r"\b(?:USD|INR|EUR|GBP)\b", " ".join(normalize_numbers(p.text) for p in known)))  # also headings like "(USD)"
-            if not all(_matches(f, pfigs, cur) for f in figs):
+            texts = [_HEADING_NUM.sub("", p.text) for p in known]
+            pfigs = set().union(*(extract_figures(t) for t in texts))
+            norm = " ".join(normalize_numbers(t) for t in texts)
+            cur = set(_CODES.findall(norm))  # also headings like "(USD)"
+            per = {(a or b).lower() for a, b in _PERIOD_WORD.findall(norm)}
+            if not all(_matches(f, pfigs, cur, per) for f in figs):
                 reason = "figure_not_in_cited_passage"
         sentences.append(SentenceCheck(s, NOT_IN_MATERIAL if reason else bare, cited, figs, reason is None, reason))
     reasons = [s.reason for s in sentences if s.reason]
@@ -104,16 +119,25 @@ def check_library_answer(answer: str, passages: list[Passage]) -> LibraryCheck:
     return LibraryCheck(ok, sentences, cits if ok else [], kind, reasons)
 
 
+_DUR = r"\d+(?:\.\d+)?\s?(?:%|(?:h|hrs?|hours?|mins?|minutes?|days?|weeks?|months?|years?)\b)"
+_PEOPLE = r"engineers?|developers?|people|consultants?|members?|designers?|architects?|testers?|analysts?|staff|ftes?|resources|specialists?|heads"
 _BLOCK = [
-    ("currency", re.compile(r"\d+(?:\.\d+)? (?:USD|INR|EUR|GBP)\b")),
+    ("currency", re.compile(rf"\d+(?:\.\d+)? (?:{CODES})\b|[$€£¥₹]|\bRs\b\.?|\b[A-Z]{{3}}\s?\d")),
+    ("scaled_amount", re.compile(r"\d\s?(?:k|m|bn|mn)\b|\b(?:grand|lakhs?|crores?|millions?|billions?)\b", re.I)),
     ("percent", re.compile(r"\d+(?:\.\d+)? %")),
-    ("rate", re.compile(r"\bper\s+(?:hour|day|week|month|year|person|seat)\b|\b(?:an?|each)\s+(?:hour|day|month)\b", re.I)),
-    ("sla", re.compile(r"\b(?:SLA|response time|uptime|restore)\b.*\d|\d.*\b(?:SLA|uptime)\b", re.I)),
+    ("rate", re.compile(r"\bper\s+(?:hour|day|week|month|year|person|seat|head)\b|\b(?:an?|each)\s+(?:hour|day|month)\b|\d\s?/\s?(?:hr|hour|day|month|mo|yr|year|wk|week)\b", re.I)),
+    # an SLA word within five words of a duration or percentage ("response within 240 min"); plain "retry 3 times" is fine
+    ("sla", re.compile(rf"\b(?:SLA|respon\w*|restor\w*|resolv\w*|uptime|availability|turnaround)\b(?:\W+\w+){{0,5}}?\W+{_DUR}|{_DUR}(?:\W+\w+){{0,5}}?\W+\b(?:SLA|respon\w*|restor\w*|resolv\w*|uptime|availability)\b", re.I)),
+    ("team_size", re.compile(rf"\b(?:team|pod|squad)\s+of\s+\d+|\b\d+\s+(?:{_PEOPLE})\b", re.I)),
 ]
+_NAME_STOP = {"group", "retail", "inc", "llc", "ltd", "corp", "company", "partners", "limited", "the", "and"}
 
 
 def check_fallback(answer: str, client_names: list[str]) -> FallbackCheck:
     t = normalize_numbers(answer)
-    reasons = [name for name, rx in _BLOCK if rx.search(t)]
-    reasons += [f"client_name:{c}" for c in client_names if c and c.lower() in answer.lower()]
+    reasons = [name for name, rx in _BLOCK if rx.search(t) or rx.search(answer)]
+    for c in client_names:
+        tokens = [w for w in re.findall(r"[^\W\d_]+", c) if len(w) >= 4 and w.lower() not in _NAME_STOP]
+        if any(re.search(rf"\b{re.escape(w)}(?:['’]s)?\b", answer, re.I) for w in tokens + [c]):
+            reasons.append(f"client_name:{c}")
     return FallbackCheck(not reasons, reasons)

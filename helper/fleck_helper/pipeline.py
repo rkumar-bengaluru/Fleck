@@ -14,11 +14,11 @@ import numpy as np
 from fleck_core.events import SegmentEvent
 from fleck_helper.audio import Frame, Gap, Unavailable
 from fleck_helper.classify import FLECK_TRIGGER_MIN_CONFIDENCE, triggers
-from fleck_helper.gate import drop_bleed_duplicates, gate
+from fleck_helper.gate import drop_bleed_duplicates, gate, noise_floor
 from fleck_helper.vad import MAX_MS, PREROLL_MS, SILENCE_MS, Discard, Final, Open, Segmenter
 
 MERGE_MS = 600  # same-speaker finals this close are one turn: a client pausing mid-question triggers once
-TURN_SHARE = 0.75  # the gate's dominance share, applied to a merged turn's segments
+FLOOR_FRAMES = 500  # the mic noise floor is taken over the last 10 s
 log = logging.getLogger(__name__)
 
 
@@ -109,7 +109,8 @@ class Pipeline:
                 self._close_turn()
         elif isinstance(ev, Final):
             rows = [r for r in self._rms if ev.start_ms <= r[0] < ev.end_ms]
-            g = gate(np.array([r[1] for r in rows]), np.array([r[2] for r in rows]))
+            floor = noise_floor(np.array([r[1] for r in list(self._rms)[-FLOOR_FRAMES:]]))
+            g = gate(np.array([r[1] for r in rows]), np.array([r[2] for r in rows]), silence=floor)
             seg = _Seg(stream, ev, g, _spawn(self.tr.transcribe, ev.audio, True, stream, ev.segment_id), cut)
             self._out.append(seg)
             if stream == "client" and not cut:
@@ -139,16 +140,14 @@ class Pipeline:
                 if ev.text:
                     yield ev
             elif isinstance(head, _Turn):
-                # overlap-gated segments add no question text; the turn is client only if client holds 75% of it
+                # only client-gated segments supply text, so the question sentence is always clean client speech;
+                # an overlapped segment elsewhere in the turn is left out, it doesn't veto the turn
                 texts = [t for s in head if s.gate == "client" and (t := s.text().strip())]
-                ms = {id(s): s.final.end_ms - s.final.start_ms for s in head}
-                client_ms = sum(ms[id(s)] for s in head if s.gate == "client")
-                speaker = "client" if client_ms >= TURN_SHARE * sum(ms.values()) else "overlap"
                 text = " ".join(texts)
                 # judged as Whisper wrote it ("How quickly could you" + "start?") and with a full stop after a segment
                 # it left unpunctuated, so "…just before that" doesn't glue onto the next segment's "Who owns…?"
                 stopped = " ".join(t if t[-1] in ".?!" else t + "." for t in texts)
-                if texts and any(triggers(j, speaker, self.min_confidence) for j in (text, stopped)):
+                if texts and any(triggers(j, "client", self.min_confidence) for j in (text, stopped)):
                     yield Trigger(head[-1].final.segment_id, text, head[-1].final.end_ms)
             else:
                 yield head

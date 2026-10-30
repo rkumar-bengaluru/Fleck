@@ -116,9 +116,9 @@ def _qclip(qid):
     return _clip(next(i for i, t in enumerate(REF["turns"]) if t["question_id"] == qid))
 
 
-def _two_segments(first_mic=0.0, second_mic=0.0):
-    """A long first segment (two questions, 200 ms apart), a 700 ms pause, a short second one; mic noise at the given level."""
-    a = np.concatenate([_qclip("q_rate"), _silence(200), _qclip("q_sla")])
+def _two_segments(first_mic=0.0, second_mic=0.0, a=None):
+    """A first segment (default: two questions, 200 ms apart), a 700 ms pause, a short second one; mic noise at the given level."""
+    a = np.concatenate([_qclip("q_rate"), _silence(200), _qclip("q_sla")]) if a is None else a
     b = _clip(1)[: 16 * 900]
     rng = np.random.default_rng(0)
     client = np.concatenate([_silence(500), a, _silence(700), b, _silence(1500)])
@@ -135,6 +135,13 @@ def test_turn_speaker_is_its_client_share_not_its_last_segment():
     gates = [e.gate for e in out if isinstance(e, SegmentEvent)]
     assert gates == ["client", "overlap"]
     assert [e.question for e in out if isinstance(e, Trigger)] == [q]  # the overlap tail adds no text
+
+
+def test_long_overlapped_tail_does_not_veto_a_clean_question():
+    q = "Who owns the code you write for us?"  # ~1.8 s question, ~0.9 s overlapped tail: under 75% client time
+    out, _ = _run(_two_segments(second_mic=0.2, a=_qclip("q_ip")), {"client": [q, "mm-hm, and the IP"]})
+    assert [e.gate for e in out if isinstance(e, SegmentEvent)] == ["client", "overlap"]
+    assert [e.question for e in out if isinstance(e, Trigger)] == [q]
 
 
 def test_overlapped_question_with_a_clean_tail_does_not_trigger():

@@ -45,15 +45,53 @@ _WH = r"(what|how|who|when|where|why|which(?! (is|was|were|means|meant|makes|mad
 _WH_AUX = (r"(what|how( much \w+| many \w+| much| many| quickly| fast| long| soon| often)?|who|when|where|why) "
            r"(is|are|was|were|do|does|did|can|could|would|will|should|has|have)\b")
 _WH_VERB = r"(who \w+s|which (of|\w+ (would|will|can|could|do|does|is|are|should)))\b"  # "Who owns the IP", "Which team would"
-_FILLER = r"((and|so|but|okay|ok|right|then|also|now|hello|sorry|please) )?"
+_FILLER = r"((and|so|but|okay|ok|right|then|also|now|hello|sorry|please|roughly|approximately|just|by|from|until) )*"
 _ASK = re.compile(r"\b(tell (me|us) (more )?(about|how)|walk (me|us) through|i'd (like|love) to (know|understand|hear)"
                   r"|i was wondering (whether|if|how|what)|i'm curious (how|what|whether|about)|(can|could) you explain"
-                  r"|explain how|(kindly|please) (tell|share|explain)|any idea (how|what|when|whether|if)|(is|would) it (be )?possible to)\b")
+                  r"|explain how|(kindly|please) (tell|share|explain)|any idea (how|what|when|whether|if)|(is|would) it (be )?possible to"
+                  r"|(we|i) (would like|'d like|want|need) to (know|understand))\b")
 _TAG = re.compile(r", (right|correct|yes|no|ok|okay|yeah|isn't it|is it|aren't you|don't you|didn't you)\?$")
+# Precision first: a question triggers only with business evidence, a term from here or a vendor capability frame.
+# Extend it from real calls; small talk and logistics carry none of these words.
+LEXICON = frozenset("""
+cost price pricing rate budget fee quote payment invoice timeline weeks months hours phase pilot discovery scope
+team engineer people resource staff onsite offshore data security compliance iso soc gdpr ip licence license
+contract liability sla support escalation integration integrate api system platform migration cloud model ai
+automation project deliverable client experience industry scale risk warranty nda maintenance testing deployment
+uptime vendor aws onboarding extraction pipeline transcription service code developer example reference incident
+outage response respond feasible demo feature app product""".split())
+# Words about people rather than the work; with a meeting word ("is your team on the call?") they are not evidence.
+_WEAK = frozenset("team people client experience staff resource example reference".split())
+_MEETING = frozenset("""call meeting invite calendar slide slides deck screen agenda name names tomorrow today tonight
+morning afternoon evening monday tuesday wednesday thursday friday saturday sunday weekend holiday holidays lunch
+coffee minutes notes email thread recording link chat""".split())
+_SCHEDULING = re.compile(r"\b((next|this|last) week|what time|time works)\b")
+_PHRASES = re.compile(r"\b(case stud(y|ies)|rate card|fixed (price|bid)|time and material)\b")
+_FRAME = re.compile(r"\b(((have|has) you|you (have|'ve)) (done|built|worked|delivered|automated|implemented|deployed|handled)"
+                    r"|(can|could|would) your (team|people|engineers)|do you (have|support|offer|provide|handle|work)"
+                    r"|how( \w+)? (do|would|will|can|could) you (?!(like|feel|find|enjoy|know|say|spell|pronounce)\b)"
+                    r"|what (is|are|would be) your"
+                    r"|(you|your team) (can|could|would|will) (start|begin|deliver|provide|staff|scale)"
+                    r"|(can|could|would|will) (you|your team) (start|begin|deliver|provide|staff|scale)"
+                    r"|how (much|long) (time )?(will|would|does) it take)\b")
+# Asking the other side for time ("do you have a minute") is about the call, not the business.
+_TIME_ASK = re.compile(r"\b(a|one|two|five|few|couple of) (more )?(minute|moment|second|sec)s?\b")
+
+
+def _evidence(body: str, words: list[str]) -> bool:
+    if _TIME_ASK.search(body):
+        return False
+    stems = {w for w in words} | {w[:-1] for w in words if w.endswith("s")} | {w[:-3] + "y" for w in words if w.endswith("ies")}
+    if stems & (LEXICON - _WEAK) or _PHRASES.search(body):
+        return True
+    return bool(stems & _WEAK or _FRAME.search(body)) and not (set(words) & _MEETING or _SCHEDULING.search(body))
+
+
 # A sentence ending on these is cut off ("How quickly could you"); prepositions only count without a "?" ("working on?")
 _PRONOUNS = {"i", "you", "we", "they", "he", "she", "it"}
 _CUT = {"can", "could", "would", "will", "should", "shall", "may", "might", "must", "do", "does", "did", "is", "are",
         "was", "were", "have", "has", "and", "or", "but", "because", "so", "if", "than", "the", "a", "an"}
+_DO = {"do", "does", "did"}  # "What would your team do?" is complete
 _CUT_PREP = {"to", "of", "for", "with", "at", "in", "on", "from", "by", "about", "into", "through", "us", "me", "them"}
 
 
@@ -70,6 +108,15 @@ def _norm(text: str) -> str:
 
 
 def _sentence(s: str) -> QuestionVerdict:
+    v = _form(s)
+    body = s.rstrip("?.!, ")
+    if v.is_question and v.confidence > 0.6 and not _evidence(body, re.findall(r"[a-z0-9']+", body)):
+        return QuestionVerdict(True, 0.6, v.reason + ", no business evidence")
+    return v
+
+
+def _form(s: str) -> QuestionVerdict:
+    """How much the sentence is shaped like a question, before the evidence check."""
     q = s.endswith("?")
     body = s.rstrip("?.!, ")
     words = re.findall(r"[a-z0-9']+", body)
@@ -81,7 +128,9 @@ def _sentence(s: str) -> QuestionVerdict:
         return QuestionVerdict(False, 0.8, "tag question")
     last, prev = words[-1], words[-2]
     # "could you" is cut off, "for you" is not; "…the project you did" is complete
-    cut = last in _CUT and prev not in _PRONOUNS or last in _PRONOUNS and prev in _CUT
+    wh_led = re.match(_FILLER + _WH + r"\b", body)
+    cut = (last in _CUT and prev not in _PRONOUNS and not (wh_led and last in _DO)
+           or last in _PRONOUNS and prev in _CUT)
     if cut or not q and last in _CUT_PREP:
         return QuestionVerdict(False, 0.6, "fragment")
     clauses = [c.strip() for c in body.split(",")]

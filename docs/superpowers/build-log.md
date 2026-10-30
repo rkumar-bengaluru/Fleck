@@ -284,3 +284,11 @@ Live §8 questions (title, kind, nearest-vector distance):
   - measure.py needs ≥ 0.5 word overlap to credit recall.
   - Replay, final code: conversation.wav and conversation-bleed.wav each 0 false triggers and 8/8 recall; negative.wav 0 short, 0 medium, no triggers.
   - Suites: `uv run --all-packages pytest helper/tests -q` 180 passed, EXIT 0; `uv run pytest -m "not ollama" -q` 430 passed, 5 deselected, EXIT 0.
+- Fix round 2 (re-review 1):
+  - Held-out phrasings fired on 15 of 20 small-talk lines, so the classifier now needs positive evidence: a business lexicon term or a vendor capability frame. People words don't count next to meeting or schedule words.
+  - Before changing the scorer I wrote a fresh set of 22 should-trigger and 22 should-not lines. RED: 3 missed and 22 false triggers. GREEN: all pass, and the earlier regression lists still pass.
+  - Gate (controller ruling): client only when mic ≤ max(adaptive floor, 0.3 × client). The floor is twice the 10th percentile of the mic over the last 10 s, with a minimum of 0.005.
+  - Gate grid on the bleed WAV's reference spans: a cap of 0.3 gates 31/31 client turns; 0.25 gates 21/31.
+  - Overlapped segments no longer veto a turn; they only drop out of its text.
+  - Replay: conversation.wav and conversation-bleed.wav each 0 false triggers and 8/8 recall; negative.wav 0 short, 0 medium.
+  - Suites: `uv run --all-packages pytest helper/tests -q` 225 passed, EXIT 0; `uv run pytest -m "not ollama" -q` 475 passed, 5 deselected, EXIT 0.

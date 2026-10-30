@@ -2,7 +2,7 @@ from types import SimpleNamespace as S
 
 import numpy as np
 
-from fleck_helper.gate import drop_bleed_duplicates, frame_rms, gate
+from fleck_helper.gate import drop_bleed_duplicates, frame_rms, gate, noise_floor
 
 LOUD, BLEED, QUIET = 0.2, 0.005, 0.0005
 
@@ -21,11 +21,16 @@ def test_gate_overlap_when_both_loud():
     assert gate(_rms(LOUD * 0.7), _rms(LOUD)) == "overlap"  # client louder, but not ratio x louder
 
 
-def test_gate_is_relative_to_the_client_level():
-    """Decision 93: bleed scales with the client's volume, so a fixed mic ceiling would gate a loud client as overlap."""
-    assert gate(np.full(50, 0.45 * 0.2), np.full(50, 0.45)) == "client"  # loud client, bleed at 0.2x
-    assert gate(np.full(50, 0.01), np.full(50, 0.03)) == "client"  # quiet client over a 0.01 mic floor
-    assert gate(np.full(50, 0.15), np.full(50, 0.15)) == "overlap"  # equal-energy talk-over
+def test_gate_bleed_cap_and_adaptive_floor():
+    """Decision 93: the mic may hold the client only as bleed (<= 0.3x), over a floor that adapts to mic noise."""
+    flat = lambda level: np.full(50, level)
+    assert gate(flat(0.45 * 0.2), flat(0.45)) == "client"  # loud client, bleed at 0.2x
+    assert gate(flat(0.137), flat(0.3)) == "overlap"  # your voice under a louder client: double-talk, never a trigger
+    assert gate(flat(0.15), flat(0.3)) == "overlap"  # weak echo cancellation (0.5x): known limit, precision first
+    assert gate(flat(0.15), flat(0.15)) == "overlap"  # equal-energy talk-over
+    for client, mic in [(0.03, 0.01), (0.02, 0.012), (0.03, 0.02)]:  # quiet client, slightly noisy mic
+        assert gate(flat(mic), flat(client), silence=noise_floor(np.full(500, mic))) == "client"
+    assert noise_floor(np.zeros(500)) == 0.005 and noise_floor(np.array([])) == 0.005
 
 
 def test_gate_you_only():

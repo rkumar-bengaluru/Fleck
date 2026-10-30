@@ -131,6 +131,57 @@ SHOULD_NOT = [
     'Is it all right if I send you our playbook after this call?',
 ]
 
+# Fix round 2: written before the positive-evidence scorer, as a check that it generalises beyond the lists above.
+FRESH_SHOULD_TRIGGER = [
+    'What would a three month pilot cost us?',
+    'How many engineers would you put on this?',
+    'Do you offer fixed price contracts?',
+    'Have you built anything like this for an insurer?',
+    'Can your team work from our office two days a week?',
+    'How do you handle personal data in the documents?',
+    'Are you ISO 27001 certified?',
+    'What is your typical escalation path for a production incident?',
+    'Is the model hosted in our cloud or yours?',
+    'Who would own the trained model at the end?',
+    'How long does a typical migration take?',
+    'Does your platform integrate with SharePoint?',
+    'What happens to our data if we end the contract?',
+    'Would you consider a lower rate for a longer commitment?',
+    'Which industries have you delivered automation for?',
+    'Roughly what budget should we set aside for year one?',
+    'By when could the first deliverable be ready?',
+    'We need to understand how you secure the API keys.',
+    'How would you measure the accuracy of the extraction?',
+    'Can you support us outside UK business hours?',
+    'What would your team actually do in the first two weeks?',
+    'Do you have references from other law firms?',
+]
+
+FRESH_SHOULD_NOT = [
+    'Is Priya going to join us later?',
+    'Can you all see the whiteboard?',
+    'How was the drive in this morning?',
+    'Did everyone get the calendar update?',
+    'Shall we push this to Friday afternoon?',
+    'Would anyone like a quick coffee break?',
+    'Is the connection better on your side now?',
+    'Could you move your camera a little?',
+    'Are you comfortable if we run five minutes over?',
+    "Who's going to send round the summary?",
+    "What's the plan for the rest of the afternoon?",
+    'Have you been to Mumbai before?',
+    'Did you watch the cricket last night?',
+    'How long have you been in Bengaluru?',
+    'Can you make it a bit louder?',
+    'Is that your dog barking in the background?',
+    'Do we need anyone else on this call?',
+    'Where did you go for the holidays?',
+    'Is it too early for you over there?',
+    'Should I stop sharing now?',
+    'Can we switch to the other document?',
+    'When do you usually finish for the day?',
+]
+
 
 def _neg_triggers(categories):
     # every turn as if the client said it: the text alone must not trigger
@@ -192,11 +243,11 @@ def test_fast():
     assert (time.perf_counter() - t) / len(NEG["turns"]) < 0.05
 
 
-@pytest.mark.parametrize("text", SHOULD_TRIGGER)
+@pytest.mark.parametrize("text", SHOULD_TRIGGER + FRESH_SHOULD_TRIGGER)
 def test_should_trigger(text):
     assert triggers(text, "client"), classify(text, "client")
 
 
-@pytest.mark.parametrize("text", SHOULD_NOT)
+@pytest.mark.parametrize("text", SHOULD_NOT + FRESH_SHOULD_NOT)
 def test_should_not_trigger(text):
     assert not triggers(text, "client"), classify(text, "client")

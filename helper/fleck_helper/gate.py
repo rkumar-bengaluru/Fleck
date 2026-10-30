@@ -2,7 +2,7 @@
 
 client = sys_energy > mic_energy x ratio AND mic_energy < silence over most of the segment; "you" mirrors it;
 anything else is overlap.
-Thresholds are starting values; Task 12 tunes them on the bleed recording (decision 25).
+Thresholds were tuned on the bleed recording in Task 12 (decision 93).
 """
 import os
 import re
@@ -10,7 +10,8 @@ from typing import Literal
 
 import numpy as np
 
-FLECK_GATE_SILENCE = float(os.environ.get("FLECK_GATE_SILENCE", "0.02"))
+FLECK_GATE_SILENCE = float(os.environ.get("FLECK_GATE_SILENCE", "0.08"))
+FLECK_GATE_RATIO = float(os.environ.get("FLECK_GATE_RATIO", "2.0"))
 SMOOTH_FRAMES = 10  # 200 ms of 20 ms frames
 MIN_WORDS, MIN_LENGTH_RATIO = 3, 0.6  # a bleed duplicate repeats most of the client's sentence
 
@@ -26,7 +27,7 @@ def _smooth(rms: np.ndarray) -> np.ndarray:
     return np.convolve(rms, np.ones(k) / k, mode="valid")
 
 
-def gate(you_rms: np.ndarray, client_rms: np.ndarray, ratio: float = 1.5,
+def gate(you_rms: np.ndarray, client_rms: np.ndarray, ratio: float = FLECK_GATE_RATIO,
          silence: float = FLECK_GATE_SILENCE, share: float = 0.75) -> Literal["client", "you", "overlap"]:
     """Per 200 ms window, a stream dominates when it is ratio x louder and the other is under `silence`.
     A stream wins the segment when it dominates `share` of the windows where anything is audible,

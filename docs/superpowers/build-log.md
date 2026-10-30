@@ -251,3 +251,21 @@ Live §8 questions (title, kind, nearest-vector distance):
 - Controller fix: lag measured from buffer start; `_mic_again` under the lock. Reviewer fakes: 0.5 s buffers 0/150 client slots lost (was 37), 0.4 s late 0 lost, +50 s offset 0 lost (30 MB peak), mic stall and quiet client unchanged.
 - Tests: 292 passed, 5 deselected; helper 42 passed (exit codes checked).
 - Not verified: ScreenCaptureKit on hardware (manual-checks step 4 logs delay, offset and Final-minus-end_ms).
+
+## 2026-10-30 Task 12: question classifier, first pipeline, trigger tests
+
+- New: `classify.py` (rules, per sentence), `pipeline.py` (Segmenters → gate + Whisper → turn merge → classify → `Trigger`; no answers), `scripts/measure.py`, unit tests `test_classify.py` (the four tests on reference transcripts + logistics/strength cases) and `test_pipeline.py` (fake transcriber on real clips: paused question triggers once, unpunctuated segment, Gap mid-question, Unavailable pass-through, bleed duplicate), Mac `test_triggers_replay.py`.
+- RED: `test_classify.py` failed to import `fleck_helper.classify`. First classifier run: `negative_set_medium` 1 ("Are you able to see this?"), fixed by widening the logistics pattern.
+- First Whisper replay (gate 0.02 / 1.5): conversation.wav recall 7/8, 1 false trigger (Whisper wrote "…nothing. Which was the plan?"; q_ip missed because the merged previous segment came back unpunctuated); conversation-bleed.wav recall **0/8** (every client turn gated overlap: bleed at 0.2× the client level, smoothed mic RMS up to 0.065); negative.wav 0/0/0 (92 s for 750 s of audio).
+- Gate grid on the bleed WAV's reference spans: silence 0.02 → 0/31 client turns; 0.04 → 27/31; 0.06–0.12 at ratio 1.5, 2 or 3 → 31/31 client and 27/27 You. Chose 0.08 / 2.0 (mid-plateau; own voice median 0.137). Confidence: non-questions ≤ 0.6, questions ≥ 0.85 on the bleed replay, threshold stays 0.7.
+- Fixes: "which is/was/…" is a relative clause; turn segments are joined with a full stop for judging.
+- Final replay (four counts × three WAVs):
+
+| WAV | negative_set_short | negative_set_medium | conversation_false_triggers | conversation_recall |
+|---|---|---|---|---|
+| conversation.wav | n/a | n/a | 0 (allowed 0.64) | 8/8 |
+| conversation-bleed.wav | n/a | n/a | 0 (allowed 0.64) | 8/8 |
+| negative.wav | 0 | 0 | 0 (no triggers at all) | n/a |
+
+- Classifier level (reference transcripts): 0 / 0 / 0 / 8 of 8.
+- Seen, not fixed: on the bleed WAV the mic VAD hears the client, so You segments run across both speakers (11 overlap-gated, 5 client-gated) and repeat client text that `drop_bleed_duplicates` can't match (it compares against one client final). It doesn't affect triggers. After a Gap flush, webrtcvad's hangover opens one segment on silence, which is discarded.

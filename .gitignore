@@ -221,3 +221,6 @@ __marimo__/
 
 # Brainstorming companion mockups
 .superpowers/
+
+# Real client SOWs: private, never committed
+clients/jf/

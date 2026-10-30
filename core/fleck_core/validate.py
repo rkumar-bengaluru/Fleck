@@ -163,7 +163,7 @@ class FallbackCheck:
     reasons: list[str]
 
 
-_PRICE_Q = re.compile(r"\b(?:cost|pric|rate|fee|budget|quot|how much|ballpark|charg|spend|invest)", re.I)
+_PRICE_Q = re.compile(r"\b(?:costs?|costing|prices?|pric(?:ed|ing)|rates?|fees?|budgets?|quotes?|quot(?:ed|ing|ation)|how much|ballpark|charges?|charg(?:ed|ing)|spend(?:s|ing)?|invest(?:s|ed|ing|ment)?)\b", re.I)
 
 
 def _values(p: Passage) -> set:

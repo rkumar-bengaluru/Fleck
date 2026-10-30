@@ -120,9 +120,9 @@ def test_uncited_sentence_inherits_next_citation():
     assert [c.title for c in s[0].citations] == ["Delivery FAQ"] and ev[-1].check.ok
 
 
-def test_inherited_citation_still_checks_figures():
+def test_uncited_figure_sentence_is_removed_not_inherited():
     ev = run(["Teams", " cost", " USD", " 9,999", ".", " Mixed", " teams", " are", " common", " [2]", "."])
-    assert sents(ev) == [(0, NOT_IN_MATERIAL, False, "figure_not_in_cited_passage"), (1, "Mixed teams are common.", True, None)]
+    assert sents(ev) == [(0, "", False, "uncited"), (1, "Mixed teams are common.", True, None)]
 
 
 def test_two_uncited_then_cited_removes_the_first():
@@ -264,3 +264,45 @@ def test_prefill_halves_first_token_time():
         warm.append(_ttft(ol, ps, "What does a senior engineer cost per month, offshore?"))
     print(f"ttft cold {cold} prefilled {warm}")
     assert statistics.median(warm) <= 0.5 * statistics.median(cold)
+
+
+# ---------- re-review 1 probes (N1, N2, N4) ----------
+
+PROBE_RATE = Passage(n=1, doc_id="r", chunk_id="r1", title="Rate card FY2026", client=None, kind="firm",
+                     text="Senior engineer offshore 5,200 USD per month. Teams start within 2 weeks. Hypercare 8 weeks.")
+PROBE_FAQ = Passage(n=2, doc_id="f", chunk_id="f1", title="Delivery FAQ", client=None, kind="firm", text="Mixed teams are common. We name a lead.")
+PROBE_PROP = Passage(n=3, doc_id="p", chunk_id="p1", title="Proposal Larkspur", client="Larkspur Retail Group", kind="client",
+                     text="Discovery fixed at USD 38,000. Hypercare: 8 weeks included.")
+
+
+def words(s):
+    return [w if i == 0 else " " + w for i, w in enumerate(s.split())]
+
+
+def probe(s, passages=(PROBE_RATE, PROBE_FAQ, PROBE_PROP)):
+    now = time.time()
+    return list(stream_library_answer("How fast can you start?", list(passages), ["Larkspur Retail Group"], FakeOllama(words(s)), now, now))
+
+
+@pytest.mark.parametrize("answer", ["Larkspur got hypercare for 8 weeks. Hypercare is 8 weeks [1].",
+                                    "Larkspur Retail Group loved working with us. Mixed teams are common [2].",
+                                    "We have done this for many retailers before. Mixed teams are common [2].",
+                                    "Our discovery takes 2 weeks. Teams start within 2 weeks [1]."])
+def test_figures_and_claims_never_inherit_a_citation(answer):
+    ev = probe(answer)
+    assert sents(ev)[0] == (0, "", False, "uncited") and sents(ev)[1][2] is True
+    done = ev[-1]
+    assert done.check.ok and done.check.reasons == ["uncited"]  # the trace matches the screen
+
+
+def test_cap_after_an_inherited_sentence_removes_the_current_one():
+    ev = probe("Mixed teams are common [2]. We name a lead [2]. It works well. Teams start fast [2].")
+    assert [(i, ok, r) for i, _, ok, r in sents(ev)] == [(0, True, None), (1, True, None), (2, True, None), (3, False, "cap")]
+    assert {e.index for e in ev if isinstance(e, Delta)} <= {s[0] for s in sents(ev)}  # no orphaned Deltas
+    assert ev[-1].check.ok and ev[-1].check.reasons == ["cap"]
+
+
+def test_parenthesised_count_is_not_a_citation():
+    ev = probe("Mixed teams have leads (3). We name a lead [2].", passages=(PROBE_RATE, PROBE_FAQ))
+    assert sents(ev) == [(0, "", False, "uncited"), (1, "We name a lead.", True, None)]
+    assert "citation_out_of_range" not in ev[-1].check.reasons

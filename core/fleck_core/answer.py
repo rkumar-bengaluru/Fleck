@@ -87,11 +87,18 @@ _NONE_FORMS = ("none of the passages", "the passages do not", "the passages don'
                "the provided passages do not", "no passage", "not in the passages")
 
 
-def _norm_marks(t: str) -> str:
-    """[1, 2] -> [1][2]; (1) before a sentence end, and 【1】 -> [1]."""
+def _norm_marks(t: str, n_max: int) -> str:
+    """[1, 2] -> [1][2]; 【1】 -> [1]; " (n)" at a sentence end -> [n] only when n is a passage number and the
+    sentence has no bracket marker ("team leads (3)." with 2 passages stays a count)."""
     t = re.sub(r"【\s*(\d+)\s*】", r"[\1]", t)
     t = re.sub(r"\[(\d+(?:\s*,\s*\d+)+)\]", lambda m: "".join(f"[{n}]" for n in re.findall(r"\d+", m[1])), t)
-    return re.sub(r"\(([1-9])\)(?=\s*(?:[.!?]|$|\[))", r"[\1]", t)
+
+    def paren(m: re.Match) -> str:
+        start = max(t.rfind(e, 0, m.start()) for e in (". ", "! ", "? "))
+        ok = 1 <= int(m[1]) <= n_max and not re.search(r"\[\d", t[start + 1 : m.start()])
+        return f" [{m[1]}]" if ok else m[0]
+
+    return re.sub(r" \(([1-9])\)(?=\s*(?:[.!?]|$))", paren, t)
 
 
 def _display(raw: str) -> str:
@@ -145,7 +152,9 @@ def stream_library_answer(question: str, passages: list[Passage], client_names: 
     threading.Thread(target=_pump, args=(ollama, build_messages(question, passages), q, stop), daemon=True).start()
     by_n = {p.n: p for p in passages}
     text, pos, index, shown, held, got, decided, cited_n = "", 0, 0, "", False, False, False, 0
-    pending: tuple[int, str] | None = None  # an uncited sentence waiting for the next one's citations
+    pending: tuple[int, str] | None = None  # a figure-free, claim-free uncited sentence waiting for citations
+    kept: list[str] = []  # raw text (inherited markers added) of every sentence left on screen
+    removed: list[str] = []  # "uncited" / "cap" per sentence taken off screen
     first_words: int | None = None
 
     def ms() -> int:
@@ -157,9 +166,14 @@ def stream_library_answer(question: str, passages: list[Passage], client_names: 
     def verdict(i: int, raw: str, sc=None) -> Sentence:
         nonlocal cited_n
         sc = sc or check_library_answer(raw, passages, client_names, question).sentences[0]
+        kept.append(raw)
         cits = [Citation(**by_n[c].model_dump(include=set(Citation.model_fields))) for c in dict.fromkeys(sc.cited) if c in by_n]
         cited_n += 1  # a shown sentence ("Not in our material" included) counts toward the cap
         return Sentence(i, sc.display_text, sc.ok, sc.reason, cits)
+
+    def remove(i: int, reason: str) -> Sentence:
+        removed.append(reason)
+        return Sentence(i, "", False, reason)
 
     def emit(final: bool) -> Iterator[AssistUpdate]:
         nonlocal pos, index, shown, held, first_words, pending
@@ -174,20 +188,25 @@ def stream_library_answer(question: str, passages: list[Passage], client_names: 
             first_words = first_words if first_words is not None else ms()
             if not sc or not sc.cited:
                 if pending:  # one level of carry only: the older uncited sentence goes
-                    yield Sentence(pending[0], "", False, "uncited")
-                pending = (index, piece)  # its Deltas stay up until the next sentence ends
+                    yield remove(pending[0], "uncited")
+                    pending = None
+                if sc and sc.reason is None and not sc.figures:
+                    pending = (index, piece)  # its Deltas stay up until the next sentence ends
+                else:  # a figure, a client name or past work never inherits a citation
+                    yield remove(index, "uncited")
             else:
                 if pending:  # it inherits this sentence's citations and is checked against them
                     yield verdict(pending[0], f"{pending[1]} " + "".join(f"[{c}]" for c in dict.fromkeys(sc.cited)))
                     pending = None
                     if cited_n >= MAX_SENTENCES:
+                        yield remove(index, "cap")  # its Deltas may already be up
                         return
                 yield verdict(index, piece, sc)
             index, shown, held = index + 1, "", False
             if cited_n >= MAX_SENTENCES:
                 return
         if final and pending:
-            yield Sentence(pending[0], "", False, "uncited")
+            yield remove(pending[0], "uncited")
             pending = None
         disp = _display(text[pos:])
         if held or final:
@@ -202,7 +221,9 @@ def stream_library_answer(question: str, passages: list[Passage], client_names: 
             shown = disp
 
     def done() -> Done:
-        return Done(check_library_answer(text[:pos], passages, client_names, question), first_words, ms())
+        """Checked on what the screen shows, so the trace's reasons match it, plus one reason per removed sentence."""
+        chk = check_library_answer(" ".join(kept), passages, client_names, question)
+        return Done(dataclasses.replace(chk, reasons=chk.reasons + removed), first_words, ms())
 
     try:
         while True:
@@ -224,7 +245,7 @@ def stream_library_answer(question: str, passages: list[Passage], client_names: 
                 yield from emit(final=True)
                 yield done()
                 return
-            got, text = True, _norm_marks(text + tok)
+            got, text = True, _norm_marks(text + tok, len(passages))
             if not decided:
                 state = _none_state(text, final=False)
                 if state == "wait":

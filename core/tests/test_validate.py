@@ -303,3 +303,8 @@ def test_client_figure_allowed_only_when_attributed_and_not_a_price_question():
     unnamed = "The old system lost USD 2.1M in sales [5]."
     assert check_library_answer(unnamed, ps, [], "Have you modernised order management for a retailer?").sentences[0].reason == "client_figure"
     assert check_library_answer("A senior engineer offshore is USD 5,200 a month [1][4].", [*P, LARK_PROP]).ok  # firm figure
+
+
+@pytest.mark.parametrize("question", ["How did the investigation agent work?", "What feedback did Larkspur give?", "How was the project rated?"])
+def test_price_words_match_whole_words(question):
+    assert check_library_answer("Larkspur saw USD 2.1M less lost sales [5].", [*P, LARK_CASE], ["Larkspur Retail Group"], question).ok

@@ -267,6 +267,27 @@ Fixed so Walker and the tests can rely on them. All bound to `localhost`.
 
 `deploy/docker-compose.yml` and `.env.example` use exactly these. **(Ports other than api, web and weaviate: Claude's call.)**
 
+### 7.7 Long meetings (up to 1 hour, rupak.k's requirement)
+
+Presales meetings run 30–60 minutes. The stack must stay steady for that long. **(Design below: Claude's call.)**
+
+| Risk over an hour | Design |
+|---|---|
+| Ollama unloads idle models after 5 minutes by default; the next answer would wait seconds for a reload | While recording, every Ollama request sets `keep_alive: -1`; when recording stops, the models are released |
+| Mac sleeps, or the ScreenCaptureKit stream stops | The helper holds a no-sleep assertion while recording. If the capture stream ends unexpectedly, it restarts it and marks the gap in the transcript |
+| Live prompts grow with the meeting | A live prompt holds only the question and ≤ 3 passages, never the running transcript, so answer latency doesn't depend on how long the meeting has run |
+| Memory grows (1 hour of two 16 kHz streams ≈ 230 MB raw) | Audio is written in chunks to local disk and uploaded to MinIO, never accumulated in memory. Whisper works only on the current window |
+| Connection between helper and api drops | The helper queues unsent segments and audio chunks and resends them in order on reconnect; the api ignores duplicates by `segment_id` and chunk number. The browser reloads the meeting state when it reconnects |
+| Helper crashes mid-meeting | Everything sent is already stored. On restart the helper finds the meeting still `recording` and offers to resume it |
+| GPU slows as the Mac heats up | Can't be designed away; measured by the soak run |
+
+**Soak run.** The test conversation is looped through replay for 60 minutes on rupak.k's Mac, unattended. Pass:
+- p95 time to first words in the last 10 minutes is within 20% of the first 10 minutes
+- the helper's memory grows by less than 300 MB
+- every scripted question in every loop gets its expected outcome
+
+Results go into the hand-over note (§9).
+
 ## 8. The test conversation
 
 A 6–8 minute presales call between rupak.k as salesperson (left channel) and a prospect (right channel), voiced by two different `say` voices. The prospect is a fictional firm wanting AI automation of an existing document workflow. **(Claude's call.)** The script includes, in order:
@@ -292,7 +313,7 @@ Content work never blocks development: the case studies are written in the same 
 1. `docker compose up` plus the helper bring up the whole stack on rupak.k's Mac.
 2. The test conversation has been replayed through the real pipeline into a meeting called **Presales: demo prospect**.
 3. In the browser rupak.k can sign in, see the calendar, open that meeting, play the recording, read the transcript and the notes with every moment Fleck helped marked, and chat about it.
-4. All automated tests pass, and the latency and question-detection targets in §5 are measured on the Mac and written into the hand-over note.
+4. All automated tests pass, and the latency and question-detection targets in §5 and the 60-minute soak run (§7.7) are measured on the Mac and written into the hand-over note.
 5. The decision log lists every call made without rupak.k, each with the critique agent's verdict.
 
 The hand-over runs on `gsim` by default: the demo meeting is linked to a fixed event in the simulated calendar, so it works without any Google setup. Real Google sign-in and calendar are switched on by putting OAuth credentials in `.env`; the hand-over note gives the Google Cloud setup steps and rupak.k checks real sign-in by hand. **(Claude's call.)**

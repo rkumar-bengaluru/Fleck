@@ -1,7 +1,8 @@
 """Question classifier (spec 7.2 contract, decision 94): a permissive question-shape gate, then a learned score.
 
-The score is a logistic regression over the L2-normalised `Embedder.embed_query` vector of the question text, the
-same vector search uses, so it costs no extra latency on the live path. The model is `question_model.json`, retrained
+The score is a logistic regression over the L2-normalised qwen3-embedding vector of the question text under a
+classification instruction (`CLASSIFY_TASK`). The live path fetches it in the same /api/embed request as the
+`Embedder.embed_query` vector that search uses, which travels on in the verdict and the Trigger. The model is `question_model.json`, retrained
 with scripts/train_classifier.py. If the embedder fails or takes over 150 ms, the CPU rules in question_rules decide
 (logged once)."""
 import json
@@ -19,7 +20,11 @@ from fleck_helper import question_rules as rules
 
 MODEL_PATH = Path(__file__).with_name("question_model.json")
 EMBED_TIMEOUT_S = 0.15  # the live budget; over it, the rules decide
-Embed = Callable[[str], list[float]]
+CLASSIFY_TASK = ("Decide whether this line, spoken by a client on a sales call, is a substantive question about the vendor, "
+                 "the engagement or the solution that the vendor should answer, rather than small talk, call logistics, "
+                 "scheduling or a request to send something")
+# text -> (classification vector, search vector or None)
+Embed = Callable[[str], tuple[list[float], list[float] | None]]
 log = logging.getLogger(__name__)
 
 # Shape gate: permissive on purpose, the model decides relevance.
@@ -85,6 +90,7 @@ def question_text(transcript: str) -> str | None:
 @cache
 def model() -> dict:
     m = json.loads(MODEL_PATH.read_text())
+    assert m["classify_instruction"] == CLASSIFY_TASK, "question_model.json was trained with another instruction"
     m["weights"] = np.asarray(m["weights"], np.float64)
     return m
 
@@ -104,12 +110,14 @@ _embedder = None
 _fell_back = False
 
 
-def live_embed(text: str, timeout: float = EMBED_TIMEOUT_S) -> list[float]:
+def live_embed(text: str, timeout: float = EMBED_TIMEOUT_S) -> tuple[list[float], list[float]]:
+    """Both vectors in one /api/embed request: the classification input and exactly `Embedder.embed_query`'s input."""
     global _embedder
+    from fleck_core.retrieval import QUERY_TASK, Embedder
     if _embedder is None or _embedder.timeout != timeout:
-        from fleck_core.retrieval import Embedder
         _embedder = Embedder(os.environ.get("FLECK_OLLAMA_URL", "http://localhost:11434"), timeout=timeout)
-    return _embedder.embed_query(text)
+    cls, search = _embedder.embed([f"Instruct: {CLASSIFY_TASK}\nQuery: {text}", f"Instruct: {QUERY_TASK}\nQuery: {text}"])
+    return cls, search
 
 
 def classify(transcript: str, speaker: Literal["client", "you", "overlap"], embed: Embed | None = None) -> QuestionVerdict:
@@ -119,7 +127,7 @@ def classify(transcript: str, speaker: Literal["client", "you", "overlap"], embe
     if q is None:
         return QuestionVerdict(False, 0.0, "no question-shaped sentence")
     try:
-        vec = (embed or live_embed)(q)
+        vec, search = (embed or live_embed)(q)
     except Exception as e:
         if not _fell_back:
             log.warning("question classifier fell back to rules (embedder: %r); logged once", e)
@@ -127,7 +135,7 @@ def classify(transcript: str, speaker: Literal["client", "you", "overlap"], embe
         v = rules.rule_classify(transcript)
         ok = v.is_question and v.confidence >= rules.MIN_CONFIDENCE
         return QuestionVerdict(ok, 1.0 if ok else 0.0, f"rules fallback: {v.reason}", q)
-    return QuestionVerdict(True, score(vec), "question shape, model score", q, list(vec))
+    return QuestionVerdict(True, score(vec), "question shape, model score", q, search)
 
 
 def triggers(transcript: str, speaker: str, min_confidence: float | None = None, embed: Embed | None = None) -> bool:

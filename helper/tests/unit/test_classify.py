@@ -89,11 +89,12 @@ def test_only_client_triggers(cached_embed):
     assert not triggers(q, "you", embed=cached_embed) and not triggers(q, "overlap", embed=cached_embed)
 
 
-def test_vector_and_question_come_back(cached_embed):
+def test_search_vector_and_question_come_back(cached_embed):
+    search = [0.25] * 1024  # stands in for the embed_query vector fetched in the same request
     v = classify("Okay, that is about what we expected. How quickly could you have a team working on this?", "client",
-                 cached_embed)
+                 lambda q: (cached_embed(q)[0], search))
     assert v.question == "How quickly could you have a team working on this?"
-    assert len(v.embedding) == 1024 and v.confidence >= clf.trigger_threshold()
+    assert v.embedding == search and v.confidence >= clf.trigger_threshold()
 
 
 def test_rules_decide_when_the_embedder_fails(caplog, monkeypatch):
@@ -122,10 +123,19 @@ def test_shape_gate_is_fast():
 
 
 @pytest.mark.ollama
+def test_live_search_vector_is_embed_query():
+    from fleck_core.retrieval import Embedder
+    q = "Who owns the code you write for us?"
+    search = np.asarray(clf.live_embed(q, timeout=30)[1])
+    ref = np.asarray(Embedder("http://localhost:11434", timeout=30).embed_query(q))
+    assert search @ ref / np.linalg.norm(search) / np.linalg.norm(ref) > 0.999
+
+
+@pytest.mark.ollama
 def test_cache_matches_live_embedder(embedding_cache):
     keys = sorted(embedding_cache)[:: max(1, len(embedding_cache) // 20)]
     for k in keys:
-        live = np.asarray(clf.live_embed(k, timeout=30))
+        live = np.asarray(clf.live_embed(k, timeout=30)[0])
         cached = embedding_cache[k].astype(np.float64)
         cos = live @ cached / np.linalg.norm(live) / np.linalg.norm(cached)
         assert cos > 0.999, (k, cos)

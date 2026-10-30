@@ -21,7 +21,9 @@ from fleck_helper import classify
 ROOT = Path(__file__).parents[1]
 TRAIN = ROOT / "fixtures/classifier/train.json"
 CACHE = ROOT / "helper/tests/unit/data/question_embeddings.npz"
-L2 = 1e-4  # ridge strength; chosen by CV recall at the FPR cap (see the build log), not on any held-out file
+# Ridge strength, by 5-fold CV recall at FPR <= 2% with CLASSIFY_TASK (fix round 4):
+# 3e-5 -> 0.892, 1e-5 -> 0.905, 3e-6 -> 0.894, 1e-6 -> 0.892. Never chosen on a held-out file.
+L2 = 1e-5
 MAX_CV_FPR = 0.02  # the threshold is the lowest one whose cross-validated false-positive rate stays at or under this
 # Question texts the CI tests embed besides the training lines (pipeline tests); a missing one fails those tests.
 CI_EXTRA = [
@@ -41,8 +43,8 @@ def _texts(path: Path) -> tuple[list[str], np.ndarray]:
 
 
 def embed(questions: list[str]) -> np.ndarray:
-    """Exactly `Embedder.embed_query`, batched."""
-    vecs = Embedder(URL, timeout=300).embed([f"Instruct: {QUERY_TASK}\nQuery: {q}" for q in questions])
+    """The classification vectors, exactly as `classify.live_embed` asks for them, batched."""
+    vecs = Embedder(URL, timeout=300).embed([f"Instruct: {classify.CLASSIFY_TASK}\nQuery: {q}" for q in questions])
     x = np.asarray(vecs, np.float64)
     return x / np.linalg.norm(x, axis=1, keepdims=True)
 
@@ -85,8 +87,8 @@ def train(l2: float = L2):
     idx = np.flatnonzero(shaped)
     x = np.zeros((len(texts), 1024))
     x[idx] = embed([qs[i] for i in idx])
-    probe = np.asarray(Embedder(URL, timeout=60).embed_query(qs[idx[0]]))
-    assert np.dot(probe / np.linalg.norm(probe), x[idx[0]]) > 0.999, "batched embedding differs from embed_query"
+    probe = np.asarray(classify.live_embed(qs[idx[0]], timeout=60)[0])
+    assert np.dot(probe / np.linalg.norm(probe), x[idx[0]]) > 0.999, "batched embedding differs from live_embed"
 
     rng = np.random.default_rng(0)
     fold = np.empty(len(y), int)
@@ -111,7 +113,8 @@ def train(l2: float = L2):
     fit_m = metrics(p, y, threshold)
     print(f"train (fit on all): {fit_m}")
     digest = next(m["digest"] for m in httpx.get(f"{URL}/api/tags", timeout=10).json()["models"] if m["name"] == EMBED_MODEL)
-    out = {"embed_model": EMBED_MODEL, "embed_digest": digest, "query_instruction": QUERY_TASK,
+    out = {"embed_model": EMBED_MODEL, "embed_digest": digest, "classify_instruction": classify.CLASSIFY_TASK,
+           "search_instruction": QUERY_TASK, "l2": l2,
            "threshold": threshold, "bias": round(float(b), 6), "weights": [round(float(v), 6) for v in w],
            "train_counts": {"trigger": int(y.sum()), "no_trigger": int((1 - y).sum()), "shape_passed": int(shaped.sum())},
            "cv": {"folds": 5, "max_fpr": MAX_CV_FPR, "at_threshold": cv, "at_0.5": cv_05}, "train": fit_m,

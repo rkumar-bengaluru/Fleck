@@ -88,10 +88,12 @@ def test_separate_turns_classified_apart():
 def test_unpunctuated_segment_does_not_hide_the_question():
     a = _clip(1)
     audio = np.concatenate([_silence(500), a, _silence(700), a, _silence(1500)])
-    out, _ = _run(_frames(audio), {"client": ["we close our budget cycle just before that", "Who owns the code you write for us?"]})
+    search = [0.25] * 1024  # stands in for the embed_query vector the live path fetches with the classify vector
+    tr = FakeTranscriber({"client": ["we close our budget cycle just before that", "Who owns the code you write for us?"]})
+    out = list(Pipeline("m1", tr, embed=lambda q: (EMBED(q)[0], search)).run(Src(_frames(audio))))
     trig = [e for e in out if isinstance(e, Trigger)]
     assert [e.question for e in trig] == ["Who owns the code you write for us?"]  # the question part, for search
-    assert len(trig[0].embedding) == 1024  # the classifier's vector, reused by search (decision 94)
+    assert trig[0].embedding == search  # the search vector travels on to Tasks 13 and 14 (decision 94)
 
 
 def test_gap_mid_question_never_triggers():

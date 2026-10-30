@@ -303,3 +303,13 @@ Live §8 questions (title, kind, nearest-vector distance):
   - measure.py on conversation-bleed.wav (live 150 ms budget, non-realtime): 8/8, 0 false triggers, 0 rules fallbacks.
   - Mac replay (2 s embed budget): 0/0/0 and 8/8 on all three WAVs.
   - Suites: `uv run pytest -m "not ollama" -q` 331 passed, 6 deselected, EXIT 0 (the 144 parametrised regression cases moved into training data); `uv run --all-packages pytest helper/tests -q` 81 passed, 1 deselected, EXIT 0; `-m ollama` (cache vs live embedder) 1 passed, EXIT 0.
+- Fix round 4 (controller ruling, decision 94 amended): classification-instructed embeddings.
+  - Training data: train.json with the controller's 458 independent lines, 676 trigger and 805 no_trigger.
+  - Retrain with CLASSIFY_TASK and L2 1e-5 (threshold 0.6886):
+    - CV: recall 0.905 at FPR 0.0186; at 0.5, recall 0.941 at FPR 0.044.
+    - Fit on all train: accuracy 0.974, recall 0.947, FPR 0.0025.
+    - The shape gate rejects 5 trigger lines: 3 under 4 words, 2 "Can you share how/some…" (send/share policy).
+  - The live 2-input /api/embed call (classify + search), warm, n=120: median 45.8 ms, p95 47.5 ms, max 49.7 ms.
+  - CI cache: 1034 classification vectors, 1.98 MB.
+  - measure.py on the live 150 ms path: conversation.wav and conversation-bleed.wav 8/8 with 0 false triggers each, negative.wav 0/0, 0 rules fallbacks. The Mac replay tests also give 0/0/0 and 8/8.
+  - Suites: `uv run pytest -m "not ollama" -q` 331 passed, 7 deselected, EXIT 0; `uv run --all-packages pytest helper/tests -q` 81 passed, 2 deselected, EXIT 0; `-m ollama` 2 passed, EXIT 0.

@@ -8,6 +8,10 @@ import logging
 
 import pytest
 
+import sys
+import types
+
+from fleck_helper import audio
 from fleck_helper.audio import FRAME, SR, AudioChunkWriter, Frame, Gap, LiveSource, ReplaySource, Resampler, Unavailable
 
 
@@ -85,8 +89,9 @@ class _FakeCapture:
     1 + their own timestamp, so the test can measure skew and loss."""
     SPEED = 4
 
-    def __init__(self, push, stall=None, stop_at=None, fail_first=False):
+    def __init__(self, push, stall=None, stop_at=None, fail_first=False, delay=None, stamp_offset=None):
         self.push, self.stall, self.stop_at, self.fail_first = push, stall or {}, stop_at, fail_first
+        self.delay, self.stamp_offset = delay or {}, stamp_offset or {}
         self._r0, self.system_starts = time.monotonic(), 0
         self.stopped, self.client_on = threading.Event(), threading.Event()
 
@@ -96,7 +101,7 @@ class _FakeCapture:
     def _run(self, stream):
         t = self.now()
         while not self.stopped.is_set():
-            while self.now() < t + 0.02:
+            while self.now() < t + 0.02 + self.delay.get(stream, 0):
                 time.sleep(0.001)
             if stream == "client" and self.stop_at is not None and t >= self.stop_at:
                 self.stop_at = None
@@ -104,7 +109,7 @@ class _FakeCapture:
                 self.push("stopped")
             a, b = self.stall.get(stream, (-1, -1))
             if not a <= t < b and (stream == "you" or self.client_on.is_set()):
-                self.push(stream, (1 + t + np.arange(FRAME) / SR).astype(np.float32), t)
+                self.push(stream, (1 + t + np.arange(FRAME) / SR).astype(np.float32), t + self.stamp_offset.get(stream, 0))
             t += 0.02
 
     def start_mic(self):
@@ -194,3 +199,103 @@ def test_queue_overflow_drops_oldest_and_marks_gap(monkeypatch, caplog):
     assert len([r for r in caplog.records if "queue full" in r.message]) == 1
     _continuous(frames, "client", 6000, 7000)
     _skew_ok(frames)
+
+
+def _client_share(frames, from_ms, to_ms):
+    v = [f.client[0] != 0 for f in frames if from_ms <= f.t_ms < to_ms]
+    return sum(v) / len(v)
+
+
+def test_late_client_delivery_keeps_most_audio():
+    _, frames, gaps, _ = _live(4000, delay={"client": 0.4})  # every buffer arrives 0.4 s after its timestamp
+    assert gaps == [] and _client_share(frames, 1000, 4000) >= 0.95  # all 150 slots of the last 3 s, bar a few
+    _skew_ok(frames)  # waiting longer keeps the true timestamps
+
+
+@pytest.mark.parametrize("offset", [50.0, -50.0, 1e6])
+def test_client_timestamps_off_the_host_clock_fall_back_to_arrival(offset, caplog):
+    with caplog.at_level(logging.WARNING, logger="fleck_helper.audio"):
+        _, frames, gaps, _ = _live(3000, stamp_offset={"client": offset})
+    assert gaps == [] and _client_share(frames, 1000, 3000) >= 0.95
+    assert len([r for r in caplog.records if "off the host clock" in r.message]) == 1
+
+
+def test_zero_fill_is_bounded():
+    st = audio._Stream()
+    st.place(np.ones(FRAME, np.float32), 10**12)  # absurd index: would be a 4 TB allocation
+    assert len(st.buf) <= LiveSource.MAX_AHEAD_S * SR + FRAME
+
+
+def test_control_messages_survive_queue_overflow(monkeypatch):
+    monkeypatch.setattr(LiveSource, "QUEUE_MAX", 20)
+    cap, frames, gaps, _ = _live(7000, pause_after=1000, stop_at=2.5)  # the stop is pushed while the queue overflows
+    assert cap.system_starts == 2  # the "stopped" message got through and the stream was restarted
+    assert [g.stream for g in gaps] == ["both", "client"]
+    _continuous(frames, "client", 6000, 7000)
+
+
+class _FakeEngine:
+    running, starting, max_starting, lock = set(), [0], [0], threading.Lock()
+
+    def __init__(self):
+        node = types.SimpleNamespace(
+            setVoiceProcessingEnabled_error_=lambda on, e: (True, None),
+            outputFormatForBus_=lambda b: types.SimpleNamespace(sampleRate=lambda: 48000.0),
+            installTapOnBus_bufferSize_format_block_=lambda *a: None, removeTapOnBus_=lambda b: None)
+        self.inputNode = lambda: node
+
+    def startAndReturnError_(self, e):
+        with self.lock:
+            self.starting[0] += 1
+            self.max_starting[0] = max(self.max_starting[0], self.starting[0])
+        time.sleep(0.05)
+        with self.lock:
+            self.starting[0] -= 1
+            self.running.add(self)
+        return True, None
+
+    def stop(self):
+        self.running.discard(self)
+
+
+@pytest.fixture
+def fake_av(monkeypatch):
+    _FakeEngine.running.clear()
+    _FakeEngine.max_starting[0] = 0
+    engine_cls = types.SimpleNamespace(alloc=lambda: types.SimpleNamespace(init=_FakeEngine))
+    center = types.SimpleNamespace(addObserverForName_object_queue_usingBlock_=lambda *a: object(), removeObserver_=lambda o: None)
+    monkeypatch.setitem(sys.modules, "AVFoundation", types.SimpleNamespace(
+        AVAudioEngine=engine_cls, AVAudioEngineConfigurationChangeNotification="change", AVAudioTime=None))
+    monkeypatch.setitem(sys.modules, "Foundation", types.SimpleNamespace(
+        NSNotificationCenter=types.SimpleNamespace(defaultCenter=lambda: center)))
+    return _FakeEngine
+
+
+def _settle(cond, timeout=3.0):
+    end = time.monotonic() + timeout
+    while not cond() and time.monotonic() < end:
+        time.sleep(0.01)
+
+
+def test_mic_route_change_burst_restarts_once_at_a_time(fake_av):
+    pushed = []
+    cap = audio._MacCapture(lambda kind, x=None, host_s=None: pushed.append((kind, x)))
+    cap.start_mic()
+    for _ in range(5):
+        cap._on_config_change(None)
+    assert pushed == [("interrupted", "you")] * 5  # sent at notification time
+    _settle(lambda: not cap._mic_restarting)
+    assert fake_av.max_starting[0] == 1 and len(fake_av.running) == 1 and cap.engine in fake_av.running
+    cap.stop()
+    assert not fake_av.running
+
+
+def test_stop_during_mic_restart_leaves_nothing_running(fake_av):
+    cap = audio._MacCapture(lambda *a: None)
+    cap.start_mic()
+    cap._on_config_change(None)
+    time.sleep(0.01)  # the restart is inside startAndReturnError_
+    cap.stop()
+    _settle(lambda: not cap._mic_restarting)
+    time.sleep(0.1)
+    assert not fake_av.running and cap.engine is None

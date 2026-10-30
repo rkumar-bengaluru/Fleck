@@ -234,3 +234,13 @@ Live §8 questions (title, kind, nearest-vector distance):
   - Replay of conversation.wav is unchanged: 56 finals, 21.8 s.
   - Suites: `pytest -m "not ollama" -q` 283 passed, EXIT 0; `pytest helper/tests -v` 33 passed, EXIT 0.
   - Gap rule tightened: only a stopped/failed stream, a mic restart or a queue overflow (one Gap, stream "both") marks a gap; 10 s with no client buffers gives none. Suites: `pytest -m "not ollama" -q` 284 passed, EXIT 0; `pytest helper/tests -v` 34 passed, EXIT 0.
+- Fix round 2:
+  - Late or mis-stamped audio:
+    - A stream that delivers late now widens the slot wait, up to 1 s, so client buffers arriving 0.4 s late keep at least 95% of their audio (it was 0%).
+    - Timestamps more than 2 s off arrival fall back to arrival time, logged once per stream. Offsets of ±50 s and 1e6 s now keep the client audio.
+    - Audio arriving after its slot went out is logged at most once every 10 s.
+    - Zero-fill is capped at 5 s.
+  - The queue never drops control messages.
+  - Mic and system start/stop are serialized and only one mic restart runs at a time; "interrupted" is sent at notification time.
+  - Live mic check: 250 frames, continuous after 0.8 s of startup, no late-drop logs.
+  - Suites: `uv run pytest -m "not ollama" -q` 292 passed, EXIT 0; `uv run pytest helper/tests -q` 42 passed, EXIT 0.

@@ -29,3 +29,7 @@ Columns: **What** was decided · **Options** considered · **Why** · **Critic**
 | 21 | 2026-10-30 | Embeddings `qwen3-embedding:0.6b` (rupak.k's suggestion) | `nomic-embed-text` | Better retrieval for ~0.5 GB more | — |
 | 22 | 2026-10-30 | Latency measures: brief-answer match, start on partial text, ≤3 passages with warm prefix, `qwen3:4b` fallback | Rely on 8B speed alone | Estimated first-word time 2.2–2.8 s leaves little headroom under 3 s | — |
 | 23 | 2026-10-30 | Measure the latency budget as the first build task | Measure at the end | Everything live depends on it | — |
+| 24 | 2026-10-30 | Read rupak.k's "prioritise recall" as precision first (zero false triggers is the blocker) | Recall first | The same text says false triggers cost more than misses | — |
+| 25 | 2026-10-30 | Speaker-gate thresholds tuned on the bleed recording | Tune on clean audio | On speakers the mic hears the client; clean audio would set thresholds that never fire | — |
+| 26 | 2026-10-30 | Meeting-logistics questions added to the negative set | Short acknowledgements only | "Can you see my screen?" is the likeliest false trigger | — |
+| 27 | 2026-10-30 | Speculative work on partials allowed, display only on final | Drop "start early" | Keeps the latency gain without repeated triggers | — |

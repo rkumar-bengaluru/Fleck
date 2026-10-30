@@ -103,7 +103,7 @@ Time from the client finishing a question to the first words on screen (estimate
 |---|---|
 | End of speech detected (silence) | ~0.6 s |
 | Whisper finalises the last window | 0.3–0.5 s |
-| Question recognised + hybrid search | ~0.2 s |
+| Question classified (CPU, no LLM, §7.2) + hybrid search | ≤ 0.05 s + ~0.15 s |
 | `qwen3:8b` reads ~1,000 prompt tokens, first token out | 1–1.5 s |
 | **First words** | **~2.2–2.8 s** against the 3 s target |
 
@@ -114,7 +114,35 @@ To keep headroom: **(Claude's call)**
 3. **Small, warm prompt.** At most 3 passages (~800 tokens); a fixed instruction prefix so its cache is reused; all models loaded (`keep_alive`) from when recording starts.
 4. **Fallback model.** If `qwen3:8b` misses the target when measured, switch to `qwen3:4b`.
 
+Item 2 never shows anything on screen: an answer is shown only after the final-text trigger in §7.2.
+
 Measuring this budget on rupak.k's Mac is the first task of the build. If the measured numbers can't meet §5, work stops and goes back to rupak.k.
+
+### 7.2 Question detection (rupak.k's design, with Claude's adjustments marked)
+
+The pipeline is fixed: **VAD-flushed segment → speaker gate → local classifier → trigger.** No LLM call and no diarization.
+
+1. **Segments, not streams.** Whisper is not truly streaming. "Partials" are re-inferences of the current audio chunk and are treated as an early preview only. A segment becomes final when VAD sees end of speech (300–700 ms of silence, counted in §7.1).
+2. **Speaker gate.** Call audio is **Client** and mic audio is **You** by construction (separate streams). For triggering, smoothed RMS energy decides whether the segment is clean client speech:
+   `client_speech = sys_energy > mic_energy × 1.5 AND mic_energy < silence_threshold`.
+   Both channels active means **overlap**: never a trigger. Multiplier and threshold are tuned on the **bleed** recording (call audio leaking into the mic through the speakers, after Apple's echo cancellation), not on clean audio. **(Tuning on bleed: Claude's adjustment.)**
+3. **Classifier contract.**
+   ```
+   classify(transcript: str, speaker: Literal["client", "you", "overlap"]) -> QuestionVerdict
+   QuestionVerdict: is_question: bool, confidence: float, reason: str
+   ```
+   It runs on CPU in under 50 ms, so it never competes with Whisper or Qwen for the GPU. The pipeline triggers only when `speaker == "client"`, `is_question` and `confidence ≥` a configured threshold. The implementation behind the contract (rules plus a small CPU model) is replaceable without touching the pipeline.
+4. **Trigger once, on final text.** Only final segments can trigger, and each `segment_id` triggers at most once. Speculative search and prompt reading on partials (§7.1, item 2) stay invisible.
+5. **Precision first.** A false trigger interrupts the salesperson mid-sentence; a missed question can be asked again. **(rupak.k's text said both "false triggers cost more" and "prioritise recall"; Claude reads it as precision first.)**
+
+**Negative-sample test (a blocker, not a description).** A committed negative set of 10–15 minutes, both speakers, generated like the test conversation (§8):
+- very short segments under 1 s ("uh-huh", "okay", "got it", "hmm")
+- 2–3 s small talk and confirmations
+- meeting-logistics questions that are not for the library: "Can you see my screen?", "Can you hear me?", "Shall we move on?" **(Claude's addition: the most likely false triggers.)**
+
+Assertion: **zero** triggers on the whole set, reported separately for short and medium segments. Any trigger fails the build. This is stricter than the ≤ 1 false trigger per 10 minutes in §5, which still applies to the full test conversation.
+
+**Known limit.** A colleague of the salesperson who joins the call remotely is heard through call audio and treated as **Client**.
 
 ## 8. The test conversation
 
@@ -151,4 +179,4 @@ Live capture is checked by hand before hand-over: one real call on speakers in a
 
 ## 11. Left to Claude
 
-Milestone breakdown; data model; REST routes; UI layout and copy; prompt wording; question-detection method; streaming window settings; chunk sizes; how "used it" is measured; ports and service names.
+Milestone breakdown; data model; REST routes; UI layout and copy; prompt wording; classifier implementation behind the §7.2 contract and its thresholds; streaming window settings; chunk sizes; how "used it" is measured; ports and service names.

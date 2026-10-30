@@ -26,3 +26,6 @@ Columns: **What** was decided · **Options** considered · **Why** · **Critic**
 | 18 | 2026-10-30 | Hand-over on `gsim`; real Google switched on via `.env`, checked by hand | Real Google only | Works without Google Cloud setup | — |
 | 19 | 2026-10-30 | Whole-system audio capture; manual check in Meet (browser) and Zoom | Per-app capture | One path covers every app | — |
 | 20 | 2026-10-30 | Helper signed with a local self-signed certificate | Ad-hoc signing; Apple Developer ID | Keeps macOS permissions across rebuilds, no paid account | — |
+| 21 | 2026-10-30 | Embeddings `qwen3-embedding:0.6b` (rupak.k's suggestion) | `nomic-embed-text` | Better retrieval for ~0.5 GB more | — |
+| 22 | 2026-10-30 | Latency measures: brief-answer match, start on partial text, ≤3 passages with warm prefix, `qwen3:4b` fallback | Rely on 8B speed alone | Estimated first-word time 2.2–2.8 s leaves little headroom under 3 s | — |
+| 23 | 2026-10-30 | Measure the latency budget as the first build task | Measure at the end | Everything live depends on it | — |

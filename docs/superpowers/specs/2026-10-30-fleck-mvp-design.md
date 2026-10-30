@@ -74,7 +74,7 @@ iOS, Android, Windows; Outlook calendar; billing, pricing tiers, admin console, 
 | Call audio | ScreenCaptureKit (system audio); mic via AVAudioEngine with Apple voice processing (echo cancellation, since rupak.k uses speakers) | No bot joins the call |
 | Live transcription | `mlx-whisper`, `large-v3-turbo`, on the Mac's GPU | Fast enough to keep up with speech, no network |
 | Local model | Ollama, `qwen3:8b` (4-bit, ~5 GB), thinking mode off | Best ~8B model at answering only from the passages it's given; fits next to Whisper in 24 GB |
-| Embeddings | Ollama `nomic-embed-text`, called by Weaviate's `text2vec-ollama` module | Local, one model server for both |
+| Embeddings | Ollama `qwen3-embedding:0.6b`, called by Weaviate's `text2vec-ollama` module | Better retrieval than smaller embedders for ~0.5 GB more; one model server for both (rupak.k's suggestion) |
 | Ollama placement | Native on macOS, not in Docker | Docker on macOS can't use the GPU |
 | Vector search | Weaviate, hybrid (keyword + vector) search, one tenant per team | Hybrid search catches exact terms like "SLA" and "BOPIS" |
 | Document parsing | `markitdown` (PDF, DOCX, PPTX, XLSX → Markdown) | One library for every format the team uses |
@@ -85,6 +85,36 @@ iOS, Android, Windows; Outlook calendar; billing, pricing tiers, admin console, 
 | Google | Real Google OAuth + Calendar; `gsim`, a small Google simulator, for tests and the demo | Tests and the Walker video need a fixed sign-in and calendar |
 | Test audio | Scripted conversation spoken with macOS `say` voices, stereo WAV: left = salesperson, right = client | Built in, no extra install; WAVs committed so tests run anywhere |
 | Tests | pytest (api, worker, helper pipeline), Vitest (web), Playwright end to end | |
+
+### 7.1 Memory and latency budget
+
+All three models share one GPU on the Mac. Memory fits; latency is the tight part, because every generated token rereads the model's weights and the local model must read the retrieved passages before its first word.
+
+| Model | Memory |
+|---|---|
+| Whisper `large-v3-turbo` | ~2 GB |
+| `qwen3:8b` 4-bit + KV cache (4k context) | ~6–7 GB |
+| `qwen3-embedding:0.6b` | ~0.5–1 GB |
+| **Total** | **~8.5–10 GB** of 24 GB, leaving room for macOS, Docker, browser and the call app |
+
+Time from the client finishing a question to the first words on screen (estimates, to be measured):
+
+| Step | Estimate |
+|---|---|
+| End of speech detected (silence) | ~0.6 s |
+| Whisper finalises the last window | 0.3–0.5 s |
+| Question recognised + hybrid search | ~0.2 s |
+| `qwen3:8b` reads ~1,000 prompt tokens, first token out | 1–1.5 s |
+| **First words** | **~2.2–2.8 s** against the 3 s target |
+
+To keep headroom: **(Claude's call)**
+
+1. **Answer from the brief first.** The pre-meeting brief's answers are stored; a live question that matches one shows its answer at once, with no generation.
+2. **Start early.** Search and the model's prompt reading start on Whisper's partial text when it looks like a question; the work is dropped if the final text differs.
+3. **Small, warm prompt.** At most 3 passages (~800 tokens); a fixed instruction prefix so its cache is reused; all models loaded (`keep_alive`) from when recording starts.
+4. **Fallback model.** If `qwen3:8b` misses the target when measured, switch to `qwen3:4b`.
+
+Measuring this budget on rupak.k's Mac is the first task of the build. If the measured numbers can't meet §5, work stops and goes back to rupak.k.
 
 ## 8. The test conversation
 

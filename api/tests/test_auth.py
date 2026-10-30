@@ -55,7 +55,7 @@ def test_sign_in_allowed_domain(env):
         enc = s.scalar(select(GoogleToken.token_enc))
         assert "gsim-at" not in enc and "gsim-rt" not in enc
         assert s.scalar(select(Job.kind)) == "sync_calendar"
-        assert run_once(s) and s.scalar(select(Job.status)) == "done"  # placeholder keeps the worker green
+        assert run_once(s) and s.scalar(select(Job.status)) == "done"  # the real sync, against the in-process gsim
     assert client.post("/api/auth/logout").status_code == 204
     assert client.get("/api/me").status_code == 401
 

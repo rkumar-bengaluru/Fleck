@@ -54,6 +54,7 @@ class Device(Base):
     user_id: Mapped[int] = _fk("users")
     name: Mapped[str | None]
     token_hash: Mapped[str] = mapped_column(String, unique=True)
+    last_seen: Mapped[datetime | None]
     created_at: Mapped[datetime] = _now()
 
 

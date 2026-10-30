@@ -179,3 +179,11 @@ Live §8 questions (title, kind, nearest-vector distance):
 - q_case: Case study: Calloway & Marsh client 0.445, 0.502; Capabilities firm 0.520
 - q_general: Photronics outsourcing agreement reference 0.592; Kubient MSA, part 2 reference 0.584 (nothing firm passes the gate, as intended)
 - q_price: Proposal: Order management modernisation client 0.526; Rate card T&M firm 0.535; Rate card "Fixed price" firm 0.592
+
+## 2026-10-30 Task 9: calendar sync, web shell, Today and client link
+
+- `calendar_sync.py`: job `sync_calendar(user_id)` reads now-12 h..now+7 d (`singleEvents`, paged), skips cancelled, all-day and self-declined events, takes `meeting_link` from `hangoutLink`, `conferenceData` video entry point, or the first Zoom/Teams/Webex/Meet URL in location/description, upserts by (user, `google_event_id`) without touching `client_id`, and deletes rows in the window Google no longer returns. Expired access tokens are refreshed with the refresh-token grant and stored re-encrypted; a failed refresh logs and skips the user. The worker enqueues a sync for every user with tokens every 5 min unless one is queued or running for them.
+- REST: `GET /api/events?range=today|upcoming&tz=<IANA>` (today = the user's local day; default the server's zone), `GET /api/events/{id}`, `PUT /api/events/{id}/client`, minimal `GET /api/devices` (migration 0004 adds `devices.last_seen`; Task 15 extends it).
+- Web (`web/`, Vite 8 + React 19 + TS 7, pnpm): shell with nav, Sign in with Google, Today as in `WebToday.dc.html`, Settings (sign out). Compose service `web` (vite on 5173, `/api` proxied to `api:8000`, Origin kept). CI: pnpm install, `tsc --noEmit`, vitest. Playwright needs the whole stack and runs locally only.
+- Suites: `uv run --all-packages pytest -m "not ollama" -q` 223 passed EXIT 0; vitest 3 passed; `tsc --noEmit` exit 0; Playwright `web/e2e/signin-today.spec.ts` 1 passed (1.1 s) against `make up` (sign in through gsim as rupak@northbeam.test, see Presales: demo prospect, link Harbourline Legal, reload, still linked).
+- Screenshot of Today on the live stack: [docs/superpowers/screenshots/today.png](screenshots/today.png).

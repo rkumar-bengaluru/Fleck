@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from fleck_api.config import setting
 from fleck_api.db import get_session
-from fleck_api.jobs import enqueue, job
+from fleck_api.jobs import enqueue
 from fleck_api.models import GoogleToken, User, UserSession
 
 log = logging.getLogger("fleck.auth")
@@ -29,10 +29,12 @@ def _urls() -> dict[str, str]:
     """Browser-facing URLs (consent page) and server-side URLs (api -> gsim by service name) are separate."""
     if setting("FLECK_GOOGLE_MODE", "gsim") == "google":
         return {"auth": "https://accounts.google.com/o/oauth2/v2/auth", "token": "https://oauth2.googleapis.com/token",
-                "userinfo": "https://openidconnect.googleapis.com/v1/userinfo"}
+                "userinfo": "https://openidconnect.googleapis.com/v1/userinfo",
+                "calendar": "https://www.googleapis.com/calendar/v3/calendars/primary/events"}
     server = setting("FLECK_GSIM_URL", "http://localhost:8090")
     return {"auth": setting("FLECK_GSIM_PUBLIC_URL", "http://localhost:8090") + "/o/oauth2/v2/auth",
-            "token": server + "/token", "userinfo": server + "/oauth2/v3/userinfo"}
+            "token": server + "/token", "userinfo": server + "/oauth2/v3/userinfo",
+            "calendar": server + "/calendar/v3/calendars/primary/events"}
 
 
 def http_client() -> httpx.Client:  # tests swap this for an in-process gsim
@@ -180,8 +182,3 @@ def logout(response: Response, fleck_session: str | None = Cookie(None), _u: Use
 def me(u: User = Depends(current_user)):
     return {"id": u.id, "email": u.email, "name": u.name}
 
-
-# Placeholder so the worker does not fail the job; the real handler is Task 9 (calendar_sync.py).
-@job("sync_calendar")
-def _sync_calendar_placeholder(session: Session, payload: dict) -> None:
-    log.info("sync_calendar for user %s: handler arrives in Task 9", payload.get("user_id"))

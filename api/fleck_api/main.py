@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
-from fleck_api import auth, library
+from fleck_api import auth, calendar_sync, library
 from fleck_api.config import setting
 
 
@@ -42,6 +42,7 @@ def create_app() -> FastAPI:
         return await call_next(request)
     app.include_router(auth.router)
     app.include_router(library.router)
+    app.include_router(calendar_sync.router)
 
     @app.get("/api/health")
     def health():

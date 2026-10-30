@@ -57,5 +57,11 @@ services:
     depends_on:
       postgres: {condition: service_healthy}
       api: {condition: service_healthy}
+  web:
+    restart: unless-stopped
+    build: {context: ../web}
+    environment: {FLECK_API_PROXY: "http://api:8000"}  # the proxy keeps the browser's Origin for the api's origin guard
+    ports: ["127.0.0.1:5173:5173"]
+    depends_on:
+      api: {condition: service_healthy}
 volumes: {pgdata: {}, miniodata: {}, weaviatedata: {}}
-# web is added in Task 9

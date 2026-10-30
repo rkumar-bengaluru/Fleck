@@ -179,8 +179,8 @@ def stream_library_answer(question: str, passages: list[Passage], client_names: 
         nonlocal pos, index, shown, held, first_words, pending
         pieces = split_sentences(text[pos:])
         n = len(pieces) if final else len(pieces) - 1
-        if not final and n > 0 and pieces[-1].startswith("["):
-            n -= 1  # "... end. [" : the citation marker is still arriving
+        if not final and n > 0 and (pieces[-1].startswith("[") or re.fullmatch(r"[1-9]", pieces[-1].strip())):
+            n -= 1  # "... end. [" or "... end. 1": the citation marker is still arriving
         for piece in pieces[:n]:
             pos = text.index(piece, pos) + len(piece)
             checked = check_library_answer(piece, passages, client_names, question).sentences
@@ -245,6 +245,10 @@ def stream_library_answer(question: str, passages: list[Passage], client_names: 
             if tok is _EOS:
                 if _none_state(text, final=True) == "none":
                     break
+                # "…per month when offshore. 1": a bare passage number ending the reply is its citation (seen live
+                # when Whisper split the question; mid-stream a digit could still start a figure, so only here)
+                text = re.sub(r"(?<=[.!?])\s+([1-9])\s*$",
+                              lambda m: f" [{m[1]}]" if int(m[1]) <= len(passages) else m[0], text)
                 yield from emit(final=True)
                 yield done()
                 return

@@ -314,3 +314,9 @@ def test_parenthesised_count_is_not_a_citation():
     ev = probe("Mixed teams have leads (3). We name a lead [2].", passages=(PROBE_RATE, PROBE_FAQ))
     assert sents(ev) == [(0, "", False, "uncited"), (1, "We name a lead.", True, None)]
     assert "citation_out_of_range" not in ev[-1].check.reasons
+
+
+def test_bare_number_ending_the_reply_is_its_citation():
+    ev = run(["A senior engineer costs 5,200 per month when offshore.", " 1"])
+    assert ev[-1].check.ok and sents(ev)[0][1] == "A senior engineer costs 5,200 per month when offshore."
+    assert not run(["Mixed teams are common.", " 7"])[-1].check.ok  # not a passage number: still uncited

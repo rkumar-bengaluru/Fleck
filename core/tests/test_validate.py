@@ -126,3 +126,17 @@ def test_fallback_blocks(answer):
 
 def test_fallback_allows_retry_advice():
     assert check_fallback("Restore the backup and retry 3 times.", ["Larkspur Retail Group"]).ok
+
+
+@pytest.mark.parametrize("answer,ok", [
+    ("It costs $5,200 annually. [1]", False), ("It costs $5,200 yearly. [1]", False), ("It costs $5,200 p.a. [1]", False),
+    ("It costs $5,200 weekly. [1]", False), ("It costs $5,200 hourly. [1]", False),
+    ("It costs $5,200 monthly. [1]", True),
+])
+def test_adverb_rate_periods(answer, ok):
+    assert _ok(answer) is ok
+
+
+def test_dozen():
+    from fleck_core.numbers import extract_figures
+    assert extract_figures("a dozen") == {"12"} and extract_figures("two dozen") == {"24"}

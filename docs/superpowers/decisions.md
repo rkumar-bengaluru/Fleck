@@ -19,7 +19,7 @@ Columns: **What** was decided · **Options** considered · **Why** · **Critic**
 | 11 | 2026-10-30 | Test voices from macOS `say` | Piper TTS, rupak.k's own recordings | Built in; WAVs committed | — |
 | 12 | 2026-10-30 | Keep `gsim` Google simulator | Real Google only | Deterministic tests and Walker demo | — |
 | 13 | 2026-10-30 | Client side is one speaker, **Client** | Diarization | Out of MVP scope | — |
-| 14 | 2026-10-30 | "Used it" marker on each assist | Leave out | Shows where the model actually helped, as rupak.k asked | — |
+| 14 | 2026-10-30 | "Used it" marker on each assist; defined by rupak.k (similarity ≥ 0.75 within 15 s, plus manual override), see spec §7.3 | Leave out | Shows where the model actually helped, as rupak.k asked | — |
 | 15 | 2026-10-30 | Team = allow-list of email domains/addresses in `.env` | Anyone with Google; invite flow | Library holds rates and SOWs; simplest real boundary | — |
 | 16 | 2026-10-30 | Document kinds: client / firm / reference; reference never cited as our work | Treat all alike | Real CUAD companies must not appear as our clients | — |
 | 17 | 2026-10-30 | Three fictional AI-automation past projects replace Larkspur | Rewrite Larkspur only | Enough variety for the "similar project" questions | — |
@@ -33,3 +33,4 @@ Columns: **What** was decided · **Options** considered · **Why** · **Critic**
 | 25 | 2026-10-30 | Speaker-gate thresholds tuned on the bleed recording | Tune on clean audio | On speakers the mic hears the client; clean audio would set thresholds that never fire | — |
 | 26 | 2026-10-30 | Meeting-logistics questions added to the negative set | Short acknowledgements only | "Can you see my screen?" is the likeliest false trigger | — |
 | 27 | 2026-10-30 | Speculative work on partials allowed, display only on final | Drop "start early" | Keeps the latency gain without repeated triggers | — |
+| 28 | 2026-10-30 | "Used it" computed after the meeting, max over single **You** segments | Live; whole reply joined | No GPU contention during the call; long replies don't dilute the match | — |

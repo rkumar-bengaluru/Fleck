@@ -31,7 +31,7 @@ A desktop assistant that sits openly in the meeting with the salesperson. It lis
 4. **Pre-meeting brief.** Before a meeting with a known client: the questions this client is likely to ask, each with the best answer from the library and its source. **(Claude's call, accepted by rupak.k to review.)**
 5. **Meeting kick-off.** A macOS notification 5 minutes before a meeting starts recording with one click; an ad-hoc **Start recording** for unplanned calls. Fleck captures the user's mic and the call audio, and transcribes both live on the Mac.
 6. **Help during the meeting.** When the client asks a question, a short answer (2–3 lines plus the source) appears next to the live transcript, written by a local model from the library. When the library has nothing relevant, Claude answers, labelled **General knowledge, not from our material**.
-7. **After the meeting.** The recording, full transcript and the user's own notes are saved. A summary keeps the user's notes word for word and adds what was discussed. The notes mark every moment Fleck helped: the question, the answer it showed, its source, and whether the salesperson's reply used it. **(The "used it" marker is Claude's call.)**
+7. **After the meeting.** The recording, full transcript and the user's own notes are saved. A summary keeps the user's notes word for word and adds what was discussed. The notes mark every moment Fleck helped: the question, the answer it showed, its source, and whether the salesperson's reply used it (§7.3).
 8. **Team chat on notes.** The team asks Claude questions about one meeting or across all meetings and the library; answers cite meetings, timestamps and documents.
 9. **Testable end to end, and left running for review.** A scripted presales conversation, recorded as audio, drives the whole flow in tests. At hand-over the stack is up on rupak.k's Mac with that conversation already processed, so they can play the recording, read the notes and see where the model helped.
 
@@ -143,6 +143,17 @@ The pipeline is fixed: **VAD-flushed segment → speaker gate → local classifi
 Assertion: **zero** triggers on the whole set, reported separately for short and medium segments. Any trigger fails the build. This is stricter than the ≤ 1 false trigger per 10 minutes in §5, which still applies to the full test conversation.
 
 **Known limit.** A colleague of the salesperson who joins the call remotely is heard through call audio and treated as **Client**.
+
+### 7.3 The "used it" marker (rupak.k's design, with Claude's adjustments marked)
+
+Each answer Fleck showed is marked **Used** or **Not used** in the notes.
+
+- **Automatic value.** For each **You** final segment that starts within 15 s after the answer appeared, compute cosine similarity between that segment and the shown answer, using the same embedding model as the library. If the highest similarity is ≥ 0.75, the answer is **Used**. The 0.75 is a starting value, set from the test conversation.
+  - Computed after the meeting, not live, so it never competes for the GPU during the call. **(Claude's adjustment.)**
+  - Highest single segment, not the whole reply joined together, so one matching sentence in a long reply still counts. **(Claude's adjustment.)**
+- **Manual override.** In the notes, each marker shows its value and whether it is automatic or set by hand. One click flips it; a manual value always wins, and recomputing never overwrites it.
+- **Testable.** The test conversation's script marks, for each answered question, whether the salesperson uses the answer. It includes at least one answer that is ignored, and one where the reply is on-topic but doesn't use the answer. The automatic marker must agree with the script on every one of them.
+- **Known limit.** Similarity measures topic, not correctness: a reply on the same subject with a different number can still be marked **Used**. The override covers this.
 
 ## 8. The test conversation
 

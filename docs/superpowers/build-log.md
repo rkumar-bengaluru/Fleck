@@ -331,3 +331,19 @@ Live §8 questions (title, kind, nearest-vector distance):
   - Training data: train.json is deduplicated (8 lines). I added 23 name-led lines and 24 multi-sentence turn lines, then retrained. Threshold 0.6653: CV recall 0.938 at FPR 0.019; at 0.5, 0.969 at 0.035. Fit on all train: 0.978.
   - Results: replays 0/0/0 and 8/8; measure gives 0 fallbacks.
   - Suites: `uv run pytest -m "not ollama" -q` 348 passed, EXIT 0; helper 98 passed, EXIT 0; `-m ollama` 3 passed, EXIT 0.
+
+## Task 12: question classifier (2026-10-30)
+- Commits: d4f6228 (rules v1), 9149e6f, 8259ca4 (rule rounds), bd81489 (learned classifier), ce71161 (classification instruction), 59b972d (qwen3-embedding:4b, hard-veto gate), 987a11d (post-breaker: vetoes narrowed, digest check, shared deadline).
+- Why rules were dropped: on blind sets the rule scorer reached 69/100 recall with 14/100 false triggers; each fix passed its own probes and failed fresh ones.
+- Blind sets (written by agents that never saw the code; the implementer never saw any of them):
+  - heldout_v2: rules 69/14; 0.6b model 83/0.
+  - accept_v3: 0.6b model 121/149 recall, 11/146 false.
+  - Both were then used as training data.
+- **Final acceptance** on `fixtures/classifier/acceptance.json` (387 after dedupe against train; never trained or tuned on): **recall 190/196 (96.9%), false triggers 2/191 (1.0%)**. Re-scored after 987a11d with the same result.
+- Rules fallback, used only when an embed is slow or down: recall 88/196, false triggers 22/191. This is a known weakness; carried to Task 13.
+- CV on train: 1259 trigger and 1392 no_trigger lines; threshold 0.6653; recall 0.938 at FPR 0.0187.
+- Fixture replays (Whisper, Mac): 0 false triggers and 8/8 recall on conversation.wav and conversation-bleed.wav; 0/0 on negative.wav. measure.py live path: 0 rules fallbacks.
+- Tests: 348 passed (not ollama), helper 98, ollama 3.
+- Latency bench (quiet machine): est first words 0.6 + 0.41 + 0.17 + 0.15 + 1.77 = 3.10 s, **FAIL**. Start-early path: 2.14 s, PASS.
+  - Cause: Qwen cold TTFT p95 is 1.77 s against 1.24 s in decision 72. With both embedders unloaded, TTFT p50 drops 1.63 → 1.19 s, so the cause is memory pressure (17.6 GB swap after 18 days of uptime), not code.
+  - Carried to Task 13: start on the client Final (recovers the 0.3 s merge wait), start-early prefill, and a re-bench after a reboot.

@@ -1,0 +1,1606 @@
+{
+ "trigger": [
+  {
+   "text": "so um what would a typical engagement look like for a company our size",
+   "note": "engagement, plain, filler"
+  },
+  {
+   "text": "How much does a pilot usually cost?",
+   "note": "cost, clean"
+  },
+  {
+   "text": "and uh how long before we see something working in production",
+   "note": "timeline, plain"
+  },
+  {
+   "text": "Who from your side would actually be on the project day to day?",
+   "note": "people, clean"
+  },
+  {
+   "text": "where does our data sit when your models are processing it",
+   "note": "data residency"
+  },
+  {
+   "text": "Do you sign NDAs before discovery starts?",
+   "note": "contracts, yes/no"
+  },
+  {
+   "text": "is the support after go live included or is that extra",
+   "note": "support, cost"
+  },
+  {
+   "text": "what LLMs are you guys using under the hood",
+   "note": "technology, US casual"
+  },
+  {
+   "text": "Have you done this for any bank before?",
+   "note": "past work, yes/no"
+  },
+  {
+   "text": "so we're a mid sized logistics firm in Rotterdam, about four hundred people, mostly on SAP, and the warehouse team is drowning in email orders, how would you approach automating that intake",
+   "note": "approach, long context-first, Europe"
+  },
+  {
+   "text": "what do you need from us to get started",
+   "note": "client obligations, plain"
+  },
+  {
+   "text": "what happens after the six months, do we own it or do you keep running it",
+   "note": "what happens later, ownership"
+  },
+  {
+   "text": "What's the biggest risk you see with a project like ours?",
+   "note": "risks, clean"
+  },
+  {
+   "text": "sorry just to understand, how do you price this, is it fixed fee or time and material",
+   "note": "cost, preamble"
+  },
+  {
+   "text": "Are you ISO 27001 certified?",
+   "note": "security, yes/no"
+  },
+  {
+   "text": "can the solution run on prem because our regulator in Riyadh will not allow public cloud for customer data",
+   "note": "technology/security, Middle East"
+  },
+  {
+   "text": "um yeah so how many people would we need to free up on our side",
+   "note": "client obligations, filler"
+  },
+  {
+   "text": "What does the handover to our internal team look like?",
+   "note": "later, clean"
+  },
+  {
+   "text": "will you train our people or is it just documentation",
+   "note": "support/training"
+  },
+  {
+   "text": "Do you work with Azure OpenAI or only the public APIs?",
+   "note": "technology, clean"
+  },
+  {
+   "text": "ok and roughly what's the timeline from signing to first pilot",
+   "note": "timeline"
+  },
+  {
+   "text": "is there a minimum contract size",
+   "note": "contracts, yes/no"
+  },
+  {
+   "text": "how do you handle it when the model gets things wrong",
+   "note": "risks/approach, plain"
+  },
+  {
+   "text": "So I'm in the procurement side at a Singapore healthcare group and we have strict PDPA obligations, how do you make sure patient data never leaves the country when you're calling these models?",
+   "note": "data, long context-first, Singapore"
+  },
+  {
+   "text": "who owns the IP for the stuff you build",
+   "note": "contracts, plain"
+  },
+  {
+   "text": "what kind of SLA do you offer on the bots once they're live",
+   "note": "support"
+  },
+  {
+   "text": "Can you integrate with Salesforce?",
+   "note": "technology, yes/no"
+  },
+  {
+   "text": "uh can you give me a ballpark, are we talking fifty thousand or five hundred thousand",
+   "note": "cost, filler"
+  },
+  {
+   "text": "have you worked with any insurance companies in the gulf",
+   "note": "past work, Middle East"
+  },
+  {
+   "text": "how do you measure whether the project was actually a success",
+   "note": "approach"
+  },
+  {
+   "text": "What happens if we want to stop halfway through?",
+   "note": "contracts, clean"
+  },
+  {
+   "text": "do we need our own data scientists or do you bring everything",
+   "note": "people, plain"
+  },
+  {
+   "text": "how do you keep the prompts and the models updated when things change",
+   "note": "later, technology"
+  },
+  {
+   "text": "Is the pricing in rupees or dollars for Indian clients?",
+   "note": "cost, India"
+  },
+  {
+   "text": "so basically if I'm hearing you right the first phase is discovery, how long is that and what do we get at the end of it",
+   "note": "engagement, run-on"
+  },
+  {
+   "text": "what's your team size, like how many engineers do you actually have",
+   "note": "people"
+  },
+  {
+   "text": "Where is your delivery team based?",
+   "note": "people, clean"
+  },
+  {
+   "text": "are your people going to be onsite in Dubai or is it all remote",
+   "note": "people, Middle East"
+  },
+  {
+   "text": "does the contract include a liability cap",
+   "note": "contracts, yes/no"
+  },
+  {
+   "text": "How do you deal with GDPR, especially the right to erasure, if the data's already gone into a vector store?",
+   "note": "data/security, Europe"
+  },
+  {
+   "text": "what does your testing process look like before something goes live",
+   "note": "approach"
+  },
+  {
+   "text": "can you show us a case study from manufacturing",
+   "note": "past work, ask"
+  },
+  {
+   "text": "what would you automate first if you were us",
+   "note": "approach, plain"
+  },
+  {
+   "text": "And how do you stop the model from hallucinating figures in financial reports?",
+   "note": "risks, clean"
+  },
+  {
+   "text": "i mean the honest question is will this replace headcount or just make people faster",
+   "note": "outcome, hedged, plain"
+  },
+  {
+   "text": "is there a licence fee on top of the build cost",
+   "note": "cost, yes/no"
+  },
+  {
+   "text": "who do we call at two in the morning if the thing breaks",
+   "note": "support, plain"
+  },
+  {
+   "text": "how long do you keep our data after the project ends",
+   "note": "data, later"
+  },
+  {
+   "text": "Do you subcontract any of the work?",
+   "note": "people, yes/no"
+  },
+  {
+   "text": "we tried something like this with another vendor last year and it fell over once the volume went up, so how do you make sure it scales when we go from a few hundred to like fifty thousand tickets a month",
+   "note": "technology, long context-first"
+  },
+  {
+   "text": "what's the change management piece, do you help with that",
+   "note": "engagement scope"
+  },
+  {
+   "text": "are there any hidden costs we should know about, like API usage",
+   "note": "cost"
+  },
+  {
+   "text": "who pays for the model tokens, us or you",
+   "note": "cost, plain"
+  },
+  {
+   "text": "How do you handle Arabic, does it work as well as English?",
+   "note": "technology, Middle East"
+  },
+  {
+   "text": "can it work with our hindi and tamil call recordings",
+   "note": "technology, India"
+  },
+  {
+   "text": "what's the escalation path if we're unhappy with delivery",
+   "note": "support/contracts"
+  },
+  {
+   "text": "Do you offer a fixed price for phase one?",
+   "note": "cost, yes/no"
+  },
+  {
+   "text": "what kind of access would you need to our systems",
+   "note": "client obligations/security"
+  },
+  {
+   "text": "is there an audit trail of what the agent did",
+   "note": "security, yes/no"
+  },
+  {
+   "text": "So, before I take this to our CFO, what kind of ROI have other clients actually seen?",
+   "note": "past work, preamble"
+  },
+  {
+   "text": "how quickly could you start if we signed next month",
+   "note": "timeline"
+  },
+  {
+   "text": "does your team have experience with mainframe stuff, because half our core is still cobol",
+   "note": "past work/technology"
+  },
+  {
+   "text": "What's included in the monthly retainer?",
+   "note": "support/cost, clean"
+  },
+  {
+   "text": "will we need to buy any new infrastructure",
+   "note": "client obligations, yes/no"
+  },
+  {
+   "text": "yeah but how do you make sure it doesn't leak information between departments",
+   "note": "security, plain"
+  },
+  {
+   "text": "what are the payment terms usually",
+   "note": "contracts"
+  },
+  {
+   "text": "do you do a proof of concept before the full commitment",
+   "note": "engagement, yes/no"
+  },
+  {
+   "text": "Who would be our main point of contact?",
+   "note": "people, clean"
+  },
+  {
+   "text": "how do you keep the costs predictable when usage spikes",
+   "note": "cost"
+  },
+  {
+   "text": "and um what happens to the solution if you guys get acquired or go under",
+   "note": "risks, later"
+  },
+  {
+   "text": "Can we host the models ourselves?",
+   "note": "technology, yes/no"
+  },
+  {
+   "text": "what do you need from our IT team in the first two weeks",
+   "note": "client obligations"
+  },
+  {
+   "text": "is it possible to do it in phases so we don't commit the whole budget at once",
+   "note": "engagement/cost"
+  },
+  {
+   "text": "how do you decide between building an agent versus just a simple workflow",
+   "note": "approach"
+  },
+  {
+   "text": "have you got references we could speak to in the UK public sector",
+   "note": "past work, UK"
+  },
+  {
+   "text": "Which parts of this would still need a human in the loop?",
+   "note": "approach, clean"
+  },
+  {
+   "text": "our legal team will ask, do you carry professional indemnity insurance",
+   "note": "contracts, preamble"
+  },
+  {
+   "text": "how do you approach data cleaning when our records are honestly a mess",
+   "note": "data, plain"
+  },
+  {
+   "text": "um so like, can this thing read scanned invoices, the really bad quality ones",
+   "note": "technology, plain, filler"
+  },
+  {
+   "text": "What does the governance model look like during the project?",
+   "note": "engagement, clean"
+  },
+  {
+   "text": "do you provide a dedicated project manager",
+   "note": "people, yes/no"
+  },
+  {
+   "text": "If we go with you, how much time would our operations head need to give each week?",
+   "note": "client obligations, clean"
+  },
+  {
+   "text": "what's the warranty period after delivery",
+   "note": "contracts, later"
+  },
+  {
+   "text": "have you had independent penetration testing done on your platform",
+   "note": "security, yes/no"
+  },
+  {
+   "text": "how do you version and roll back if a new model breaks things",
+   "note": "technology/risks"
+  },
+  {
+   "text": "is your pricing different for the middle east",
+   "note": "cost, Middle East"
+  },
+  {
+   "text": "the thing my boss keeps asking me is, why wouldn't we just build this ourselves with copilot, so what's the difference with what you'd do",
+   "note": "approach, buried question"
+  },
+  {
+   "text": "how many projects like this have you actually delivered",
+   "note": "past work"
+  },
+  {
+   "text": "Are the engineers your own employees or contractors?",
+   "note": "people, clean"
+  },
+  {
+   "text": "what's the notice period if we want to terminate",
+   "note": "contracts"
+  },
+  {
+   "text": "how does it plug into our existing ticketing, we use servicenow",
+   "note": "technology"
+  },
+  {
+   "text": "can we start with just one department and expand later",
+   "note": "engagement, yes/no"
+  },
+  {
+   "text": "what are the main reasons projects like this fail",
+   "note": "risks"
+  },
+  {
+   "text": "Will you need production data for the pilot, or can you work with anonymized samples?",
+   "note": "data, clean"
+  },
+  {
+   "text": "do you keep any of our data for training your own models",
+   "note": "data, yes/no"
+  },
+  {
+   "text": "how long is the typical contract",
+   "note": "contracts"
+  },
+  {
+   "text": "sorry I joined late, what's the rough cost of the pilot you mentioned",
+   "note": "cost, preamble"
+  },
+  {
+   "text": "what would you need from our compliance team before going live",
+   "note": "client obligations"
+  },
+  {
+   "text": "hmm and what happens when the regulations change, like the EU AI Act stuff, who updates the system",
+   "note": "later, Europe"
+  },
+  {
+   "text": "Is there a cap on the number of change requests?",
+   "note": "contracts, clean"
+  },
+  {
+   "text": "how do you price ongoing support, per hour or flat monthly",
+   "note": "cost/support"
+  },
+  {
+   "text": "do your people have security clearance for government work",
+   "note": "people/security"
+  },
+  {
+   "text": "What tech stack do you typically deploy on?",
+   "note": "technology, clean"
+  },
+  {
+   "text": "so for the voice bot, what kind of accuracy should we realistically expect in the first month",
+   "note": "technology/outcome"
+  },
+  {
+   "text": "who signs off on each milestone",
+   "note": "engagement"
+  },
+  {
+   "text": "will it work offline in our branches where connectivity is patchy",
+   "note": "technology, India"
+  },
+  {
+   "text": "Can you guarantee the delivery date in the contract?",
+   "note": "contracts/timeline, yes/no"
+  },
+  {
+   "text": "what do you do differently from the big four consultancies",
+   "note": "approach"
+  },
+  {
+   "text": "how much of the work is done offshore versus here in London",
+   "note": "people, UK"
+  },
+  {
+   "text": "do you need us to have a data warehouse first",
+   "note": "client obligations, yes/no"
+  },
+  {
+   "text": "is there a way to try it on our own documents before we commit",
+   "note": "engagement"
+  },
+  {
+   "text": "how do you handle access control so finance can't see HR documents",
+   "note": "security"
+  },
+  {
+   "text": "What reporting will we get during the engagement?",
+   "note": "engagement, clean"
+  },
+  {
+   "text": "okay so assuming we go ahead in january, when would the first users actually be on it",
+   "note": "timeline"
+  },
+  {
+   "text": "do you also maintain it or do we have to hire someone",
+   "note": "support, plain"
+  },
+  {
+   "text": "how do you encrypt data in transit and at rest",
+   "note": "security"
+  },
+  {
+   "text": "so what exactly is in the discovery deliverable",
+   "note": "engagement"
+  },
+  {
+   "text": "are you able to work under a UAE entity for invoicing purposes",
+   "note": "contracts, Middle East"
+  },
+  {
+   "text": "Do you have any experience with retail banking chatbots in Singapore?",
+   "note": "past work, Singapore, yes/no"
+  },
+  {
+   "text": "what's the smallest thing we could do to prove value in like four weeks",
+   "note": "approach, plain"
+  },
+  {
+   "text": "if the pilot fails do we still pay the full amount",
+   "note": "cost/contracts, plain"
+  },
+  {
+   "text": "uh what kind of people do you need from us, business analysts, engineers, both",
+   "note": "client obligations"
+  },
+  {
+   "text": "How do you handle model drift over time?",
+   "note": "technology/later, clean"
+  },
+  {
+   "text": "can you work with our existing vendor or do they have to step aside",
+   "note": "approach"
+  },
+  {
+   "text": "is the source code handed over at the end",
+   "note": "later/IP, yes/no"
+  },
+  {
+   "text": "how do you deal with PII in the call transcripts",
+   "note": "data"
+  },
+  {
+   "text": "We've got about twelve legacy systems that don't talk to each other, no APIs on most of them, and our ops team re-keys everything by hand, so realistically, can your agents work across that or do we need to fix the integration layer first?",
+   "note": "technology, long context-first"
+  },
+  {
+   "text": "would we be locked into one model provider",
+   "note": "risks/technology, plain"
+  },
+  {
+   "text": "what does a typical week look like once the project kicks off",
+   "note": "engagement"
+  },
+  {
+   "text": "do you charge for travel if you come to Mumbai",
+   "note": "cost, India"
+  },
+  {
+   "text": "How are disputes handled under the contract, which jurisdiction?",
+   "note": "contracts, clean"
+  },
+  {
+   "text": "i guess what i'm trying to understand is how much of this is custom versus something you've already built",
+   "note": "technology, hedged"
+  },
+  {
+   "text": "what kind of uptime have your other deployments had",
+   "note": "past work/support"
+  },
+  {
+   "text": "is there a dedicated support channel like slack or teams",
+   "note": "support"
+  },
+  {
+   "text": "can it pull answers from sharepoint",
+   "note": "technology, yes/no"
+  },
+  {
+   "text": "How do you make sure the outputs are explainable for our auditors?",
+   "note": "risks, clean"
+  },
+  {
+   "text": "what's the realistic payback period",
+   "note": "cost/outcome"
+  },
+  {
+   "text": "do you do the user training in local languages",
+   "note": "support"
+  },
+  {
+   "text": "how do you prioritize which processes to automate",
+   "note": "approach"
+  },
+  {
+   "text": "and the people you showed on the slide, will those be the actual team or is that just the leadership",
+   "note": "people"
+  },
+  {
+   "text": "Have you ever had a data breach?",
+   "note": "security, yes/no"
+  },
+  {
+   "text": "what are the risks if our staff don't adopt it",
+   "note": "risks"
+  },
+  {
+   "text": "would you be okay with a pilot paid on outcomes rather than effort",
+   "note": "cost/contracts, polite"
+  },
+  {
+   "text": "how often do you release updates after go live",
+   "note": "later"
+  },
+  {
+   "text": "can you sit inside our VPC",
+   "note": "technology/security"
+  },
+  {
+   "text": "what happens to the costs in year two",
+   "note": "cost, later"
+  },
+  {
+   "text": "So, out of curiosity, how many of your clients renew after the first year?",
+   "note": "past work, clean"
+  },
+  {
+   "text": "do you have a standard MSA or do you work on our paper",
+   "note": "contracts"
+  },
+  {
+   "text": "is your platform SOC 2 type two audited",
+   "note": "security, yes/no"
+  },
+  {
+   "text": "how big was the largest deployment you've done",
+   "note": "past work"
+  },
+  {
+   "text": "um the board will want to know, what's the worst case if this goes wrong",
+   "note": "risks, preamble"
+  },
+  {
+   "text": "Do we need to buy licences for every user?",
+   "note": "cost, yes/no"
+  },
+  {
+   "text": "what do you expect from our side in terms of decision making speed",
+   "note": "client obligations"
+  },
+  {
+   "text": "is fine tuning part of the scope or just prompting and retrieval",
+   "note": "technology/scope"
+  },
+  {
+   "text": "so for a firm with branches in Jeddah and Riyadh, would you staff it locally",
+   "note": "people, Middle East"
+  },
+  {
+   "text": "how do you handle multilingual documents, like a contract that's half French half English",
+   "note": "technology, Europe"
+  },
+  {
+   "text": "What's your approach to testing with real users before full rollout?",
+   "note": "approach, clean"
+  },
+  {
+   "text": "how do we get our data back if we leave",
+   "note": "data, later"
+  },
+  {
+   "text": "does the price include the cloud hosting",
+   "note": "cost"
+  },
+  {
+   "text": "how fast can you scale the team up if we want to go faster",
+   "note": "people"
+  },
+  {
+   "text": "Can we see the agent's reasoning when it makes a decision?",
+   "note": "technology, clean"
+  },
+  {
+   "text": "what certifications do your engineers have",
+   "note": "people"
+  },
+  {
+   "text": "what does phase two typically cost compared to phase one",
+   "note": "cost"
+  },
+  {
+   "text": "how do you handle the integration with our core banking system, it's Finacle",
+   "note": "technology, India"
+  },
+  {
+   "text": "would you need admin rights on our tenant",
+   "note": "security/client obligations"
+  },
+  {
+   "text": "you mentioned agents earlier, what does that mean in practice for our claims team",
+   "note": "approach, plain"
+  },
+  {
+   "text": "is it a per seat or per transaction model",
+   "note": "cost"
+  },
+  {
+   "text": "What happens if a key person on your team leaves mid-project?",
+   "note": "people/risks, clean"
+  },
+  {
+   "text": "how long did the logistics project you mentioned take end to end",
+   "note": "past work"
+  },
+  {
+   "text": "do you work with the public sector in India, like any state governments",
+   "note": "past work, India"
+  },
+  {
+   "text": "Is there any minimum commitment on the support retainer?",
+   "note": "support/contracts, clean"
+  },
+  {
+   "text": "can the bot hand over to a human agent seamlessly",
+   "note": "technology"
+  },
+  {
+   "text": "so like, what's the first thing you'd need us to sign",
+   "note": "contracts/client obligations"
+  },
+  {
+   "text": "how do you protect against prompt injection",
+   "note": "security"
+  },
+  {
+   "text": "what would make you say no to a project like this",
+   "note": "approach"
+  },
+  {
+   "text": "are the outputs reviewed by a person before they go to customers",
+   "note": "approach, yes/no"
+  },
+  {
+   "text": "uh just curious how many people would be on your side for the pilot",
+   "note": "people, hedged"
+  },
+  {
+   "text": "When would we know if it's not working, like what's the checkpoint?",
+   "note": "engagement/risks"
+  },
+  {
+   "text": "can we pay quarterly instead of upfront",
+   "note": "contracts, yes/no"
+  },
+  {
+   "text": "how do you handle changes in scope halfway",
+   "note": "contracts"
+  },
+  {
+   "text": "what kind of documentation do we get at the end",
+   "note": "later"
+  },
+  {
+   "text": "are you vendor neutral or do you have partnerships with microsoft or google",
+   "note": "technology"
+  },
+  {
+   "text": "We're in pharma, so everything has to be GxP validated — how would you handle validation documentation for an AI system?",
+   "note": "approach, context-first"
+  },
+  {
+   "text": "what does after care look like once the project closes",
+   "note": "later, plain"
+  },
+  {
+   "text": "so is it you or your partner who's liable if the model gives a wrong answer to a customer",
+   "note": "contracts/risks"
+  },
+  {
+   "text": "how many hours a week would our SMEs need to spend with your team",
+   "note": "client obligations"
+  },
+  {
+   "text": "Do you provide 24/7 support?",
+   "note": "support, yes/no"
+  },
+  {
+   "text": "how much is it if we only want the document extraction piece",
+   "note": "cost"
+  },
+  {
+   "text": "can it run on our own GPUs",
+   "note": "technology, yes/no"
+  },
+  {
+   "text": "what's your experience with telecoms",
+   "note": "past work"
+  },
+  {
+   "text": "how do you migrate us off if we want to switch providers later",
+   "note": "later"
+  },
+  {
+   "text": "is the data residency for Europe guaranteed in writing",
+   "note": "data/contracts, Europe"
+  },
+  {
+   "text": "yeah and what about the onboarding of new users later on, is that on us",
+   "note": "later/client obligations"
+  },
+  {
+   "text": "How many clients do you have in Singapore currently?",
+   "note": "past work, Singapore"
+  },
+  {
+   "text": "would you recommend we start with customer service or back office",
+   "note": "approach"
+  },
+  {
+   "text": "okay so I've got about eight hundred agents in our Manila and Pune contact centres and the AHT is killing us, what kind of reduction have you actually seen with the agent assist stuff",
+   "note": "past work, long context-first"
+  },
+  {
+   "text": "what's the cancellation policy on the retainer",
+   "note": "contracts"
+  },
+  {
+   "text": "do you handle the model monitoring or do we",
+   "note": "support"
+  },
+  {
+   "text": "So who on your side is accountable if milestones slip?",
+   "note": "people/risks, clean"
+  },
+  {
+   "text": "and what do we need to have in place internally before go live, like policies or approvals",
+   "note": "client obligations"
+  }
+ ],
+ "no_trigger": [
+  {
+   "text": "honestly who has time to read a forty page proposal these days",
+   "note": "hard: rhetorical"
+  },
+  {
+   "text": "why does every vendor say they're different, right",
+   "note": "hard: rhetorical"
+  },
+  {
+   "text": "I mean how hard can it be to get IT to approve one laptop?",
+   "note": "hard: venting"
+  },
+  {
+   "text": "what were we even thinking signing that last contract, honestly",
+   "note": "hard: venting"
+  },
+  {
+   "text": "Isn't it funny how every AI pitch has the same slide?",
+   "note": "hard: sarcastic"
+  },
+  {
+   "text": "why is it always the finance team that gets dumped with the spreadsheets",
+   "note": "hard: venting"
+  },
+  {
+   "text": "who even reads the terms and conditions anyway",
+   "note": "hard: rhetorical"
+  },
+  {
+   "text": "how many times have we heard that before, eh",
+   "note": "hard: sarcastic"
+  },
+  {
+   "text": "you know what's the point of a roadmap if nobody follows it",
+   "note": "hard: rhetorical"
+  },
+  {
+   "text": "Can you believe our last vendor billed us for a meeting they didn't attend?",
+   "note": "hard: venting"
+  },
+  {
+   "text": "and why do these things always cost double what they say, never fails",
+   "note": "hard: sarcastic about cost"
+  },
+  {
+   "text": "seriously what's the worst that could happen, it's only the board",
+   "note": "hard: sarcastic"
+  },
+  {
+   "text": "Who doesn't love a good procurement process, am I right?",
+   "note": "hard: sarcastic"
+  },
+  {
+   "text": "why do we keep buying tools nobody uses honestly",
+   "note": "hard: venting"
+  },
+  {
+   "text": "what's another six months of delays at this point",
+   "note": "hard: sarcastic about timeline"
+  },
+  {
+   "text": "can you put the PO number on the invoice so accounts payable doesn't bounce it",
+   "note": "hard: admin paperwork"
+  },
+  {
+   "text": "I'll need the vendor registration form filled by friday for our procurement portal",
+   "note": "hard: admin paperwork"
+  },
+  {
+   "text": "please add our cost centre code to the top of the SOW draft",
+   "note": "hard: admin paperwork"
+  },
+  {
+   "text": "can you cc legal at our end on the MSA email thread",
+   "note": "hard: admin logistics"
+  },
+  {
+   "text": "the security questionnaire goes into the Ariba portal, not email, just so you know",
+   "note": "hard: admin logistics"
+  },
+  {
+   "text": "Could you address the invoice to our Singapore entity instead of the Indian one?",
+   "note": "hard: admin paperwork"
+  },
+  {
+   "text": "we need your GST number and PAN for the vendor master",
+   "note": "hard: admin paperwork, India"
+  },
+  {
+   "text": "can you sign the NDA with DocuSign, our legal team doesn't accept wet signatures",
+   "note": "hard: admin paperwork"
+  },
+  {
+   "text": "the tax residency certificate needs to be uploaded before the purchase order is raised",
+   "note": "hard: admin paperwork"
+  },
+  {
+   "text": "please use our template for the data processing agreement, I'll attach it",
+   "note": "hard: admin paperwork"
+  },
+  {
+   "text": "can you spell the company name exactly as it is on the trade licence for the form",
+   "note": "hard: admin paperwork, Middle East"
+  },
+  {
+   "text": "our supplier onboarding needs two bank references, just flagging",
+   "note": "hard: admin paperwork"
+  },
+  {
+   "text": "Could you mark the pricing annex as confidential when you resend it?",
+   "note": "hard: admin paperwork"
+  },
+  {
+   "text": "the VAT registration has to match the billing address otherwise finance rejects it",
+   "note": "hard: admin paperwork, Europe"
+  },
+  {
+   "text": "can you make sure the SOW has version numbers in the footer",
+   "note": "hard: admin paperwork"
+  },
+  {
+   "text": "shall we set up a separate session just on security with our CISO next week",
+   "note": "hard: meeting planning"
+  },
+  {
+   "text": "can we do a deep dive on pricing on thursday when our CFO is back",
+   "note": "hard: meeting planning"
+  },
+  {
+   "text": "Let's get the data architecture discussion on the calendar for early next month.",
+   "note": "hard: meeting planning"
+  },
+  {
+   "text": "maybe we do a follow up on the contract terms once legal has had a look",
+   "note": "hard: meeting planning"
+  },
+  {
+   "text": "could we book an hour with your solution architect to walk through integration, say tuesday",
+   "note": "hard: meeting planning"
+  },
+  {
+   "text": "we should probably have a workshop on the use cases before anything else, can you find a slot",
+   "note": "hard: meeting planning"
+  },
+  {
+   "text": "would it make sense to bring our procurement head into the next call on commercials",
+   "note": "hard: meeting planning"
+  },
+  {
+   "text": "Can we schedule the case study walkthrough for after Diwali?",
+   "note": "hard: meeting planning, India"
+  },
+  {
+   "text": "let's park the support model for the next meeting",
+   "note": "hard: meeting planning"
+  },
+  {
+   "text": "I'd like a follow-up on GDPR with our DPO in the room, maybe the week after",
+   "note": "hard: meeting planning, Europe"
+  },
+  {
+   "text": "can we do the technical demo in person when you're in Dubai",
+   "note": "hard: meeting planning, Middle East"
+  },
+  {
+   "text": "so next call we cover timelines and staffing yeah",
+   "note": "hard: meeting planning"
+  },
+  {
+   "text": "who on our side should I loop in for the data access piece, maybe Priya",
+   "note": "hard: who should I ask"
+  },
+  {
+   "text": "do you know who I should ask internally about our cloud contracts, I genuinely don't",
+   "note": "hard: who should I ask"
+  },
+  {
+   "text": "should I check with our CIO or the infra lead about the firewall stuff",
+   "note": "hard: who should I ask"
+  },
+  {
+   "text": "Who in my team would know whether we have an existing AWS agreement?",
+   "note": "hard: who should I ask"
+  },
+  {
+   "text": "I'm not sure who owns the vendor risk process here, I'll have to find out",
+   "note": "hard: who should I ask"
+  },
+  {
+   "text": "who would be the right person on our end to talk budget, probably Mark",
+   "note": "hard: who should I ask"
+  },
+  {
+   "text": "should I be asking our legal or our procurement about the liability clauses",
+   "note": "hard: who should I ask"
+  },
+  {
+   "text": "who's handling the SAP licences at our end these days, does anyone know",
+   "note": "hard: who should I ask"
+  },
+  {
+   "text": "hmm so if we did the claims first then maybe the underwriting later, I don't know",
+   "note": "hard: thinking aloud"
+  },
+  {
+   "text": "I'm wondering whether our data is even clean enough, probably not honestly",
+   "note": "hard: thinking aloud"
+  },
+  {
+   "text": "let me think, the budget cycle closes in march so we'd have to",
+   "note": "hard: thinking aloud, cut off"
+  },
+  {
+   "text": "so that would be roughly three teams affected, maybe four if you count compliance",
+   "note": "hard: thinking aloud"
+  },
+  {
+   "text": "I guess the question for us is whether we want this in house long term",
+   "note": "hard: thinking aloud"
+  },
+  {
+   "text": "hmm do we even have the API keys for that system, I'd have to check",
+   "note": "hard: thinking aloud"
+  },
+  {
+   "text": "okay so if the pilot starts in Q1 our review is in Q2, that kind of works",
+   "note": "hard: thinking aloud"
+  },
+  {
+   "text": "I suppose we could carve out a small budget from the innovation fund",
+   "note": "hard: thinking aloud"
+  },
+  {
+   "text": "what am I forgetting, there was something about the data retention",
+   "note": "hard: thinking aloud"
+  },
+  {
+   "text": "right so customer service, then finance, then maybe HR, thinking out loud here",
+   "note": "hard: thinking aloud"
+  },
+  {
+   "text": "Ahmed, did you send them the process maps from last week?",
+   "note": "hard: to own colleague"
+  },
+  {
+   "text": "priya can you check if the budget for this sits with IT or ops",
+   "note": "hard: to own colleague"
+  },
+  {
+   "text": "Tom, do we still have that contract with Accenture running?",
+   "note": "hard: to own colleague"
+  },
+  {
+   "text": "rahul what's our current headcount in the Pune centre, roughly",
+   "note": "hard: to own colleague"
+  },
+  {
+   "text": "Sarah, you were on the last vendor review, what did security say?",
+   "note": "hard: to own colleague"
+  },
+  {
+   "text": "guys do we have the numbers from the last quarter on ticket volume",
+   "note": "hard: to own colleagues"
+  },
+  {
+   "text": "fatima is our DPO joining this call or not",
+   "note": "hard: to own colleague"
+  },
+  {
+   "text": "james how much budget did we actually get approved for automation this year",
+   "note": "hard: to own colleague"
+  },
+  {
+   "text": "wei ling can you remind me when our azure renewal is",
+   "note": "hard: to own colleague, Singapore"
+  },
+  {
+   "text": "Did anyone on our side read the security section of their deck?",
+   "note": "hard: to own colleagues"
+  },
+  {
+   "text": "deepak what was the timeline the board gave us again",
+   "note": "hard: to own colleague"
+  },
+  {
+   "text": "Anna, are we allowed to share the claims data outside the EU?",
+   "note": "hard: to own colleague, Europe"
+  },
+  {
+   "text": "could you send over the deck after the call",
+   "note": "hard: send request"
+  },
+  {
+   "text": "can you share the case studies you mentioned",
+   "note": "hard: share request"
+  },
+  {
+   "text": "Please send us your standard MSA so legal can review it.",
+   "note": "hard: send request"
+  },
+  {
+   "text": "would you mind emailing me the pricing sheet",
+   "note": "hard: send request"
+  },
+  {
+   "text": "can you share your SOC 2 report under NDA",
+   "note": "hard: share request"
+  },
+  {
+   "text": "send me the slides with the architecture diagram please",
+   "note": "hard: send request"
+  },
+  {
+   "text": "could you share the recording of this call with my team",
+   "note": "hard: share request"
+  },
+  {
+   "text": "if you could drop the proposal into our shared folder that'd be great",
+   "note": "hard: send request"
+  },
+  {
+   "text": "Can you forward the references from the insurance clients?",
+   "note": "hard: send request"
+  },
+  {
+   "text": "please share a sample of the discovery report so I can show my boss",
+   "note": "hard: share request"
+  },
+  {
+   "text": "can you send the security whitepaper to our CISO directly",
+   "note": "hard: send request"
+  },
+  {
+   "text": "mind sharing the timeline slide again, I lost it",
+   "note": "hard: share request"
+  },
+  {
+   "text": "the cost and timeline is something we'll discuss internally first",
+   "note": "hard: statement with business words"
+  },
+  {
+   "text": "We've had a lot of problems with data quality in the past.",
+   "note": "hard: statement"
+  },
+  {
+   "text": "our security team is very strict about third party access",
+   "note": "hard: statement"
+  },
+  {
+   "text": "so the contract renewal on our side is in april, just for context",
+   "note": "hard: statement"
+  },
+  {
+   "text": "the budget for this year is already allocated so it would be next financial year",
+   "note": "hard: statement"
+  },
+  {
+   "text": "we're evaluating three vendors including you right now",
+   "note": "hard: statement"
+  },
+  {
+   "text": "is it me or is everybody talking about agents this year",
+   "note": "hard: rhetorical"
+  },
+  {
+   "text": "what a mess our onboarding process is, honestly",
+   "note": "hard: venting"
+  },
+  {
+   "text": "Our timeline is driven by the regulator, not by us.",
+   "note": "hard: statement"
+  },
+  {
+   "text": "they still think AI is just chatgpt, bless them",
+   "note": "hard: venting"
+  },
+  {
+   "text": "can you put together a one pager I can forward to our COO",
+   "note": "hard: send request"
+  },
+  {
+   "text": "we'd need to run this past the steering committee before anything moves",
+   "note": "hard: statement"
+  },
+  {
+   "text": "do I really want to go through another twelve month implementation, not really",
+   "note": "hard: rhetorical"
+  },
+  {
+   "text": "pricing wise we're comfortable as long as it's in the range we discussed",
+   "note": "hard: statement"
+  },
+  {
+   "text": "who decided a three week approval cycle was a good idea, not me",
+   "note": "hard: venting"
+  },
+  {
+   "text": "the data protection impact assessment template is on our intranet, I'll dig it out",
+   "note": "hard: admin"
+  },
+  {
+   "text": "let me ask our finance team whether the retainer can be capex",
+   "note": "hard: internal follow-up"
+  },
+  {
+   "text": "i'll check with legal whether we can accept your liability cap",
+   "note": "hard: internal follow-up"
+  },
+  {
+   "text": "we should ask our infra team if they can open the ports, Raj can you take that",
+   "note": "hard: to own colleague"
+  },
+  {
+   "text": "can you hold on, I'm just pulling up the security policy on my side",
+   "note": "hard: call mechanics with business words"
+  },
+  {
+   "text": "so security, data, timelines, all of that is on my list for the next call",
+   "note": "hard: meeting planning"
+  },
+  {
+   "text": "how was your weekend",
+   "note": "small talk"
+  },
+  {
+   "text": "How's the weather in Bangalore these days?",
+   "note": "small talk"
+  },
+  {
+   "text": "did you manage to catch the match last night",
+   "note": "small talk"
+  },
+  {
+   "text": "happy diwali by the way, hope you had a good one",
+   "note": "small talk"
+  },
+  {
+   "text": "Are you based in London or just visiting?",
+   "note": "small talk"
+  },
+  {
+   "text": "oh nice, have you been to Singapore before",
+   "note": "small talk"
+  },
+  {
+   "text": "how's the new office coming along",
+   "note": "small talk"
+  },
+  {
+   "text": "is it ramadan timings for you this week, hope the fasting's going ok",
+   "note": "small talk"
+  },
+  {
+   "text": "Where are you dialling in from today?",
+   "note": "small talk"
+  },
+  {
+   "text": "oh is that your dog in the background, what breed",
+   "note": "small talk"
+  },
+  {
+   "text": "how was the flight back from Dubai",
+   "note": "small talk"
+  },
+  {
+   "text": "you must be tired, it's late there isn't it",
+   "note": "small talk"
+  },
+  {
+   "text": "Did you have a good Christmas?",
+   "note": "small talk"
+  },
+  {
+   "text": "it's been raining nonstop here in Manchester, typical",
+   "note": "small talk"
+  },
+  {
+   "text": "lovely to finally meet you properly",
+   "note": "small talk"
+  },
+  {
+   "text": "can you hear me okay",
+   "note": "call mechanics"
+  },
+  {
+   "text": "Is my screen visible now?",
+   "note": "call mechanics"
+  },
+  {
+   "text": "you're on mute i think",
+   "note": "call mechanics"
+  },
+  {
+   "text": "sorry you broke up there for a second",
+   "note": "call mechanics"
+  },
+  {
+   "text": "can everyone see the slide",
+   "note": "call mechanics"
+  },
+  {
+   "text": "hang on my camera's not working",
+   "note": "call mechanics"
+  },
+  {
+   "text": "Shall I share my screen or will you?",
+   "note": "call mechanics"
+  },
+  {
+   "text": "can you make the font a bit bigger, it's hard to read",
+   "note": "call mechanics"
+  },
+  {
+   "text": "i'll drop off and rejoin, the audio is terrible",
+   "note": "call mechanics"
+  },
+  {
+   "text": "is the recording on",
+   "note": "call mechanics"
+  },
+  {
+   "text": "can someone mute, there's a lot of background noise",
+   "note": "call mechanics"
+  },
+  {
+   "text": "are you able to see the chat",
+   "note": "call mechanics"
+  },
+  {
+   "text": "Sorry, which link should I use, the Teams one or the Zoom one?",
+   "note": "call mechanics"
+  },
+  {
+   "text": "my connection is a bit unstable so bear with me",
+   "note": "call mechanics"
+  },
+  {
+   "text": "could you go back one slide",
+   "note": "call mechanics"
+  },
+  {
+   "text": "next slide please",
+   "note": "call mechanics"
+  },
+  {
+   "text": "can you stop sharing for a second",
+   "note": "call mechanics"
+  },
+  {
+   "text": "is Vikram on the call yet",
+   "note": "call mechanics"
+  },
+  {
+   "text": "should we wait a couple of minutes for the others",
+   "note": "call mechanics"
+  },
+  {
+   "text": "I think we lost Hassan",
+   "note": "call mechanics"
+  },
+  {
+   "text": "does thursday at three work for you",
+   "note": "scheduling"
+  },
+  {
+   "text": "Can we move tomorrow's call to the afternoon?",
+   "note": "scheduling"
+  },
+  {
+   "text": "I'm out next week so maybe the week after",
+   "note": "scheduling"
+  },
+  {
+   "text": "what time is that in Singapore",
+   "note": "scheduling"
+  },
+  {
+   "text": "let's say ten am UK time on monday",
+   "note": "scheduling"
+  },
+  {
+   "text": "I have a hard stop at quarter past",
+   "note": "scheduling"
+  },
+  {
+   "text": "can we push this by fifteen minutes",
+   "note": "scheduling"
+  },
+  {
+   "text": "are you free on the twelfth",
+   "note": "scheduling"
+  },
+  {
+   "text": "Friday's a holiday here, so not Friday.",
+   "note": "scheduling"
+  },
+  {
+   "text": "i'll send an invite for wednesday",
+   "note": "scheduling"
+  },
+  {
+   "text": "is it okay if we wrap up in five minutes",
+   "note": "scheduling"
+  },
+  {
+   "text": "how about same time next week",
+   "note": "scheduling"
+  },
+  {
+   "text": "yeah",
+   "note": "back-channel"
+  },
+  {
+   "text": "mm hmm",
+   "note": "back-channel"
+  },
+  {
+   "text": "right right",
+   "note": "back-channel"
+  },
+  {
+   "text": "okay got it",
+   "note": "back-channel"
+  },
+  {
+   "text": "Makes sense.",
+   "note": "back-channel"
+  },
+  {
+   "text": "sure sure",
+   "note": "back-channel"
+  },
+  {
+   "text": "uh huh, go on",
+   "note": "back-channel"
+  },
+  {
+   "text": "that's fair",
+   "note": "back-channel"
+  },
+  {
+   "text": "absolutely",
+   "note": "back-channel"
+  },
+  {
+   "text": "yes, understood",
+   "note": "back-channel"
+  },
+  {
+   "text": "ok cool",
+   "note": "back-channel"
+  },
+  {
+   "text": "interesting",
+   "note": "back-channel"
+  },
+  {
+   "text": "fair enough yeah",
+   "note": "back-channel"
+  },
+  {
+   "text": "no that's helpful thank you",
+   "note": "back-channel"
+  },
+  {
+   "text": "Perfect, thanks.",
+   "note": "back-channel"
+  },
+  {
+   "text": "yeah yeah I follow",
+   "note": "back-channel"
+  },
+  {
+   "text": "sorry, six weeks?",
+   "note": "clarifying echo"
+  },
+  {
+   "text": "fifty thousand you said?",
+   "note": "clarifying echo"
+  },
+  {
+   "text": "the pilot, right?",
+   "note": "clarifying echo"
+  },
+  {
+   "text": "Wait, did you say Azure or AWS?",
+   "note": "clarifying echo"
+  },
+  {
+   "text": "sorry, phase one or phase two",
+   "note": "clarifying echo"
+  },
+  {
+   "text": "you mean the discovery bit",
+   "note": "clarifying echo"
+  },
+  {
+   "text": "SOC 2, okay",
+   "note": "clarifying echo"
+  },
+  {
+   "text": "per month or per year, you said per month",
+   "note": "clarifying echo"
+  },
+  {
+   "text": "Sorry, could you repeat that?",
+   "note": "clarifying echo"
+  },
+  {
+   "text": "come again",
+   "note": "clarifying echo"
+  },
+  {
+   "text": "sorry what was that last bit",
+   "note": "clarifying echo"
+  },
+  {
+   "text": "the Mumbai team, yeah?",
+   "note": "clarifying echo"
+  },
+  {
+   "text": "three people from your side, okay",
+   "note": "clarifying echo"
+  },
+  {
+   "text": "sorry, I missed the name of the tool",
+   "note": "clarifying echo"
+  },
+  {
+   "text": "we're a team of about two hundred in operations",
+   "note": "statement"
+  },
+  {
+   "text": "I head procurement for the APAC region",
+   "note": "statement"
+  },
+  {
+   "text": "Our CEO is very keen on AI this year.",
+   "note": "statement"
+  },
+  {
+   "text": "we use Oracle for finance and Workday for HR",
+   "note": "statement"
+  },
+  {
+   "text": "thanks for the presentation, it was really clear",
+   "note": "statement"
+  },
+  {
+   "text": "i'm joining from the car so i might be a bit distracted",
+   "note": "statement"
+  },
+  {
+   "text": "We went live with a chatbot last year, it was okay.",
+   "note": "statement"
+  },
+  {
+   "text": "most of our customers are in the GCC",
+   "note": "statement"
+  },
+  {
+   "text": "the team is mostly in Pune and Chennai",
+   "note": "statement"
+  },
+  {
+   "text": "i think that covers everything from my side",
+   "note": "statement"
+  },
+  {
+   "text": "I'll take this back to the team and come back to you",
+   "note": "statement"
+  },
+  {
+   "text": "thanks everyone, really appreciate the time",
+   "note": "statement"
+  },
+  {
+   "text": "so that's where we are at the moment",
+   "note": "statement"
+  },
+  {
+   "text": "let me introduce my colleague Marco who runs IT",
+   "note": "statement"
+  },
+  {
+   "text": "we're not in a rush, honestly",
+   "note": "statement"
+  },
+  {
+   "text": "I need to jump to another call now",
+   "note": "statement"
+  },
+  {
+   "text": "sorry for being late, the previous meeting ran over",
+   "note": "statement"
+  },
+  {
+   "text": "Good morning everyone, shall we get started?",
+   "note": "call mechanics"
+  }
+ ]
+}

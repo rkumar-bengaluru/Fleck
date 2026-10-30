@@ -1,0 +1,16 @@
+[project]
+name = "fleck"
+version = "0.0.0"
+requires-python = ">=3.12,<3.13"
+
+[tool.uv.workspace]
+members = ["core", "api", "gsim", "helper"]
+
+[tool.uv.sources]
+fleck-core = { workspace = true }
+fleck-api = { workspace = true }
+fleck-gsim = { workspace = true }
+fleck-helper = { workspace = true }
+
+[tool.pytest.ini_options]
+markers = ["ollama: needs a local Ollama with the pinned models (skipped in CI)"]

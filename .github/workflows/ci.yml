@@ -1,0 +1,24 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env: {POSTGRES_USER: fleck, POSTGRES_PASSWORD: fleck, POSTGRES_DB: fleck}
+        ports: ["5432:5432"]
+      weaviate:
+        image: cr.weaviate.io/semitechnologies/weaviate:1.27.0
+        env: {DEFAULT_VECTORIZER_MODULE: none, ENABLE_MODULES: "", AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true", PERSISTENCE_DATA_PATH: /var/lib/weaviate, CLUSTER_HOSTNAME: node1}
+        ports: ["8080:8080"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: MinIO
+        run: docker run -d -p 9000:9000 -e MINIO_ROOT_USER=fleck -e MINIO_ROOT_PASSWORD=fleck-secret cgr.dev/chainguard/minio server /data
+      - run: uv run --all-packages pytest core api gsim helper/tests/unit -m "not ollama"
+      - uses: pnpm/action-setup@v4
+        if: hashFiles('web/package.json') != ''
+      - run: pnpm --dir web install && pnpm --dir web test
+        if: hashFiles('web/package.json') != ''

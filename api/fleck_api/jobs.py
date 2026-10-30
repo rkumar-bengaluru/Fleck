@@ -59,6 +59,7 @@ def run_once(session: Session) -> bool:
             and_(Job.status == "running", Job.locked_at < func.now() - STALE_AFTER),
         ))
         .order_by(Job.run_after, Job.id).limit(1).with_for_update(skip_locked=True)
+        .execution_options(populate_existing=True)  # read the locked row, never a stale identity-map copy
     ).first()
     if j is None:
         session.rollback()

@@ -50,8 +50,8 @@ _DELIVERY = (r"( (to|with) (me|us|everyone|the team|all of us|(my|our) (e-?mail|
              r"|(by|over|via|on|through|in an?) (e-?mail|mail|whatsapp|slack|teams)|in the chat|on the chat"
              r"|by (eod|end of day|tomorrow|monday|tuesday|wednesday|thursday|friday)))*")
 # The rules fallback (embedder down or slow) runs stricter than the rules alone: a false trigger is worse than a miss.
-# Chosen on fixtures/classifier/train.json only (decision 106): "interrogative and '?'" (0.95) and none of a vocative
-# opening ("Arjun, …" asks a colleague), a first-person subject ("do we…", "can I…") or a send/add/invite request.
+# Chosen on fixtures/classifier/train.json only (decision 106): "interrogative and '?'" (0.95), no "Word, " opening
+# ("Arjun, …" asks a colleague; "Okay, …" goes too) and none of the _FALLBACK_VETO words anywhere in the line.
 # Train: recall 296/1259, false triggers 26/1392 (1.9%); at the old 0.7 with no filters 574/1259 and 137/1392 (9.8%).
 FALLBACK_MIN_CONFIDENCE = 0.95
 _VOCATIVE = re.compile(r"^(\w+ )?[A-Z][a-z]+, ")  # case-sensitive; "Okay, …" goes too: the fallback stays strict

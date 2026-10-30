@@ -98,13 +98,21 @@ def _past_work(text: str) -> bool:
     return bool(_PAST_WORK.search(text))
 
 
+def _name_rx(c: str) -> re.Pattern:
+    """A library client's full name or any distinctive word of it ("Larkspur"), with a possessive."""
+    tokens = [w for w in re.findall(r"[^\W\d_]+", c) if len(w) >= 4 and w.lower() not in _NAME_STOP]
+    return re.compile("|".join(rf"\b{re.escape(w)}(?:['’]s)?\b" for w in [c] + tokens), re.I)
+
+
 def _client_hits(text: str, client_names: list[str]) -> list[str]:
-    hits = []
+    return [c for c in client_names if _name_rx(c).search(text)]
+
+
+def redact_clients(text: str, client_names: list[str]) -> str:
+    """Each library client name (or distinctive word of one) becomes "a client"."""
     for c in client_names:
-        tokens = [w for w in re.findall(r"[^\W\d_]+", c) if len(w) >= 4 and w.lower() not in _NAME_STOP]
-        if any(re.search(rf"\b{re.escape(w)}(?:['’]s)?\b", text, re.I) for w in tokens + [c]):
-            hits.append(c)
-    return hits
+        text = _name_rx(c).sub("a client", text)
+    return text
 
 
 def _periods(norm: str) -> set[str]:
@@ -163,7 +171,15 @@ class FallbackCheck:
     reasons: list[str]
 
 
+# Two price patterns, differing on purpose:
+# _PRICE_Q (decision 100) is broad and fails safe: a "price question" may show a client passage's figures, so anything
+# money-like counts, "fees" included.
+# PRICE_ASK (decision 107) decides whether the Claude fallback may answer at all: only a question asking for an amount
+# ends in "Not in our material" without a call. "fees" and a bare "rate" are out, so q_liability ("…twelve months of
+# fees?"), "error rates" and "success rate" still reach Claude; "your rates" and "day rate" do not.
 _PRICE_Q = re.compile(r"\b(?:costs?|costing|prices?|pric(?:ed|ing)|rates?|fees?|budgets?|quotes?|quot(?:ed|ing|ation)|how much|ballpark|charges?|charg(?:ed|ing)|spend(?:s|ing)?|invest(?:s|ed|ing|ment)?)\b", re.I)
+PRICE_ASK = re.compile(r"\b(how much|ballpark|cost(s|ing)?|pric(e|es|ed|ing)|quot(e|es|ed|ation)|budget"
+                       r"|(your|day|daily|hourly|monthly|blended|billing) rates?|rates? card)\b", re.I)
 
 
 def _values(p: Passage) -> set:

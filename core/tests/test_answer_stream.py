@@ -320,3 +320,10 @@ def test_bare_number_ending_the_reply_is_its_citation():
     ev = run(["A senior engineer costs 5,200 per month when offshore.", " 1"])
     assert ev[-1].check.ok and sents(ev)[0][1] == "A senior engineer costs 5,200 per month when offshore."
     assert not run(["Mixed teams are common.", " 7"])[-1].check.ok  # not a passage number: still uncited
+
+
+def test_bare_number_never_adds_a_second_citation():
+    ev = run(["Mixed teams are common [2].", " 1"])
+    assert ev[-1].check.ok and [c.title for c in ev[-1].check.citations] == ["Delivery FAQ"]  # [2] only, no [1][2]
+    ev = run(["Mixed teams are common. 2"])  # the reviewer's case: a bare number names its passage, read as given
+    assert [c.title for c in ev[-1].check.citations] == ["Delivery FAQ"]

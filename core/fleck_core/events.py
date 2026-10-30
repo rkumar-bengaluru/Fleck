@@ -23,7 +23,8 @@ class SegmentEvent(_Event):
 
 
 class LlmCall(_Event):
-    """A Claude call made for this assist (the live fallback), for the api's llm_calls trace."""
+    """A Claude call made for this assist (the live fallback), for the api's llm_calls trace. "discarded": a
+    speculative call whose answer was never shown (the library answered, or the question changed)."""
     purpose: str
     model: str
     request: str  # the only text sent: the question
@@ -31,14 +32,17 @@ class LlmCall(_Event):
     input_tokens: int | None
     output_tokens: int | None
     latency_ms: int
-    status: Literal["ok", "blocked", "error", "timeout"]
+    status: Literal["ok", "blocked", "error", "timeout", "discarded"]
     error: str | None = None
 
 
 class AssistEvent(_Event):
     """Replacement rule: a later `sentence` event with the same `sentence_index`, or a `done` whose kind is
     `not_in_material`, replaces text already shown (a streamed sentence that failed its checks). Events with the
-    same `assist_id` are one card: a newer answer for the same client turn reuses the id and replaces the card.
+    same `assist_id` are one card: a newer answer for the same client turn reuses the id and replaces the card, from
+    its `thinking` on. Contract for the helper: post each event before asking the stream for the next one; the
+    newer stream then holds its `thinking` (up to 0.2 s) until the older one has stopped, so an older event never lands
+    after it (decision 104).
     `kind` is also set on a `sentence` whose answer is already final: a brief replay, or the Claude fallback
     ("general": General knowledge, not from our material)."""
 
@@ -56,7 +60,7 @@ class AssistEvent(_Event):
     first_words_ms: int | None = None
     full_ms: int | None = None
     rejected: list[str] = []
-    llm: LlmCall | None = None  # on `done` when Claude was called
+    llm: list[LlmCall] = []  # on `done`: every Claude call made for this assist, shown or not
 
 
 class MeetingStateEvent(_Event):

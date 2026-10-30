@@ -247,7 +247,7 @@ def stream_library_answer(question: str, passages: list[Passage], client_names: 
                     break
                 # "…per month when offshore. 1": a bare passage number ending the reply is its citation (seen live
                 # when Whisper split the question; mid-stream a digit could still start a figure, so only here)
-                text = re.sub(r"(?<=[.!?])\s+([1-9])\s*$",
+                text = re.sub(r"(?<=[^\]][.!?])\s+([1-9])\s*$",  # only when the sentence has no marker yet
                               lambda m: f" [{m[1]}]" if int(m[1]) <= len(passages) else m[0], text)
                 yield from emit(final=True)
                 yield done()

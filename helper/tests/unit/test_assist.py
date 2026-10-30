@@ -45,18 +45,43 @@ class FakeOllama:
             yield t
 
 
+def _sse(text):
+    evs = [{"type": "message_start", "message": {"model": "claude-haiku-5-5", "usage": {"input_tokens": 80}}},
+           {"type": "content_block_delta", "delta": {"type": "text_delta", "text": text}},
+           {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 12}}]
+    return [f"data: {json.dumps(e)}\n\n".encode() for e in evs]
+
+
+class SlowBody(httpx.SyncByteStream):
+    """An SSE body that stalls `delay` s before its text; records when the client closes it."""
+    def __init__(self, text, delay):
+        self.chunks, self.delay, self.closed = _sse(text), delay, threading.Event()
+
+    def __iter__(self):
+        yield self.chunks[0]
+        if not self.closed.wait(self.delay):
+            yield from self.chunks[1:]
+
+    def close(self):
+        self.closed.set()
+
+
 class FakeClaude:
-    """An httpx client whose transport answers like the Messages API and counts calls."""
-    def __init__(self, text="It usually depends on the documents involved."):
-        self.text, self.requests = text, []
+    """An httpx client whose transport answers like the Messages API and counts calls (HEADs apart: they only warm
+    the connection, and must carry nothing)."""
+    def __init__(self, text="It usually depends on the documents involved.", delay=0.0):
+        self.text, self.delay, self.requests, self.heads, self.bodies = text, delay, [], [], []
         self.client = httpx.Client(transport=httpx.MockTransport(self._reply))
 
     def _reply(self, req):
+        if req.method == "HEAD":
+            self.heads.append((dict(req.headers), req.content))
+            return httpx.Response(404)
         self.requests.append(json.loads(req.content))
-        evs = [{"type": "message_start", "message": {"model": "claude-haiku-5-5", "usage": {"input_tokens": 80}}},
-               {"type": "content_block_delta", "delta": {"type": "text_delta", "text": self.text}},
-               {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 12}}]
-        return httpx.Response(200, text="".join(f"data: {json.dumps(e)}\n\n" for e in evs))
+        if self.delay:
+            self.bodies.append(SlowBody(self.text, self.delay))
+            return httpx.Response(200, stream=self.bodies[-1])
+        return httpx.Response(200, content=b"".join(_sse(self.text)))
 
 
 @pytest.fixture(autouse=True)
@@ -94,7 +119,8 @@ def test_empty_library_falls_back():
     assert ev[1].kind == "general" and ev[1].text == claude.text and ev[1].citations == []  # labelled as it streams
     done = ev[-1]
     assert done.kind == "general" and done.first_words_ms is not None and done.rejected == ["no_passages"]
-    assert done.llm.status == "ok" and done.llm.purpose == "live_fallback" and done.llm.request == Q
+    [call] = done.llm
+    assert call.status == "ok" and call.purpose == "live_fallback" and call.request == Q
     assert claude.requests[0]["messages"] == [{"role": "user", "content": Q}]  # the question text only
 
 
@@ -112,7 +138,7 @@ def test_fallback_off_gives_not_in_material():
     claude = FakeClaude()
     ev = list(make(ollama=FakeOllama(("NONE",)), mode="off", claude=claude).handle(trig(), "m1"))
     assert [e.phase for e in ev] == ["thinking", "done"]
-    assert ev[-1].kind == "not_in_material" and ev[-1].rejected == ["none"] and ev[-1].llm is None
+    assert ev[-1].kind == "not_in_material" and ev[-1].rejected == ["none"] and ev[-1].llm == []
     assert claude.requests == []
 
 
@@ -123,15 +149,40 @@ def test_blocked_fallback_not_retried():
     assert [e.phase for e in ev] == ["thinking", "done"]  # the blocked text is never shown
     done = ev[-1]
     assert done.kind == "not_in_material" and done.rejected[0] == "none" and "currency" in done.rejected
-    assert done.llm.status == "blocked" and done.llm.response.startswith("Typically")
+    assert [c.status for c in done.llm] == ["blocked"] and done.llm[0].response.startswith("Typically")
 
 
-def test_price_question_never_reaches_claude():
+@pytest.mark.parametrize("question, to_claude", [
+    ("Ballpark, what would the whole project cost us?", False),  # q_price
+    ("What does a senior engineer cost per month? Offshore.", False),  # q_rate as Whisper split it
+    ("What is your day rate for a data engineer?", False),
+    ("What are your rates?", False),
+    ("Would you cap liability at twelve months of fees?", True),  # terms, not an amount (decision 101)
+    ("What error rates do OCR systems usually have on handwriting?", True),
+    ("What's a typical success rate for document AI pilots?", True),
+    ("We close our budget cycle in November. How do AI systems usually handle handwriting?", True),  # preamble only
+])
+def test_price_ask_never_reaches_claude(question, to_claude):
     claude = FakeClaude()
-    ev = list(make(ollama=FakeOllama(("NONE",)), claude=claude).handle(trig("Ballpark, what would the whole project cost us?"), "m1"))
-    assert ev[-1].kind == "not_in_material" and ev[-1].rejected == ["none", "price_question"] and claude.requests == []
-    ev = list(make(ollama=FakeOllama(("NONE",)), claude=claude).handle(trig("Would you cap liability at twelve months of fees?"), "m1"))
-    assert ev[-1].kind == "general" and len(claude.requests) == 1  # terms, not an amount (decision 101)
+    ev = list(make(ollama=FakeOllama(("NONE",)), claude=claude).handle(trig(question), "m1"))
+    if to_claude:
+        assert ev[-1].kind == "general" and len(claude.requests) == 1
+    else:
+        assert ev[-1].kind == "not_in_material" and ev[-1].rejected == ["none", "price_question"] and claude.requests == []
+
+
+def test_only_the_question_reaches_claude():
+    claude = FakeClaude()
+    turn = ("Our playbook is a single long document. Marcus can tell you how it is organised. We met Larkspur last "
+            "week. Marcus, how do Larkspur Retail Group and others stop a model from making things up?")
+    ev = list(make(FakeRetriever(passages=()), claude=claude).handle(trig(turn), "m1"))
+    ask = "how do a client and others stop a model from making things up?"
+    assert claude.requests[0]["messages"] == [{"role": "user", "content": ask}]
+    assert ev[-1].llm[0].request == ask and ev[0].question == turn  # the card still shows what the client said
+    # no "?" anywhere (Whisper dropped it): the last sentence only
+    claude = FakeClaude()
+    list(make(FakeRetriever(passages=()), claude=claude).handle(trig("Thanks for that. How do you handle OCR."), "m1"))
+    assert claude.requests[0]["messages"][0]["content"] == "How do you handle OCR."
 
 
 def test_no_api_key_is_not_in_material_without_a_call(monkeypatch):
@@ -139,7 +190,7 @@ def test_no_api_key_is_not_in_material_without_a_call(monkeypatch):
     claude = FakeClaude()
     ev = list(make(FakeRetriever(passages=()), claude=claude).handle(trig(), "m1"))
     assert ev[-1].kind == "not_in_material" and ev[-1].rejected == ["no_passages", "no_api_key"]
-    assert ev[-1].llm is None and claude.requests == []
+    assert ev[-1].llm == [] and claude.requests == []
 
 
 def test_event_order_thinking_delta_done():
@@ -199,3 +250,72 @@ def test_new_turn_does_not_supersede():
     th.join()
     assert rest[-1].phase == "done" and out["b"][-1].phase == "done"
     assert rest[-1].assist_id != out["b"][-1].assist_id
+
+
+def test_a_done_answer_is_never_superseded():
+    a = make()
+    first = a.handle(trig(seg="c-1"), "m1")
+    ev = []
+    while not ev or ev[-1].phase != "done":
+        ev.append(next(first))  # the consumer holds `done` and is still posting it
+    second = a.handle(trig(seg="c-2"), "m1")  # same turn_id, after done
+    assert next(second).assist_id != ev[0].assist_id
+    assert next(first, None) is None  # the first stream ends normally, no Superseded
+
+
+def test_supersede_cuts_a_claude_call_within_200ms():
+    claude = FakeClaude(delay=3.0)  # Claude stalls after its first event
+    a = make(FakeRetriever(passages=()), claude=claude)
+    first = a.handle(trig("How do you stop a model inventing clauses?", seg="c-1"), "m1")
+    assert next(first).phase == "thinking"
+    out = {}
+    th = threading.Thread(target=lambda: out.setdefault("e", next(first)))
+    th.start()
+    time.sleep(0.3)  # the first stream is now blocked inside the Claude call
+    t = time.perf_counter()
+    second = a.handle(trig("How do you stop a model inventing clauses in a contract?", seg="c-2"), "m1")
+    th.join(1.0)
+    assert out["e"] == Superseded() and time.perf_counter() - t <= 0.2
+    assert claude.bodies[0].closed.wait(0.2)  # the HTTP stream is closed, not left to finish
+    assert next(second).phase == "thinking"  # the new card starts after the old stream stopped
+
+
+def test_brief_vector_of_another_length_is_skipped(caplog):
+    bad = BriefItem(question=Q, answer="x", kind="library", citations=[CIT], question_vector=[1.0, 0.0, 0.0])
+    ev = list(make(brief=[bad]).handle(trig(embedding=[1.0, 0.0]), "m1"))
+    assert ev[-1].phase == "done" and not ev[-1].from_brief and ev[-1].kind == "library"
+    assert "brief items skipped" in caplog.text
+
+
+REF = Passage(n=1, doc_id="r1", chunk_id="r1-0", title="Photronics outsourcing agreement", client=None, kind="reference",
+              text="Photronics · Liability\nNeither party's liability shall exceed the fees paid in twelve months.")
+
+
+def _speculate(ollama_tokens, claude):
+    a = make(FakeRetriever(passages=(REF,)), FakeOllama(ollama_tokens), claude=claude)
+    a.prepare(Q)
+    time.sleep(0.1)  # Claude starts beside the prefill
+    return list(a.handle(trig(), "m1"))
+
+
+def test_reference_only_retrieval_starts_claude_early_and_shows_it_on_none():
+    claude = FakeClaude()
+    ev = _speculate(("NONE",), claude)
+    assert len(claude.requests) == 1 and claude.requests[0]["messages"][0]["content"] == Q  # one call, question only
+    assert ev[-1].kind == "general" and [c.status for c in ev[-1].llm] == ["ok"]
+    assert claude.heads and all(content == b"" and "x-api-key" not in h for h, content in claude.heads)
+
+
+def test_speculative_claude_answer_is_discarded_when_the_library_answers():
+    claude = FakeClaude(delay=3.0)
+    ev = _speculate(("Liability is capped at twelve months of fees [1].",), claude)
+    assert ev[-1].kind == "reference" and not any(e.kind == "general" for e in ev)  # never shown
+    assert [c.status for c in ev[-1].llm] == ["discarded"] and claude.bodies[0].closed.is_set()
+
+
+def test_firm_passages_start_no_early_claude_call():
+    claude = FakeClaude()
+    a = make(FakeRetriever(), FakeOllama(), claude=claude)
+    a.prepare(Q)
+    ev = list(a.handle(trig(), "m1"))
+    assert ev[-1].kind == "library" and claude.requests == [] and ev[-1].llm == []

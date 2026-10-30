@@ -15,7 +15,7 @@ export interface AssistEvent {
   first_words_ms: number | null;
   full_ms: number | null;
   rejected: string[];
-  llm: LlmCall | null;
+  llm: LlmCall[];
 }
 
 export interface Citation {
@@ -34,7 +34,7 @@ export interface LlmCall {
   input_tokens: number | null;
   output_tokens: number | null;
   latency_ms: number;
-  status: "ok" | "blocked" | "error" | "timeout";
+  status: "ok" | "blocked" | "error" | "timeout" | "discarded";
   error: string | null;
 }
 

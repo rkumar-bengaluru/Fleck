@@ -13,7 +13,6 @@ import re
 import json
 import statistics as st
 import sys
-import threading
 import time
 from pathlib import Path
 
@@ -21,7 +20,7 @@ import yaml
 from measure import counts
 
 from fleck_api.library import CLIENT_NAMES
-from fleck_core.answer import OllamaClient, Superseded
+from fleck_core.answer import OllamaClient
 from fleck_core.retrieval import Embedder, Retriever
 from fleck_helper.assist import Assistant
 from fleck_helper.audio import ReplaySource
@@ -56,21 +55,21 @@ class _Clocked:
             yield f
 
 
-def _consume(assistant, trig, start_wall, out: dict):
+def _recorder(trig, start_wall, out: dict):
+    """A `post` for Assistant.start that times one Trigger's events. A row left without done was superseded."""
     q_end = start_wall + trig.end_ms / 1000
-    row = out[trig.segment_id] = {"first": None, "done": None, "kind": None, "superseded": False, "text": ""}
-    for e in assistant.handle(trig, "e2e", start_wall):
+    row = out[trig.segment_id] = {"first": None, "done": None, "kind": None, "text": "", "llm": []}
+
+    def post(e):
         now_ms = round((time.time() - q_end) * 1000)
-        if isinstance(e, Superseded):
-            row["superseded"] = True
-            return
         if e.phase in ("delta", "sentence") and e.text and row["first"] is None:
             row["first"] = now_ms
         if e.phase == "sentence":
             row["text"] += e.text + " "
         if e.phase == "done":
-            row.update(done=now_ms, kind=e.kind, rejected=e.rejected)
+            row.update(done=now_ms, kind=e.kind, rejected=e.rejected, llm=[c.status for c in e.llm])
             row["first"] = row["first"] if row["first"] is not None else now_ms  # "Not in our material" appears now
+    return post
 
 
 def pct(xs):
@@ -99,10 +98,8 @@ def main() -> int:
         if isinstance(e, Candidate):
             candidates += 1
             assistant.prepare(e.text, e.embedding)
-        elif isinstance(e, Trigger):  # handle() is iterated off the loop thread, as the helper must
-            th = threading.Thread(target=_consume, args=(assistant, e, src.start_wall, results), daemon=True)
-            th.start()
-            threads.append(th)
+        elif isinstance(e, Trigger):  # handle() here on the loop thread, its events on a worker: the helper's pattern
+            threads.append(assistant.start(e, "e2e", _recorder(e, src.start_wall, results), src.start_wall))
     for th in threads:
         th.join(timeout=30)
     c = counts(events, ref)
@@ -114,8 +111,8 @@ def main() -> int:
     for q in ref["questions"]:
         t = c["triggered"][q["id"]]
         r = results.get(t.segment_id) if t else None
-        if not r or r["superseded"] or r["done"] is None:
-            print(f"{q['id']:<13} {'-':>14} {'-':>8}  {'not triggered' if not t else 'superseded' if r and r['superseded'] else 'no done'}")
+        if not r or r["done"] is None:
+            print(f"{q['id']:<13} {'-':>14} {'-':>8}  {'not triggered' if not t else 'superseded or no done'}")
             wrong.append(q["id"])
             continue
         firsts.append(r["first"])
@@ -127,7 +124,7 @@ def main() -> int:
             ok_kind = False  # spec 7.4: no figure may be shown for the unbacked price question
         wrong += [] if ok_kind else [q["id"]]
         print(f"{q['id']:<13} {r['first']:>14} {r['done']:>8}  {'PASS' if ok_kind else 'FAIL':<7}  {r['kind']} "
-              f"{r.get('rejected') or ''} {r['text'][:90]!r}\n{'':<13} asked: {t.question!r}")
+              f"{r.get('rejected') or ''} claude={r['llm']} {r['text'][:90]!r}\n{'':<13} asked: {t.question!r}")
     for seg, r in results.items():
         if not any(t and t.segment_id == seg for t in c["triggered"].values()):
             print(f"(false trigger {seg}: first {r['first']} done {r['done']} kind {r['kind']})")

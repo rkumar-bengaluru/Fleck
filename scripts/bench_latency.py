@@ -125,6 +125,5 @@ est = 0.6 + r["a_realistic"][1] + c + 0.15 + r["b_cold_ttft"][1]
 early = 0.6 + r["a_transcribe_final"][1] + c + 0.15 + r["b_warm_ttft"][1]
 print(f"contended + start-early = 0.6 + {r['a_transcribe_final'][1]:.2f} + {c:.2f} + 0.15 + {r['b_warm_ttft'][1]:.2f} = {early:.2f}s")
 print(f"component estimate of first words = 0.6 + {r['a_realistic'][1]:.2f} + {c:.2f} + 0.15 + {r['b_cold_ttft'][1]:.2f} = {est:.2f}s ->", "PASS" if est <= 3.0 else "FAIL")
-# The estimate leaves out the turn close, the Claude fallback and queueing; the gate is the measured replay
-print("measured first words (scripts/measure_e2e.py, conversation.wav in real time, 2026-10-30): p50 1.29 s, "
-      "p95 2.99 s -> PASS; library answers 1.08-1.78 s, the two Claude fallbacks 2.13 and 2.99 s")
+# The estimate leaves out the turn close, the Claude fallback and queueing: the gate is the measured replay
+print("measured first words: run scripts/measure_e2e.py (conversation.wav in real time, p50/p95 and PASS/FAIL)")

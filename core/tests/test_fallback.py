@@ -7,7 +7,9 @@ import httpx
 import pytest
 
 from fleck_core import fallback
-from fleck_core.fallback import FallbackResult, fallback_answer, stream_fallback
+import threading
+
+from fleck_core.fallback import FallbackResult, fallback_answer, question_only, stream_fallback
 
 
 def client(handler):
@@ -99,3 +101,25 @@ def test_real_haiku_general_answer(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", _KEY)
     r = fallback_answer("How do AI systems usually handle scanned PDFs with handwriting?", ["Larkspur Retail Group"])
     assert r.status in ("ok", "blocked") and r.latency_ms < 5000 and r.text, r.error
+
+
+@pytest.mark.parametrize("turn, ask", [
+    ("Our playbook is long. Marcus, how do you stop a model inventing clauses?", "how do you stop a model inventing clauses?"),
+    ("We met Larkspur last week. Did it work for Larkspur Retail Group?", "Did it work for a client?"),
+    ("Thanks. How do you handle OCR.", "How do you handle OCR."),  # no "?": the last sentence
+    ("Is it safe? And is it fast?", "Is it safe? And is it fast?"),
+])
+def test_question_only(turn, ask):
+    assert question_only(turn, ["Larkspur Retail Group"]) == ask
+
+
+def test_cancel_ends_with_a_discarded_result():
+    cancel = threading.Event()
+
+    def slow(req):
+        time.sleep(1.0)
+        return reply("ok")(req)
+    t = time.perf_counter()
+    threading.Timer(0.1, cancel.set).start()
+    *_, r = stream_fallback("q?", [], client(slow), cancel)
+    assert r.status == "discarded" and r.reasons == ["cancelled"] and time.perf_counter() - t < 0.3

@@ -426,3 +426,14 @@ Live §8 questions (title, kind, nearest-vector distance):
   - fixes after run 1: streamed fallback, and a bare " 1" read as a citation;
   - run 2: recall 8/8, false triggers 0, first words p50 1.29 s / p95 2.99 s PASS, done p95 3.23 s;
   - §8 outcomes in run 2: all as expected. q_general and q_liability came from General knowledge; q_price was Not in our material (none, price_question).
+- Fix round 1:
+  - C1: only the question sentences go to Claude, with client names redacted (decision 109).
+  - I1: narrowed `PRICE_ASK`, run on that text (decision 107 amended).
+  - M1: bare " n" only when the sentence has no marker.
+  - M2/M3: supersede within 0.05 s, the Claude stream closed, `finished` set at `done`.
+  - M4: brief vectors of another length skipped.
+  - M6: `Assistant.start`.
+  - Win 1: speculative Claude when the prepared search is reference-only or empty (decision 109). `done.llm` is now a list with `discarded` calls.
+  - Win 2: warm connection, about 0.1 s off the median first sentence (decision 110).
+  - Tests: not ollama 449 passed, helper unit 125 passed, both EXIT 0.
+  - e2e (one run): recall 8/8, false triggers 0; first words p50 1.55 s / p95 2.74 s PASS (0.26 s margin); §8 outcomes all as expected. q_rate showed only "This is from passage." (cited; its figure sentence was dropped as uncited), a Task 13 quality point.

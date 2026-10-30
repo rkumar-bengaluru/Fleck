@@ -16,7 +16,7 @@ Analysts spent about 2 days building a background file on a subject, searching r
 
 - **Background file:** from about 2 days to 3 hours, including analyst review.
 - **Coverage:** 9 sources searched per subject, up from 4 by hand.
-- **Capacity:** 3× the cases per analyst per quarter.
+- **Capacity:** 5× the background files per analyst per week.
 - **Accuracy:** 4% of statements corrected in review, each one traced to a source.
 
 ## Client quote

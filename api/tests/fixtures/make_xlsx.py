@@ -1,5 +1,6 @@
 """Build parsing fixtures rate-card.xlsx and rate-card.pptx (deterministic). Run: uv run --package fleck-api python api/tests/fixtures/make_xlsx.py"""
 import datetime as dt
+import re
 import shutil
 import tempfile
 import zipfile
@@ -22,7 +23,10 @@ def _rezip(path: Path) -> None:
         for n in sorted(zin.namelist()):
             zi = zipfile.ZipInfo(n, (2026, 4, 1, 0, 0, 0))
             zi.compress_type = zipfile.ZIP_DEFLATED
-            zout.writestr(zi, zin.read(n))
+            data = zin.read(n)
+            if n == "docProps/core.xml":  # openpyxl stamps modified=now on save
+                data = re.sub(rb"(<dcterms:modified[^>]*>)[^<]*", rb"\g<1>2026-04-01T00:00:00Z", data)
+            zout.writestr(zi, data)
     shutil.move(tmp, path)
 
 

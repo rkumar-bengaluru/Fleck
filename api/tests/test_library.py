@@ -194,8 +194,12 @@ def test_caption_keeps_parent_heading_units(tmp_path):
     assert c[-1].splitlines()[0] == "Rates · Rates (INR lakh per year) · Offshore"
 
 
-def test_upload_rules(api):
+def test_upload_rules(api, tmp_path):
     c, *_ = api
+    (tmp_path / "x.key").write_text("k")
+    with pytest.raises(library.ParseError, match="^" + library.UNSUPPORTED.replace(".", r"\.") + "$"):
+        library.parse_document(tmp_path / "x.key")
+    assert c.post("/api/library/documents", files={"file": ("x.key", b"k")}, data={"kind": "firm"}).json()["detail"] == library.UNSUPPORTED
     assert c.post("/api/library/documents", files={"file": ("x.html", b"<b>")}, data={"kind": "firm"}).status_code == 415
     assert c.post("/api/library/documents", files={"file": ("x.md", b"# x")}, data={"kind": "client"}).status_code == 422
     big = c.post("/api/library/documents", files={"file": ("x.md", b"x")}, data={"kind": "firm"}, headers={"content-length": str(60 * 1024 * 1024)})
@@ -296,14 +300,15 @@ def live_like_index():
     """The demo library (everything under clients/ except jf/) indexed with the real embedder into a throwaway collection."""
     from fleck_core.retrieval import Embedder, Retriever, ensure_schema, put_passages, weaviate_client
     coll = f"PassageT{uuid.uuid4().hex[:8]}"
-    emb = Embedder("http://localhost:11434")
+    emb = Embedder("http://localhost:11434", timeout=120)
     with weaviate_client(WEAVIATE) as w:
         ensure_schema(w, coll)
         for i, f in enumerate(sorted(p for p in (ROOT / "clients").rglob("*") if p.suffix in library.SUPPORTED and "jf" not in p.parts and p.name != "README.md")):
             blocks = library.parse_document(f)
             title = library.document_title(f, blocks)
             chunks = chunk_blocks(blocks, title)
-            rows = [{"text": c, "doc_id": str(i), "chunk_id": f"{i}-{j}", "title": title, "client": None, "client_slug": None, "kind": "firm"} for j, c in enumerate(chunks)]
+            rows = [{"text": c, "doc_id": str(i), "chunk_id": f"{i}-{j}", "title": title, "client": None, "client_slug": None,
+                     "kind": "firm" if "_firm" in f.parts else "reference" if "_reference" in f.parts else "client"} for j, c in enumerate(chunks)]
             put_passages(w, rows, emb.embed(chunks), coll)
         yield Retriever(WEAVIATE, emb, coll)
         w.delete(f"/v1/schema/{coll}")
@@ -317,3 +322,33 @@ def test_live_like_questions(live_like_index):
     assert r.search("what is the capital of Peru") == []
     assert any(p.title.endswith("Brightwater Insurance") for p in r.search("do you have a case study in insurance"))
     assert any("Payment: net 45 days" in p.text for p in r.search("what are your payment terms"))
+
+
+def test_faq_answers_are_separate_passages_and_sections_keep_their_heading():
+    faq = _chunks(ROOT / "clients/_firm/delivery-faq.md")
+    sla = next(c for c in faq if "P1: response 30 min" in c)
+    start = next(c for c in faq if "within 2 weeks of signing" in c)
+    assert sla != start and sla.splitlines()[0].endswith("What SLAs do you offer for support?") and "2 weeks" not in sla
+    rc = _chunks(ROOT / "clients/_firm/rate-card.md")
+    month = next(c for c in rc if "A month is 160 billable hours" in c)
+    assert "Discounts" not in month and "Time and materials" in month.splitlines()[0]
+
+
+def test_reference_titles_come_from_the_map(api):
+    c, make_session, _ = api
+    with make_session() as s:
+        d = library.store_document(s, "msa-part1.md", f"# Whatever\n\n{BODY}\n".encode(), "firm", None, "_reference/kubient/msa-part1.pdf", "h")
+        did = d.id
+    _drain(make_session)
+    with make_session() as s:
+        assert s.get(Document, did).title == "Kubient MSA, part 1"
+
+
+@pytest.mark.ollama
+def test_price_and_ip_questions_are_not_crowded_by_contracts(live_like_index):
+    price = live_like_index.search("Ballpark, what would the whole project cost us?")
+    assert any(("Fixed price" in p.text or "Discovery is a fixed" in p.text) for p in price if p.kind == "firm")
+    assert not any("Cardlytics" in p.title or "Maintenance" in p.title for p in price)
+    ip = live_like_index.search("Who owns the IP in what you build?")
+    assert sum(p.kind == "reference" for p in ip) <= 1 and (ip[-1].kind == "reference" or all(p.kind != "reference" for p in ip))
+    assert any("Who owns the IP" in p.text for p in ip)

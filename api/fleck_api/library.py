@@ -31,7 +31,18 @@ log = logging.getLogger("fleck.library")
 BUCKET = "fleck-documents"
 KINDS = ("client", "firm", "reference")
 MAX_BYTES = 50 * 1024 * 1024
+UNSUPPORTED = "Upload a PDF, DOCX, PPTX, XLSX, Markdown or text file."
 SUPPORTED = (".pdf", ".docx", ".pptx", ".xlsx", ".md", ".txt")
+
+
+# Titles for the reference contracts (the filenames say nothing); keyed by path under clients/.
+DOC_TITLES = {
+    "_reference/kubient/msa-part1.pdf": "Kubient MSA, part 1", "_reference/kubient/msa-part2.pdf": "Kubient MSA, part 2",
+    "_reference/cardlytics/maintenance-agreement.pdf": "Cardlytics maintenance agreement",
+    "_reference/healthgate/hosting-and-management-agreement.pdf": "HealthGate hosting agreement",
+    "_reference/sphere3d/consulting-agreement.pdf": "Sphere 3D consulting agreement",
+    "_reference/photronics/outsourcing-agreement.pdf": "Photronics outsourcing agreement",
+}
 
 
 class ParseError(Exception):
@@ -73,8 +84,7 @@ def _markdown_blocks(md: str) -> list[Block]:
         flush_table()
         if m := re.match(r"(#{1,6})\s+(.*)", s):
             path = {k: v for k, v in path.items() if k < len(m[1])} | {len(m[1]): m[2].strip()}
-            if len("\n".join(buf).strip()) >= 150 and not rows:  # a new section starts a new block unless the last one is tiny
-                flush_text()
+            flush_text()  # every section is its own block, under its own heading
         if not buf and not s:
             continue
         if not buf:
@@ -136,7 +146,7 @@ def _xlsx_blocks(path: Path) -> list[Block]:
 def parse_document(path: Path) -> list[Block]:
     ext = path.suffix.lower()
     if ext not in SUPPORTED:
-        raise ParseError(f"Unsupported file type '{ext or path.name}'. Upload a PDF, DOCX, PPTX, XLSX or Markdown file.")
+        raise ParseError(UNSUPPORTED)
     if path.stat().st_size == 0:
         raise ParseError("The file is empty.")
     try:
@@ -227,13 +237,13 @@ def index_document(session: Session, payload: dict) -> None:
         except ParseError as e:
             _fail(doc, str(e))
             return
-        title = document_title(path, blocks)
+        title = DOC_TITLES.get(doc.source_path or "") or document_title(path, blocks)
     chunks = chunk_blocks(blocks, title)
     if not chunks:
         _fail(doc, "No indexable text found in the file.")
         return
     client = session.get(Client, doc.client_id) if doc.client_id else None
-    vectors = Embedder(setting("FLECK_OLLAMA_URL", "http://localhost:11434")).embed(chunks)
+    vectors = Embedder(setting("FLECK_OLLAMA_URL", "http://localhost:11434"), timeout=120).embed(chunks)
     rows = [{"text": c, "doc_id": str(doc.id), "chunk_id": f"{doc.id}-{i}", "title": title, "client": client.name if client else None,
              "client_slug": client.slug if client else None, "kind": doc.kind} for i, c in enumerate(chunks)]
     doc_id = doc.id
@@ -355,7 +365,7 @@ def upload_document(file: UploadFile, kind: str = Form(...), client_id: int | No
         raise HTTPException(422, "Unknown client")
     name = Path(file.filename or "upload").name
     if Path(name).suffix.lower() not in SUPPORTED:
-        raise HTTPException(415, f"Unsupported file type. Upload one of: {', '.join(SUPPORTED)}")
+        raise HTTPException(415, UNSUPPORTED)
     data = b""
     while chunk := file.file.read(1024 * 1024):
         data += chunk
@@ -421,7 +431,7 @@ class SeedError(Exception):
     pass
 
 
-def seed_library(session: Session, root: Path) -> list[Document]:
+def seed_library(session: Session, root: Path, removed: list[str] | None = None) -> list[Document]:
     """Import clients/: folder -> client; _firm -> firm; _reference/<name> -> reference with client <name>. Never touches jf/.
     Idempotent: unchanged files are skipped, changed or failed ones are re-uploaded and re-indexed, and seed-created
     documents whose file is gone are removed."""
@@ -460,5 +470,7 @@ def seed_library(session: Session, root: Path) -> list[Document]:
         raise SeedError(f"No library files found under {root}; nothing imported and nothing removed.")
     for d in session.scalars(select(Document).where(Document.source_path.is_not(None))).all():
         if d.source_path not in seen:
+            if removed is not None:
+                removed.append(d.source_path)
             remove_document(session, d)
     return docs

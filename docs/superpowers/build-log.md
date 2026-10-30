@@ -162,3 +162,20 @@ Live results (passage, nearest-vector distance):
 ## 2026-10-30 Task 8: gsim and Google sign-in
 
 gsim (consent page, token, userinfo, calendar fixtures with an injectable clock) and api auth (login/callback/logout/me, allow-list, Fernet-encrypted tokens, sha256 session tokens, current_user on every /api route except health/login/callback). Placeholder no-op sync_calendar job until Task 9. Live stack via make up: rupak@northbeam.test signs in and /api/me returns 200; outsider@example.test redirected to /signin?error=not_allowed; /api/clients without session 401; sync_calendar job done. Suite -m 'not ollama': 196 passed EXIT 0.
+
+### Task 7 Milestone C follow-up: seed through the worker, table substance, FAQ granularity, live budgets
+
+- `scripts/seed_library.py` now only creates rows, uploads and enqueues; it polls until the compose worker finishes (timeout 600 s, `--timeout`), prints each removed path and the count, and `--force` re-queues everything. Re-seeded with `make up` + `--force`: firm 3 documents / 22 chunks, reference 6 / 322, client 6 / 40; removed 0.
+- One unsupported-file message for the parse error and the 415. Table chunks drop value-less rows, grids that are mostly empty and unlabelled rows. Every markdown section is its own block under its own heading (short sections under a markdown heading are kept at 6 words). Delivery FAQ questions are `##` headings (answers unchanged), so each is its own passage.
+- `Retriever.search` fetches 6, ranks firm/client before reference, and keeps at most 1 reference when any firm/client passage passed. `Embedder(url, keep_alive=-1, timeout=1.5)` and `Retriever(..., timeout=1.0)` raise `RetrievalTimeout`/`RetrievalError`; indexing uses a 120 s embed timeout.
+- `DOC_TITLES` (Kubient MSA, part 1/2; Cardlytics maintenance agreement; HealthGate hosting agreement; Sphere 3D consulting agreement; Photronics outsourcing agreement); Larkspur SOW H1 is "SOW No. 2: order management". WebLibrary mockup rows now use the real titles.
+- Suites: `-m "not ollama"` 202 passed EXIT 0; `-m ollama` 5 passed EXIT 0.
+
+Live §8 questions (title, kind, nearest-vector distance):
+- q_rate: Rate card FY2026 firm 0.218, 0.274, 0.439
+- q_start: Delivery FAQ firm (in-house team 0.419, How fast can you start? 0.446, team member leaves 0.483)
+- q_ip: Delivery FAQ "Who owns the IP?" firm 0.376; Delivery FAQ tools 0.542; GenAI 0.548 (no reference)
+- q_sla: Delivery FAQ "What SLAs..." firm 0.420; SOW No. 2 hypercare service levels client 0.478; Delivery FAQ start 0.583
+- q_case: Case study: Calloway & Marsh client 0.445, 0.502; Capabilities firm 0.520
+- q_general: Photronics outsourcing agreement reference 0.592; Kubient MSA, part 2 reference 0.584 (nothing firm passes the gate, as intended)
+- q_price: Proposal: Order management modernisation client 0.526; Rate card T&M firm 0.535; Rate card "Fixed price" firm 0.592

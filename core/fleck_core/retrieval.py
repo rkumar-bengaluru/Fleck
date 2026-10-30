@@ -62,10 +62,11 @@ def _text_chunks(text: str) -> list[str]:
     return chunks + ["\n\n".join(cur)] if cur else chunks
 
 
-def _substantial(chunk: str) -> bool:
+def _substantial(chunk: str, lenient: bool = False) -> bool:
     """Form labels and page footers ("number:", "Source: ...") embed close to every query; keep text with real content."""
     body = chunk.split("\n", 1)[1] if "\n" in chunk else ""
-    return len(body.split()) >= 20 and sum(map(str.isalpha, body)) >= 100
+    # a short section under its own markdown heading ("A month is 160 billable hours") is kept
+    return len(body.split()) >= (6 if lenient else 20) and sum(map(str.isalpha, body)) >= (25 if lenient else 100)
 
 
 def _head(title: str, caption: str | None) -> str:
@@ -78,13 +79,15 @@ def chunk_blocks(blocks: list[Block], title: str) -> list[str]:
     out: list[str] = []
     for b in blocks:
         if isinstance(b, Text):
-            out += [c for c in (f"{_head(title, b.heading)}\n{t}" for t in _text_chunks(b.text)) if _substantial(c)]
+            out += [c for c in (f"{_head(title, b.heading)}\n{t}" for t in _text_chunks(b.text)) if _substantial(c, b.heading not in (None, title))]
             continue
-        if sum(not r[0] for r in b.rows) * 2 > len(b.rows):  # a PDF form grid: most rows have no label
-            continue
+        rows = [r for r in b.rows if any(r[1:])]  # a row without values says nothing
+        cells = [c for r in rows for c in r[1:]]
+        if not rows or sum(not r[0] for r in rows) * 2 > len(rows) or sum(map(bool, cells)) * 2 < len(cells):
+            continue  # a PDF form grid: unlabelled rows or mostly empty cells
         head = _head(title, b.caption)
         lines, n = [], 0
-        for row in b.rows:
+        for row in rows:
             rl = [f"{row[0]} · {h}: {v}" if h and row[0] else f"{row[0] or h}: {v}" for h, v in zip(b.header[1:], row[1:]) if v] or [" · ".join(row)]
             if n and (n >= TABLE_ROWS or sum(map(len, lines)) + sum(map(len, rl)) > TABLE_CHARS):
                 out.append("\n".join([head, *lines]))
@@ -97,8 +100,10 @@ def chunk_blocks(blocks: list[Block], title: str) -> list[str]:
 
 
 class Embedder:
-    def __init__(self, ollama_url: str):
-        self.url = ollama_url
+    """timeout defaults to the live path's 1.5 s; indexing passes a long one. keep_alive keeps the model loaded."""
+
+    def __init__(self, ollama_url: str, keep_alive: int | str = -1, timeout: float = 1.5):
+        self.url, self.keep_alive, self.timeout = ollama_url, keep_alive, timeout
 
     def embed_query(self, question: str) -> list[float]:
         """qwen3-embedding is instruction-tuned: queries carry the task, documents are embedded plain."""
@@ -111,14 +116,22 @@ class Embedder:
                 log.warning("truncating a %d-character text to %d for embedding", len(t), EMBED_CHARS)
         texts = [t[:EMBED_CHARS] for t in texts]
         for i in range(0, len(texts), 32):
-            r = httpx.post(f"{self.url}/api/embed", json={"model": EMBED_MODEL, "input": texts[i:i + 32]}, timeout=120)
+            r = httpx.post(f"{self.url}/api/embed", json={"model": EMBED_MODEL, "input": texts[i:i + 32], "keep_alive": self.keep_alive}, timeout=self.timeout)
             r.raise_for_status()
             out += r.json()["embeddings"]
         return out
 
 
-def weaviate_client(url: str) -> httpx.Client:
-    return httpx.Client(base_url=url, timeout=60)
+def weaviate_client(url: str, timeout: float = 60) -> httpx.Client:
+    return httpx.Client(base_url=url, timeout=timeout)
+
+
+class RetrievalError(Exception):
+    """Search could not run (service down or erroring); the live path answers "Not in our material"."""
+
+
+class RetrievalTimeout(RetrievalError):
+    pass
 
 
 def ensure_schema(client: httpx.Client, collection: str = COLLECTION) -> None:
@@ -160,8 +173,10 @@ _FIELDS = "text doc_id chunk_id title client kind"
 
 
 class Retriever:
-    def __init__(self, weaviate_url: str, embedder: Embedder, collection: str = COLLECTION):
-        self.client, self.embedder, self.collection = weaviate_client(weaviate_url), embedder, collection
+    """The live search budget is ~2.5 s in total: embed 1.5 s (Embedder.timeout) plus Weaviate 1 s."""
+
+    def __init__(self, weaviate_url: str, embedder: Embedder, collection: str = COLLECTION, timeout: float = 1.0):
+        self.client, self.embedder, self.collection = weaviate_client(weaviate_url, timeout), embedder, collection
 
     def _get(self, args: str, extra: str = "") -> list[dict]:
         q = f"{{Get{{{self.collection}(tenant:\"{TENANT}\",{args}){{{_FIELDS} _additional{{{extra}}}}}}}}}"
@@ -173,8 +188,17 @@ class Retriever:
         return body["data"]["Get"][self.collection] or []
 
     def search(self, question: str, limit: int = 3, client_slug: str | None = None) -> list[Passage]:
-        vec = json.dumps(self.embedder.embed_query(question))
-        where = f'where:{{path:["client_slug"],operator:Equal,valueText:{json.dumps(client_slug)}}},' if client_slug else ""
-        max_d = float(os.environ.get("FLECK_RETRIEVAL_MAX_DISTANCE", "0.60"))
-        hits = self._get(f"{where}hybrid:{{query:{json.dumps(question)},vector:{vec},alpha:0.5,maxVectorDistance:{max_d},properties:[\"text\",\"title\"]}},limit:{limit}", "score")
-        return [Passage(n=i, **{k: h[k] for k in ("doc_id", "chunk_id", "text", "title", "client", "kind")}) for i, h in enumerate(hits, 1)]
+        """Hybrid search gated by vector distance. Firm and client passages rank ahead of reference contracts, and
+        at most one reference passage is kept when any firm or client passage passed the gate."""
+        try:
+            vec = json.dumps(self.embedder.embed_query(question))
+            where = f'where:{{path:["client_slug"],operator:Equal,valueText:{json.dumps(client_slug)}}},' if client_slug else ""
+            max_d = float(os.environ.get("FLECK_RETRIEVAL_MAX_DISTANCE", "0.60"))
+            hits = self._get(f"{where}hybrid:{{query:{json.dumps(question)},vector:{vec},alpha:0.5,maxVectorDistance:{max_d},properties:[\"text\",\"title\"]}},limit:{max(limit, 6)}", "score")
+        except httpx.TimeoutException as e:
+            raise RetrievalTimeout(f"search timed out: {type(e).__name__}") from e
+        except (httpx.HTTPError, RuntimeError) as e:
+            raise RetrievalError(f"search failed: {e}") from e
+        own = [h for h in hits if h["kind"] != "reference"]
+        picked = own + [h for h in hits if h["kind"] == "reference"][: 1 if own else limit]
+        return [Passage(n=i, **{k: h[k] for k in ("doc_id", "chunk_id", "text", "title", "client", "kind")}) for i, h in enumerate(picked[:limit], 1)]

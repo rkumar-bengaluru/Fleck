@@ -11,6 +11,7 @@ from fleck_core.validate import check_library_answer
 from sqlalchemy import func, select
 
 from fleck_api import jobs, library
+from fleck_api.auth import current_user
 from fleck_api.db import get_session
 from fleck_api.main import create_app
 from fleck_api.models import Document
@@ -70,6 +71,7 @@ def api(make_session, monkeypatch):
         with make_session() as s:
             yield s
     app.dependency_overrides[get_session] = sess
+    app.dependency_overrides[current_user] = lambda: None  # auth is covered in test_auth.py
     yield TestClient(app), make_session, coll
     with make_session() as s:
         for d in s.scalars(select(Document)):

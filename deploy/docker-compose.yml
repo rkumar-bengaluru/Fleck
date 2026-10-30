@@ -4,6 +4,7 @@ x-api-env: &api-env
   FLECK_MINIO_URL: http://minio:9000
   FLECK_WEAVIATE_URL: http://weaviate:8080
   FLECK_OLLAMA_URL: http://host.docker.internal:11434
+  FLECK_GSIM_URL: http://gsim:8090
 services:
   postgres:
     restart: unless-stopped

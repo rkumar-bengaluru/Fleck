@@ -158,3 +158,7 @@ Live results (passage, nearest-vector distance):
 - "what is the capital of Peru": [] (best 0.765)
 - "do you have a case study in insurance": Brightwater case study 0.411, 0.485, 0.553
 - "what are your payment terms": Rate card Other terms (Payment: net 45 days) 0.467; Larkspur SOW 0.470; Msa part2 0.527
+
+## 2026-10-30 Task 8: gsim and Google sign-in
+
+gsim (consent page, token, userinfo, calendar fixtures with an injectable clock) and api auth (login/callback/logout/me, allow-list, Fernet-encrypted tokens, sha256 session tokens, current_user on every /api route except health/login/callback). Placeholder no-op sync_calendar job until Task 9. Live stack via make up: rupak@northbeam.test signs in and /api/me returns 200; outsider@example.test redirected to /signin?error=not_allowed; /api/clients without session 401; sync_calendar job done. Suite -m 'not ollama': 196 passed EXIT 0.

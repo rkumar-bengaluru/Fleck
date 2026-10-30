@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
-from fleck_api import library
+from fleck_api import auth, library
 from fleck_api.config import setting
 
 
@@ -33,6 +33,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="fleck-api", lifespan=lifespan)
     app.middleware("http")(library.size_guard)
+    app.include_router(auth.router)
     app.include_router(library.router)
 
     @app.get("/api/health")

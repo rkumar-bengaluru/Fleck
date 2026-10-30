@@ -21,6 +21,7 @@ from pydantic import BaseModel
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from fleck_api.auth import current_user
 from fleck_api.config import setting
 from fleck_api.db import get_session
 from fleck_api.jobs import enqueue, job
@@ -301,7 +302,7 @@ def _row(session: Session, d: Document) -> dict:
 
 # ---------- routes (plain def: sync DB work runs in FastAPI's threadpool) ----------
 
-router = APIRouter(prefix="/api")
+router = APIRouter(prefix="/api", dependencies=[Depends(current_user)])
 
 
 class NewClient(BaseModel):

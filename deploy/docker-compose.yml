@@ -39,5 +39,13 @@ services:
       postgres: {condition: service_healthy}
       minio: {condition: service_started}
       weaviate: {condition: service_healthy}
+  worker:
+    build: {context: .., dockerfile: api/Dockerfile}
+    command: ["uv", "run", "--no-sync", "--package", "fleck-api", "python", "-m", "fleck_api.worker"]
+    env_file: [{path: ../.env, required: false}]
+    environment:
+      FLECK_DATABASE_URL: postgresql://fleck:fleck@postgres:5432/fleck
+    depends_on:
+      postgres: {condition: service_healthy}
 volumes: {pgdata: {}, miniodata: {}, weaviatedata: {}}
-# worker and web are added in Tasks 3 and 9
+# web is added in Task 9

@@ -219,7 +219,9 @@ dependencies = [
     { name = "pyobjc-core", marker = "sys_platform == 'darwin'" },
     { name = "pyobjc-framework-avfoundation", marker = "sys_platform == 'darwin'" },
     { name = "pyobjc-framework-cocoa", marker = "sys_platform == 'darwin'" },
+    { name = "pyobjc-framework-coremedia", marker = "sys_platform == 'darwin'" },
     { name = "pyobjc-framework-screencapturekit", marker = "sys_platform == 'darwin'" },
+    { name = "pyobjc-framework-usernotifications", marker = "sys_platform == 'darwin'" },
     { name = "rumps", marker = "sys_platform == 'darwin'" },
 ]
 
@@ -238,7 +240,9 @@ requires-dist = [
     { name = "pyobjc-core", marker = "sys_platform == 'darwin'" },
     { name = "pyobjc-framework-avfoundation", marker = "sys_platform == 'darwin'" },
     { name = "pyobjc-framework-cocoa", marker = "sys_platform == 'darwin'" },
+    { name = "pyobjc-framework-coremedia", marker = "sys_platform == 'darwin'" },
     { name = "pyobjc-framework-screencapturekit", marker = "sys_platform == 'darwin'" },
+    { name = "pyobjc-framework-usernotifications", marker = "sys_platform == 'darwin'" },
     { name = "rumps", marker = "sys_platform == 'darwin'" },
 ]
 
@@ -744,6 +748,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/de/b6/3a5b4a1d6410a06f5eafb17f17af55b1c7641455ca64ce55a9d05b72a096/pyobjc_framework_screencapturekit-12.2.2.tar.gz", hash = "sha256:6c16b1730186a012707e69532e6a03ae7282a6661f106db2663c0f0acc76420a", size = 38008, upload-time = "2026-08-11T19:45:19.875Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/05/17/1bf74d227db0abc7ee8cd1d5affcdf8f81cdf514d14f6ce938b94f3b3d0f/pyobjc_framework_screencapturekit-12.2.2-cp312-cp312-macosx_10_13_universal2.whl", hash = "sha256:5c81c68bc0399ad7ca6ccaa978574354a4da8fbb474527664fdbf08cc8f8abd5", size = 11598, upload-time = "2026-08-11T19:41:03.83Z" },
+]
+
+[[package]]
+name = "pyobjc-framework-usernotifications"
+version = "12.2.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyobjc-core" },
+    { name = "pyobjc-framework-cocoa" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/98/55/c96dc372855b50fc40f8ded5666ce7f07d62b508b83ea73ac19d6cdfe601/pyobjc_framework_usernotifications-12.2.2.tar.gz", hash = "sha256:ef2432463ae8c3ae75c6e434df07534bc9c79c0911e1125aaa58d9f51b32406b", size = 34160, upload-time = "2026-08-11T19:45:38.322Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fa/4e/e4e13b5cff0c1491cd28562e5655b3977a2cb648c20d583d6595ef0fe405/pyobjc_framework_usernotifications-12.2.2-cp312-cp312-macosx_10_13_universal2.whl", hash = "sha256:668fffa255b92776e3ce3eea435b1f30eff9e2a0dc38252c807a03cc002a33c5", size = 10210, upload-time = "2026-08-11T19:42:59.249Z" },
 ]
 
 [[package]]

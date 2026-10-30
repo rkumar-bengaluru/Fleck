@@ -2,7 +2,7 @@
 name = "fleck-helper"
 version = "0.0.0"
 requires-python = ">=3.12,<3.13"
-dependencies = ["fleck-core", "httpx>=0.27", "mlx-whisper; sys_platform == 'darwin'", "rumps; sys_platform == 'darwin'", "pyobjc-core; sys_platform == 'darwin'", "pyobjc-framework-Cocoa; sys_platform == 'darwin'", "pyobjc-framework-AVFoundation; sys_platform == 'darwin'", "pyobjc-framework-ScreenCaptureKit; sys_platform == 'darwin'", "py2app; sys_platform == 'darwin'"]
+dependencies = ["fleck-core", "httpx>=0.27", "mlx-whisper; sys_platform == 'darwin'", "rumps; sys_platform == 'darwin'", "pyobjc-core; sys_platform == 'darwin'", "pyobjc-framework-Cocoa; sys_platform == 'darwin'", "pyobjc-framework-AVFoundation; sys_platform == 'darwin'", "pyobjc-framework-ScreenCaptureKit; sys_platform == 'darwin'", "pyobjc-framework-CoreMedia; sys_platform == 'darwin'", "pyobjc-framework-UserNotifications; sys_platform == 'darwin'", "py2app; sys_platform == 'darwin'"]
 
 [build-system]
 requires = ["hatchling"]

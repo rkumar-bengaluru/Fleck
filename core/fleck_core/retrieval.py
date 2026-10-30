@@ -188,11 +188,13 @@ class Retriever:
             raise RuntimeError(f"Weaviate query failed: {body['errors'][0]['message']}")
         return body["data"]["Get"][self.collection] or []
 
-    def search(self, question: str, limit: int = 3, client_slug: str | None = None) -> list[Passage]:
+    def search(self, question: str, limit: int = 3, client_slug: str | None = None,
+               vector: list[float] | None = None) -> list[Passage]:
         """Hybrid search gated by vector distance. Firm and client passages rank ahead of reference contracts, and
-        at most one reference passage is kept when any firm or client passage passed the gate."""
+        at most one reference passage is kept when any firm or client passage passed the gate. `vector`, when given,
+        must be `embed_query(question)` (the live path has it from the classifier) and saves the embed call."""
         try:
-            vec = json.dumps(self.embedder.embed_query(question))
+            vec = json.dumps(vector or self.embedder.embed_query(question))
             where = f'where:{{path:["client_slug"],operator:Equal,valueText:{json.dumps(client_slug)}}},' if client_slug else ""
             max_d = float(os.environ.get("FLECK_RETRIEVAL_MAX_DISTANCE", "0.60"))
             hits = self._get(f"{where}hybrid:{{query:{json.dumps(question)},vector:{vec},alpha:0.5,maxVectorDistance:{max_d},properties:[\"text\",\"title\"]}},limit:{max(limit, 6)}", "score")

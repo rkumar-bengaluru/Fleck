@@ -22,9 +22,25 @@ class SegmentEvent(_Event):
     gate: Literal["client", "you", "overlap"] | None
 
 
+class LlmCall(_Event):
+    """A Claude call made for this assist (the live fallback), for the api's llm_calls trace."""
+    purpose: str
+    model: str
+    request: str  # the only text sent: the question
+    response: str | None  # Claude's text, shown or blocked
+    input_tokens: int | None
+    output_tokens: int | None
+    latency_ms: int
+    status: Literal["ok", "blocked", "error", "timeout"]
+    error: str | None = None
+
+
 class AssistEvent(_Event):
     """Replacement rule: a later `sentence` event with the same `sentence_index`, or a `done` whose kind is
-    `not_in_material`, replaces text already shown (a streamed sentence that failed its checks)."""
+    `not_in_material`, replaces text already shown (a streamed sentence that failed its checks). Events with the
+    same `assist_id` are one card: a newer answer for the same client turn reuses the id and replaces the card.
+    `kind` is also set on a `sentence` whose answer is already final: a brief replay, or the Claude fallback
+    ("general": General knowledge, not from our material)."""
 
     type: Literal["assist"]
     meeting_id: str
@@ -40,6 +56,7 @@ class AssistEvent(_Event):
     first_words_ms: int | None = None
     full_ms: int | None = None
     rejected: list[str] = []
+    llm: LlmCall | None = None  # on `done` when Claude was called
 
 
 class MeetingStateEvent(_Event):

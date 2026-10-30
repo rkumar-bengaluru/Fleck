@@ -1,7 +1,11 @@
-"""Live pipeline, first version (spec 7.2): source -> Segmenters -> gate + transcription -> classify -> Trigger.
+"""Live pipeline (spec 7.2): source -> Segmenters -> gate + transcription -> classify -> Candidate, Trigger.
 
-Answers come later (Task 13). Events come out in audio order; transcription runs off the loop thread because
-the transcriber holds You jobs while a Client segment is open, and only this loop can close it."""
+A Candidate comes at each client final whose turn-so-far classifies as a question, so the answer's search and
+prefill can start before the turn closes (spec 7.1 item 2, decision 103); the Trigger still comes once per turn, when
+it closes, and reuses the Candidate's verdict when the text is the same. Classification runs on this loop: at most
+two looks of <= 0.3 s each per final, which LiveSource's queue absorbs (decision 105). Events come out in audio
+order; transcription runs off the loop thread because the transcriber holds You jobs while a Client segment is
+open, and only this loop can close it."""
 import logging
 import threading
 from collections import deque
@@ -31,11 +35,23 @@ class Trigger:
     end_ms: int
     # Embedder.embed_query(question) (0.6b), for search and brief matching (Tasks 13, 14); None if the rules decided
     embedding: list[float] | None = field(default=None, repr=False, compare=False)
+    # Client turns with no You speech between them share a turn_id: a later Trigger with the same turn_id replaces
+    # the earlier answer (one card per turn, decision 104)
+    turn_id: int = field(default=0, compare=False)
+
+
+@dataclass(frozen=True)
+class Candidate:
+    """The client's turn so far classifies as a question: start the answer's search and prefill (never shown)."""
+    segment_id: str
+    text: str
+    embedding: list[float] | None = field(default=None, repr=False, compare=False)
 
 
 class _Seg:
     def __init__(self, stream, final: Final, gate_, future, cut: bool):
         self.stream, self.final, self.gate, self.future, self.cut = stream, final, gate_, future, cut
+        self.turn: _Turn | None = None  # the client turn it belongs to
 
     def event(self, meeting_id) -> SegmentEvent:
         f = self.final
@@ -52,6 +68,7 @@ class _Seg:
 
 class _Turn(list):
     """Client segments classified together once the turn is over."""
+    turn_id = 0
 
 
 def _spawn(fn, *args) -> Future:
@@ -77,7 +94,7 @@ class Pipeline:
         self.meeting_id, self.tr, self.embed = meeting_id, transcriber, embed
         self.min_confidence = trigger_threshold() if min_confidence is None else min_confidence
 
-    def run(self, source) -> Iterator[SegmentEvent | Trigger | Gap | Unavailable]:
+    def run(self, source) -> Iterator[SegmentEvent | Candidate | Trigger | Gap | Unavailable]:
         if self.embed is None:
             try:  # load the embedding model before the first question, not during it
                 if digests_ok():
@@ -92,6 +109,7 @@ class Pipeline:
         self._rms = deque(maxlen=(MAX_MS + SILENCE_MS + PREROLL_MS) // 20 + 10)
         self._out: deque = deque()  # _Seg | _Turn | Gap | Unavailable, in audio order
         self._turn, self._client_open, self._recent_client = _Turn(), False, deque(maxlen=8)
+        self._turn_no, self._last_verdict = 0, ((), None)  # (texts, verdict) of the latest classification
         for item in source.frames():
             if isinstance(item, Frame):
                 self._rms.append((item.t_ms, _rms(item.you), _rms(item.client)))
@@ -129,8 +147,13 @@ class Pipeline:
             g = gate(np.array([r[1] for r in rows]), np.array([r[2] for r in rows]), silence=floor)
             seg = _Seg(stream, ev, g, _spawn(self.tr.transcribe, ev.audio, True, stream, ev.segment_id), cut)
             self._out.append(seg)
+            if stream == "you" and g == "you":
+                self._turn_no += 1  # the vendor spoke: the client's next words are a new turn
             if stream == "client" and not cut:
+                if not self._turn:
+                    self._turn.turn_id = self._turn_no
                 self._turn.append(seg)
+                seg.turn = self._turn
         if stream == "client" and isinstance(ev, (Final, Discard)):
             self.tr.set_client_active(False)
             self._client_open = False
@@ -155,25 +178,41 @@ class Pipeline:
                     continue  # the client's voice leaking into the mic
                 if ev.text:
                     yield ev
+                if head.turn is not None and head.gate == "client" and ev.text:
+                    # the turn so far, up to this segment (its earlier segments came out before it)
+                    v = self._verdict(head.turn[: head.turn.index(head) + 1])
+                    if v:
+                        yield Candidate(ev.segment_id, v.question, v.embedding)
             elif isinstance(head, _Turn):
-                # only client-gated segments supply text, so the question sentence is always clean client speech;
-                # an overlapped segment elsewhere in the turn is left out, it doesn't veto the turn
-                texts = [t for s in head if s.gate == "client" and (t := s.text().strip())]
-                # a full stop after a segment Whisper left unpunctuated, so "…just before that" doesn't glue onto the
-                # next segment's "Who owns…?"; none after a cut-off one, so "How quickly could you" + "start?" stays whole
-                text = " ".join(t if t[-1] in ".?!" or question_rules.is_fragment(question_rules._norm(t)) else t + "."
-                                for t in texts)
-                hit = lambda v: v.is_question and v.confidence >= self.min_confidence  # noqa: E731
-                v = self._classify(text) if texts else None
-                if v and not hit(v) and len(texts) > 1 and v.confidence >= SECOND_LOOK_MIN:
-                    # statements before a pause dilute the turn ("…just before that. Who owns the code?"), so the
-                    # last segment gets its own look; still one trigger per turn. Not when the whole turn is plainly
-                    # logistics ("I shared the deck in the chat. Can you open it on your side?" scores 0.00)
-                    v = self._classify(texts[-1])
-                if v and hit(v):
-                    yield Trigger(head[-1].final.segment_id, v.question, head[-1].final.end_ms, v.embedding)
+                v = self._verdict(head)
+                if v:
+                    yield Trigger(head[-1].final.segment_id, v.question, head[-1].final.end_ms, v.embedding, head.turn_id)
             else:
                 yield head
+
+    def _verdict(self, segs):
+        """The turn's verdict if it triggers, else None. The same texts as last time reuse that verdict, so a turn
+        whose Candidate came at its last final is not classified twice."""
+        # only client-gated segments supply text, so the question sentence is always clean client speech;
+        # an overlapped segment elsewhere in the turn is left out, it doesn't veto the turn
+        texts = tuple(t for s in segs if s.gate == "client" and (t := s.text().strip()))
+        if not texts:
+            return None
+        if texts == self._last_verdict[0]:
+            return self._last_verdict[1]
+        # a full stop after a segment Whisper left unpunctuated, so "…just before that" doesn't glue onto the
+        # next segment's "Who owns…?"; none after a cut-off one, so "How quickly could you" + "start?" stays whole
+        text = " ".join(t if t[-1] in ".?!" or question_rules.is_fragment(question_rules._norm(t)) else t + "."
+                        for t in texts)
+        hit = lambda v: v.is_question and v.confidence >= self.min_confidence  # noqa: E731
+        v = self._classify(text)
+        if not hit(v) and len(texts) > 1 and v.confidence >= SECOND_LOOK_MIN:
+            # statements before a pause dilute the turn ("…just before that. Who owns the code?"), so the
+            # last segment gets its own look; still one trigger per turn. Not when the whole turn is plainly
+            # logistics ("I shared the deck in the chat. Can you open it on your side?" scores 0.00)
+            v = self._classify(texts[-1])
+        self._last_verdict = (texts, v if hit(v) else None)
+        return self._last_verdict[1]
 
     def _classify(self, text):
         v = classify(text, "client", self.embed)

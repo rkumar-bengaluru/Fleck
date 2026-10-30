@@ -1,7 +1,7 @@
 """Replay a WAV through the real pipeline and print the four trigger counts (spec 7.2) and per-question rows.
 
 Usage: uv run python scripts/measure.py --wav fixtures/conversation/conversation.wav --reference fixtures/conversation/reference.json
-Latency columns stay "n/a" until answers exist (Task 13)."""
+Latency columns stay "n/a" here; scripts/measure_e2e.py times answers end to end."""
 import argparse
 import json
 import time

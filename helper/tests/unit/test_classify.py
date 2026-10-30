@@ -143,6 +143,17 @@ def test_rules_decide_when_the_embedder_fails(caplog, monkeypatch):
     assert sum("fell back to rules" in r.message for r in caplog.records) == 1  # logged once
 
 
+@pytest.mark.parametrize("text, fires", [
+    ("What does a senior engineer cost per month?", True),
+    ("Arjun, what's our current SLA with the other vendor?", False),  # a colleague, by name
+    ("Do we have the NDA signed by both sides?", False),  # first person: the client's own business
+    ("Can you email me the case studies you mentioned?", False),  # a request
+    ("Tell me about your security certifications.", False),  # an indirect question scores 0.85, under 0.95
+])
+def test_rules_fallback_is_strict(text, fires):
+    assert triggers(text, "client", embed=clf.rules_only) is fires
+
+
 def test_slow_embed_falls_back_within_one_shared_deadline(monkeypatch):
     import fleck_core.retrieval
 

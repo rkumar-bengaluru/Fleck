@@ -174,7 +174,7 @@ def evaluate(path: Path, rules_only: bool = False):
     emb = classify.rules_only if rules_only else lambda q: classify.live_embed(q, timeout=30)
     pred = np.array([classify.triggers(t, "client", embed=emb) for t in texts])
     print(f"{'rules fallback' if rules_only else 'model'}: recall {int(pred[y == 1].sum())}/{int(y.sum())}, false triggers {int(pred[y == 0].sum())}/{int((1 - y).sum())}"
-          f" at threshold {classify.trigger_threshold()}")
+          f" at threshold {classify.FALLBACK_MIN_CONFIDENCE if rules_only else classify.trigger_threshold()}")
     print("missed:", *[t for t, p, l in zip(texts, pred, y) if l and not p], sep="\n  ")
     print("false triggers:", *[t for t, p, l in zip(texts, pred, y) if p and not l], sep="\n  ")
 

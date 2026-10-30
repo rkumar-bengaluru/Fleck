@@ -49,6 +49,14 @@ _DELIVERY = (r"( (to|with) (me|us|everyone|the team|all of us|(my|our) (e-?mail|
              r"|(after|before|post) (the|this|our) (call|meeting)|after the session"
              r"|(by|over|via|on|through|in an?) (e-?mail|mail|whatsapp|slack|teams)|in the chat|on the chat"
              r"|by (eod|end of day|tomorrow|monday|tuesday|wednesday|thursday|friday)))*")
+# The rules fallback (embedder down or slow) runs stricter than the rules alone: a false trigger is worse than a miss.
+# Chosen on fixtures/classifier/train.json only (decision 106): "interrogative and '?'" (0.95) and none of a vocative
+# opening ("Arjun, …" asks a colleague), a first-person subject ("do we…", "can I…") or a send/add/invite request.
+# Train: recall 296/1259, false triggers 26/1392 (1.9%); at the old 0.7 with no filters 574/1259 and 137/1392 (9.8%).
+FALLBACK_MIN_CONFIDENCE = 0.95
+_VOCATIVE = re.compile(r"^(\w+ )?[A-Z][a-z]+, ")  # case-sensitive; "Okay, …" goes too: the fallback stays strict
+_FALLBACK_VETO = re.compile(r"\b(we|i|we've|we're|our team|us"
+                            r"|send|email|e-mail|cc|resend|forward|add|invite|share|put|bring|schedule|book|loop)\b", re.I)
 _DOCUMENT = re.compile(rf"^({_FILL}( (?!(on|about|with|where|how|what|why|which|who|for|regarding|from|in|that)\b)\w+){{0,3}}"
                        rf" {_NOUN}|( (me|us|over|across|it|them|that|this|please|again))*){_DELIVERY}$")
 
@@ -160,7 +168,9 @@ def classify(transcript: str, speaker: Literal["client", "you", "overlap"], embe
             log.warning("question classifier fell back to rules (embedder: %r); logged once", e)
             _fell_back = True
         v = rules.rule_classify(transcript)
-        ok = v.is_question and v.confidence >= rules.MIN_CONFIDENCE
+        t = transcript.strip()
+        ok = (v.is_question and v.confidence >= FALLBACK_MIN_CONFIDENCE
+              and not _VOCATIVE.match(t) and not _FALLBACK_VETO.search(t))
         return QuestionVerdict(ok, 1.0 if ok else 0.0, f"rules fallback: {v.reason}", q)
     return QuestionVerdict(True, score(vec), "question shape, model score", q, search)
 

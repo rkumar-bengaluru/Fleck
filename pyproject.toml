@@ -13,4 +13,5 @@ fleck-gsim = { workspace = true }
 fleck-helper = { workspace = true }
 
 [tool.pytest.ini_options]
-markers = ["ollama: needs a local Ollama with the pinned models (skipped in CI)"]
+markers = ["ollama: needs a local Ollama with the pinned models (skipped in CI)",
+           "claude: calls the Claude API with ANTHROPIC_API_KEY (skipped when it is empty)"]

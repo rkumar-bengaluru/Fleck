@@ -403,3 +403,26 @@ Live §8 questions (title, kind, nearest-vector distance):
   - one long sentence is not capped;
   - a "(n)" count equal to a passage index reads as a citation (R2, rare);
   - figure-free sentences are not content-checked against their cited passage.
+
+## Task 14: assist orchestration (2026-10-30)
+- Built `helper/fleck_helper/assist.py` (`Assistant.prepare/handle`) and `core/fleck_core/fallback.py`:
+  - order: brief match (cosine ≥ 0.85), then library (`stream_library_answer`), then the Claude Haiku fallback;
+  - the fallback streams, is checked sentence by sentence and is labelled `kind` "general" (decisions 102, 108);
+  - price questions never reach Claude (decision 107).
+- Also added: `BriefItem`, `AssistEvent.llm` (`LlmCall`, web/src/events.ts regenerated) and `Retriever.search(vector=)`.
+- Pipeline:
+  - `Candidate` at each client final whose turn-so-far triggers (decision 103);
+  - `Trigger.turn_id`, with one card per turn (decision 104).
+- Classify stall (decision 105):
+  - a fake 0.30 s embed gives a worst frame-loop stall of 0.61 s;
+  - live classify while qwen3:4b generates: p50 151, p95 162, max 171 ms;
+  - LiveSource absorbs a 2.4 s block (2.6 s gives a Gap);
+  - classification stays on the loop.
+- Rules fallback stricter (decision 106):
+  - train: 296/1259 recall, 26/1392 false triggers (1.9%);
+  - acceptance, reported only: recall 29/200, false triggers 3/200.
+- e2e (`scripts/measure_e2e.py`, real time, Claude fallback):
+  - run 1: p95 3.18 s FAIL, and q_rate was Not in our material;
+  - fixes after run 1: streamed fallback, and a bare " 1" read as a citation;
+  - run 2: recall 8/8, false triggers 0, first words p50 1.29 s / p95 2.99 s PASS, done p95 3.23 s;
+  - §8 outcomes in run 2: all as expected. q_general and q_liability came from General knowledge; q_price was Not in our material (none, price_question).

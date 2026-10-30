@@ -8,7 +8,7 @@ import pytest
 
 from fleck_core.events import SegmentEvent
 from fleck_helper.audio import FRAME, Frame, Gap, Unavailable
-from fleck_helper.pipeline import Pipeline, Trigger
+from fleck_helper.pipeline import Candidate, Pipeline, Trigger
 
 CONV = Path(__file__).parents[3] / "fixtures/conversation"
 REF = json.loads((CONV / "reference.json").read_text())
@@ -85,12 +85,17 @@ def test_separate_turns_classified_apart():
     assert len(trig) == 1 and trig[0].question == "Who owns the code you write for us?"
 
 
-def test_unpunctuated_segment_does_not_hide_the_question():
+def test_unpunctuated_segment_does_not_hide_the_question(embedding_cache):
     a = _clip(1)
     audio = np.concatenate([_silence(500), a, _silence(700), a, _silence(1500)])
     search = [0.25] * 1024  # stands in for the embed_query vector the live path fetches with the classify vector
+
+    def embed(q):  # the first segment's own Candidate look isn't in the CI cache: the rules decide it
+        if q not in embedding_cache:
+            raise RuntimeError("not cached")
+        return EMBED(q)[0], search
     tr = FakeTranscriber({"client": ["we close our budget cycle just before that", "Who owns the code you write for us?"]})
-    out = list(Pipeline("m1", tr, embed=lambda q: (EMBED(q)[0], search)).run(Src(_frames(audio))))
+    out = list(Pipeline("m1", tr, embed=embed).run(Src(_frames(audio))))
     trig = [e for e in out if isinstance(e, Trigger)]
     # the whole turn, with a full stop where Whisper left the first segment unpunctuated
     assert [e.question for e in trig] == ["we close our budget cycle just before that. Who owns the code you write for us?"]
@@ -198,7 +203,10 @@ def test_last_segment_gets_its_own_look_when_a_preamble_dilutes_the_turn(monkeyp
     audio = np.concatenate([_silence(500), a, _silence(700), a, _silence(1500)])
     out = list(Pipeline("m1", FakeTranscriber({"client": [preamble, q]}), 0.6, embed=EMBED).run(Src(_frames(audio))))
     assert [e.question for e in out if isinstance(e, Trigger)] == [q]
-    assert calls == [f"{preamble} {q}", q]  # one trigger, at most two looks
+    # the first final's own look, then the whole turn and its last segment at the second final; the turn's close
+    # reuses that verdict. One trigger, at most two looks per classification
+    assert calls == [preamble, f"{preamble} {q}", q]
+    assert [e.text for e in out if isinstance(e, Candidate)] == [q]
 
 
 def test_no_second_look_when_the_whole_turn_is_plainly_logistics():
@@ -214,3 +222,31 @@ def test_no_second_look_when_the_whole_turn_is_plainly_logistics():
     out = list(Pipeline("m1", FakeTranscriber({"client": list(texts)}), embed=embed).run(Src(_frames(audio))))
     assert not any(isinstance(e, Trigger) for e in out)
     assert calls == [" ".join(texts)]
+
+
+def test_candidate_at_the_final_and_the_trigger_reuses_its_verdict():
+    a = _clip(1)
+    audio = np.concatenate([_silence(500), a, _silence(1500)])
+    calls = []
+
+    def embed(text):
+        calls.append(text)
+        return EMBED(text)
+    q = "How quickly could you start a team on this?"
+    out = list(Pipeline("m1", FakeTranscriber({"client": [q]}), embed=embed).run(Src(_frames(audio))))
+    kinds = [type(e).__name__ for e in out]
+    assert kinds == ["SegmentEvent", "Candidate", "Trigger"]
+    assert out[1] == Candidate(out[0].segment_id, q) and out[2].question == q
+    assert calls == [q]  # classified once, at the final
+
+
+def test_turn_id_changes_only_when_the_vendor_speaks():
+    a = _clip(1)
+    q = "How quickly could you start a team on this?"
+    gap = _silence(1500)  # longer than MERGE_MS + PREROLL_MS: three separate pipeline turns
+    client = np.concatenate([_silence(500), a, gap, a, gap, np.zeros_like(a), gap, a, gap])
+    you = np.concatenate([_silence(500), np.zeros_like(a), gap, np.zeros_like(a), gap, a, gap, np.zeros_like(a), gap])
+    tr = FakeTranscriber({"client": [q, q, q], "you": ["We can start in two weeks."]})
+    out = list(Pipeline("m1", tr, embed=EMBED).run(Src(_frames(client, you))))
+    ids = [e.turn_id for e in out if isinstance(e, Trigger)]
+    assert len(ids) == 3 and ids[0] == ids[1] != ids[2]  # no vendor speech between the first two

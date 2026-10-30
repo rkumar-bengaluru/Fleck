@@ -15,6 +15,7 @@ export interface AssistEvent {
   first_words_ms: number | null;
   full_ms: number | null;
   rejected: string[];
+  llm: LlmCall | null;
 }
 
 export interface Citation {
@@ -23,6 +24,18 @@ export interface Citation {
   title: string;
   client: string | null;
   kind: "client" | "firm" | "reference";
+}
+
+export interface LlmCall {
+  purpose: string;
+  model: string;
+  request: string;
+  response: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  latency_ms: number;
+  status: "ok" | "blocked" | "error" | "timeout";
+  error: string | null;
 }
 
 export interface MeetingStateEvent {

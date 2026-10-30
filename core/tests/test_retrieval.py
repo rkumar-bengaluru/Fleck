@@ -67,3 +67,8 @@ def test_search_finds_rate_row(index):
 @pytest.mark.ollama
 def test_search_unrelated_returns_empty(index):
     assert index.search("what is the capital of Peru") == []
+
+
+def test_form_grid_table_dropped():
+    t = Table(None, ["", "", "Hours", "Estimated", "Target", "", ""], [["", "Function", "required", "Cost", "date", "Comments", ""]])
+    assert chunk_blocks([t], "Maintenance agreement") == []

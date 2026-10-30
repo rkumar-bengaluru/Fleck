@@ -13,6 +13,7 @@ from .types import Passage
 TENANT = "default"
 COLLECTION = "Passage"
 EMBED_MODEL = "qwen3-embedding:0.6b"
+QUERY_TASK = "Given a client's question in a sales meeting, retrieve passages from the firm's documents that answer it"
 TABLE_CHARS, EMBED_CHARS = 3000, 6000  # a wide table chunk stops early; nothing longer than EMBED_CHARS is embedded
 log = logging.getLogger("fleck.retrieval")
 CHUNK_CHARS, OVERLAP_CHARS, TABLE_ROWS = 1400, 200, 8  # ~350 and ~50 tokens at 4 chars/token
@@ -79,6 +80,8 @@ def chunk_blocks(blocks: list[Block], title: str) -> list[str]:
         if isinstance(b, Text):
             out += [c for c in (f"{_head(title, b.heading)}\n{t}" for t in _text_chunks(b.text)) if _substantial(c)]
             continue
+        if sum(not r[0] for r in b.rows) * 2 > len(b.rows):  # a PDF form grid: most rows have no label
+            continue
         head = _head(title, b.caption)
         lines, n = [], 0
         for row in b.rows:
@@ -96,6 +99,10 @@ def chunk_blocks(blocks: list[Block], title: str) -> list[str]:
 class Embedder:
     def __init__(self, ollama_url: str):
         self.url = ollama_url
+
+    def embed_query(self, question: str) -> list[float]:
+        """qwen3-embedding is instruction-tuned: queries carry the task, documents are embedded plain."""
+        return self.embed([f"Instruct: {QUERY_TASK}\nQuery: {question}"])[0]
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         out: list[list[float]] = []
@@ -166,8 +173,8 @@ class Retriever:
         return body["data"]["Get"][self.collection] or []
 
     def search(self, question: str, limit: int = 3, client_slug: str | None = None) -> list[Passage]:
-        vec = json.dumps(self.embedder.embed([question])[0])
+        vec = json.dumps(self.embedder.embed_query(question))
         where = f'where:{{path:["client_slug"],operator:Equal,valueText:{json.dumps(client_slug)}}},' if client_slug else ""
-        max_d = float(os.environ.get("FLECK_RETRIEVAL_MAX_DISTANCE", "0.55"))
+        max_d = float(os.environ.get("FLECK_RETRIEVAL_MAX_DISTANCE", "0.60"))
         hits = self._get(f"{where}hybrid:{{query:{json.dumps(question)},vector:{vec},alpha:0.5,maxVectorDistance:{max_d},properties:[\"text\",\"title\"]}},limit:{limit}", "score")
         return [Passage(n=i, **{k: h[k] for k in ("doc_id", "chunk_id", "text", "title", "client", "kind")}) for i, h in enumerate(hits, 1)]

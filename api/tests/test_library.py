@@ -287,3 +287,31 @@ def test_text_chunk_carries_its_section_heading(tmp_path):
     (tmp_path / "t.md").write_text(f"# Rates\n\nIntro line.\n\n## Discounts\n\n{BODY}\n\n## Other terms\n\n{BODY} Payment: net 45 days.\n")
     heads = [c.splitlines()[0] for c in _chunks(tmp_path / "t.md")]
     assert "Rates · Other terms" in heads  # the tiny intro merges with Discounts; Other terms is its own block
+
+
+@pytest.fixture(scope="module")
+def live_like_index():
+    """The demo library (everything under clients/ except jf/) indexed with the real embedder into a throwaway collection."""
+    from fleck_core.retrieval import Embedder, Retriever, ensure_schema, put_passages, weaviate_client
+    coll = f"PassageT{uuid.uuid4().hex[:8]}"
+    emb = Embedder("http://localhost:11434")
+    with weaviate_client(WEAVIATE) as w:
+        ensure_schema(w, coll)
+        for i, f in enumerate(sorted(p for p in (ROOT / "clients").rglob("*") if p.suffix in library.SUPPORTED and "jf" not in p.parts and p.name != "README.md")):
+            blocks = library.parse_document(f)
+            title = library.document_title(f, blocks)
+            chunks = chunk_blocks(blocks, title)
+            rows = [{"text": c, "doc_id": str(i), "chunk_id": f"{i}-{j}", "title": title, "client": None, "client_slug": None, "kind": "firm"} for j, c in enumerate(chunks)]
+            put_passages(w, rows, emb.embed(chunks), coll)
+        yield Retriever(WEAVIATE, emb, coll)
+        w.delete(f"/v1/schema/{coll}")
+
+
+@pytest.mark.ollama
+def test_live_like_questions(live_like_index):
+    r = live_like_index
+    assert "Delivery FAQ" in [p.title for p in r.search("how fast can you start a team")]
+    assert any("Tech lead · Onsite" in p.text for p in r.search("what does a tech lead cost onsite"))
+    assert r.search("what is the capital of Peru") == []
+    assert any(p.title.endswith("Brightwater Insurance") for p in r.search("do you have a case study in insurance"))
+    assert any("Payment: net 45 days" in p.text for p in r.search("what are your payment terms"))

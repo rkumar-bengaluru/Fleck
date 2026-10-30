@@ -147,3 +147,14 @@ Live queries on the re-seeded library:
 - "what is the capital of Peru" -> `[]`
 - "do you have a case study in insurance" -> 3 Brightwater Insurance case-study passages (top 3)
 - "what are your payment terms" -> 1: Rate card FY2026 · Other terms (firm, "Payment: net 45 days"), 2: a Cardlytics contract passage, 3: Larkspur SOW
+
+### Task 7 fix round 3: query instruction, distance gate 0.60, form-grid tables
+
+Queries are embedded with qwen3-embedding's instruction (`Instruct: Given a client's question in a sales meeting, retrieve passages from the firm's documents that answer it\nQuery: ...`), documents plain. Table chunks whose rows mostly lack a row label (PDF form grids) are dropped. Nearest-passage distances before/after: right answers sit at 0.26-0.57 (e.g. "senior engineer offshore" 0.261, "case study in insurance" 0.411, "liability" 0.398, "retrieval system for retail" 0.572); unrelated questions at 0.665 or more ("capital of Peru" 0.765, "world cup" 0.81, "weather" 0.669). `FLECK_RETRIEVAL_MAX_DISTANCE` default moved 0.55 -> 0.60 (Task 12 tunes further). Re-seeded with `--force` (after `make up`: the compose worker runs the code in its image and had indexed some documents with old chunking during the first attempt): firm 3 documents / 12 chunks, reference 6 / 334, client 6 / 31. Suites: `-m "not ollama"` 188 passed EXIT 0; `-m ollama` 4 passed EXIT 0 (new live-like test over all of clients/ except jf/).
+
+Live results (passage, nearest-vector distance):
+- "how fast can you start a team": Delivery FAQ 0.517; Larkspur proposal Team 0.517; Delivery FAQ fixed price 0.588
+- "what does a tech lead cost onsite": Rate card rows Engagement manager..Tech lead (includes "Tech lead · Onsite") 0.415; Rate card ML engineer chunk 0.491; Delivery FAQ 0.551
+- "what is the capital of Peru": [] (best 0.765)
+- "do you have a case study in insurance": Brightwater case study 0.411, 0.485, 0.553
+- "what are your payment terms": Rate card Other terms (Payment: net 45 days) 0.467; Larkspur SOW 0.470; Msa part2 0.527

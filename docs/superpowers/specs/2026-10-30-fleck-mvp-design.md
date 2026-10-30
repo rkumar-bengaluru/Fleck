@@ -180,6 +180,17 @@ The pipeline is fixed: **VAD-flushed segment → speaker gate → local classifi
 
 Assertion: **zero** triggers on the whole set, reported separately for short and medium segments. Any trigger fails the build. This is stricter than the ≤ 1 false trigger per 10 minutes in §5, which still applies to the full test conversation.
 
+**Reported separately** (rupak.k's rule), each as its own named test with its own count in the output, so a pass on one never hides a failure on another:
+
+| Test | Measure | Pass |
+|---|---|---|
+| `negative_set_short` | triggers on segments under 1 s | 0 |
+| `negative_set_medium` | triggers on 2–3 s segments and logistics questions | 0 |
+| `conversation_false_triggers` | triggers on the test conversation that match no scripted question | ≤ 1 per 10 min |
+| `conversation_recall` | scripted client questions that triggered | ≥ 90% |
+
+Each runs at two levels: the classifier on the reference transcripts (fast, every test run, including CI), and the full replay through Whisper on the Mac (the true measure, recorded in the hand-over note). **(Two levels: Claude's call.)**
+
 **Known limit.** A colleague of the salesperson who joins the call remotely is heard through call audio and treated as **Client**.
 
 ### 7.3 The "used it" marker (rupak.k's design, with Claude's adjustments marked)
@@ -206,6 +217,10 @@ The model never decides what a source is called. Rules enforced in code, not onl
 **Fallback answers (Claude Haiku)**
 5. The system prompt states: no prices, rates, percentages, SLA figures, team sizes, client names or claims about the firm's past work; such output is blocked.
 6. Code blocks any fallback answer matching: currency symbols or codes with a number, a number followed by `%`, rates ("per hour/day/month"), SLA or response-time figures, or the name of any client in the library. **A blocked answer is not retried live**; **Not in our material** is shown instead. **(No live retry, and client names taken from the library: Claude's adjustments.)**
+
+**Number normalisation.** One shared function, `normalize_numbers(text)`, in the helper's live-path package, used by the number check (3), the fallback block (6) and the tests that compare Whisper output with the reference transcripts. It converts spoken and written forms to one canonical form: "six thousand nine hundred", "6,900", "$6,900" and "6900 dollars" → `6900 USD`; "five percent" and "5%" → `5 %`; "thirty days" → `30 days`. Words-to-number conversion inside sentences uses the `text2num` library (`alpha2digit`), not hand-written code. A table-driven unit test covers each form. **(Claude's call.)**
+
+Note on where words appear: the number check compares the model's answer with library passages, and both are usually digits. Whisper `large-v3-turbo` mostly writes numbers as digits, but not always ("five percent", "six thousand"). So the same function is applied wherever Whisper text is compared with anything (rupak.k's point).
 
 **Every rejection or block** is kept in the trace with its reason and shown nowhere else.
 

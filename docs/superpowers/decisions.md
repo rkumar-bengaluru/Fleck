@@ -20,7 +20,7 @@ Columns: **What** was decided · **Options** considered · **Why** · **Critic**
 | 12 | 2026-10-30 | Keep `gsim` Google simulator | Real Google only | Deterministic tests and Walker demo | — |
 | 13 | 2026-10-30 | Client side is one speaker, **Client** | Diarization | Out of MVP scope | — |
 | 14 | 2026-10-30 | "Used it" marker on each assist; defined by rupak.k (similarity ≥ 0.75 within 15 s, plus manual override), see spec §7.3 | Leave out | Shows where the model actually helped, as rupak.k asked | — |
-| 15 | 2026-10-30 | Team = allow-list of email domains/addresses in `.env` | Anyone with Google; invite flow | Library holds rates and SOWs; simplest real boundary | — |
+| 15 | 2026-10-30 | Team = allow-list (`FLECK_ALLOWED_DOMAINS`, `FLECK_ALLOWED_EMAILS`), auth gate only; one team, Weaviate tenant `default` created by the api at startup (rule: rupak.k) | Anyone with Google; invite flow; tenant per domain | Library holds rates and SOWs; multi-team is future work | — |
 | 16 | 2026-10-30 | Document kinds: client / firm / reference; reference never cited as our work | Treat all alike | Real CUAD companies must not appear as our clients | — |
 | 17 | 2026-10-30 | Three fictional AI-automation past projects replace Larkspur | Rewrite Larkspur only | Enough variety for the "similar project" questions | — |
 | 18 | 2026-10-30 | Hand-over on `gsim`; real Google switched on via `.env`, checked by hand | Real Google only | Works without Google Cloud setup | — |
@@ -37,3 +37,4 @@ Columns: **What** was decided · **Options** considered · **Why** · **Critic**
 | 29 | 2026-10-30 | Citations as numbered markers mapped to `doc_id` + `chunk_id` by the api; source label rendered from Weaviate metadata (rule: rupak.k) | Model writes `doc_id`s | Cheaper, streamable, model can't invent a source name | — |
 | 30 | 2026-10-30 | Number check: every figure must appear in a cited passage; only figure-bearing sentences are held | Validate whole answer at the end; trust citations | A valid citation can still carry a wrong number; holding only those sentences protects first-word latency | — |
 | 31 | 2026-10-30 | Blocked fallback not retried live; client-name block list from the library | Retry once; regex for names | Retry breaks the latency target; names can't be matched by regex | — |
+| 32 | 2026-10-30 | Everyone signed in sees all library and all meetings; meeting records its recorder | Meetings private to recorder | Team chat across meetings (goal 8) needs shared meetings | — |

@@ -25,7 +25,7 @@ A desktop assistant that sits openly in the meeting with the salesperson. It lis
 
 ## 3. Goals
 
-1. **Sign in with Google.** Every member of the presales team signs in with Google. The team shares one library of past material. Who counts as the team is an allow-list of email domains and addresses in `.env`; anyone else is refused at sign-in. **(Claude's call.)**
+1. **Sign in with Google.** Every member of the presales team signs in with Google. The team shares one library of past material. Who counts as the team is an allow-list in `.env` (`FLECK_ALLOWED_DOMAINS`, `FLECK_ALLOWED_EMAILS`); anyone else is refused at sign-in. The allow-list is only the sign-in gate, not a way to split teams: the MVP has exactly one team (rupak.k's rule). Everyone signed in sees the whole library and every meeting, since team chat spans all meetings; each meeting records who recorded it. **(Visibility: Claude's call.)**
 2. **Calendar sync.** The user's Google Calendar appears in Fleck. Each meeting can be linked to a client.
 3. **Library.** The team uploads past material (PDF, Word, PowerPoint, Excel, Markdown), filed by client, plus firm-wide material and reference material. Fleck indexes it for search. Each document has a kind: **client** (our past work for that client), **firm** (rate card, capabilities, FAQ) or **reference** (third-party examples). Reference documents may be quoted for their terms but are never presented as the firm's past work. **(Claude's call.)**
 4. **Pre-meeting brief.** Before a meeting with a known client: the questions this client is likely to ask, each with the best answer from the library and its source. **(Claude's call, accepted by rupak.k to review.)**
@@ -37,7 +37,7 @@ A desktop assistant that sits openly in the meeting with the salesperson. It lis
 
 ## 4. Non-goals (not in the MVP)
 
-iOS, Android, Windows; Outlook calendar; billing, pricing tiers, admin console, SSO beyond Google; telling individual client speakers apart (the client side is one speaker, **Client**); CRM, Slack or Notion integrations; editing documents inside Fleck; languages other than English.
+iOS, Android, Windows; Outlook calendar; several teams with separate data (one team, one tenant in the MVP); billing, pricing tiers, admin console, SSO beyond Google; telling individual client speakers apart (the client side is one speaker, **Client**); CRM, Slack or Notion integrations; editing documents inside Fleck; languages other than English.
 
 ## 5. Anti-goals (failure even if it works)
 
@@ -52,7 +52,7 @@ iOS, Android, Windows; Outlook calendar; billing, pricing tiers, admin console, 
 - Meeting text and library text leave the machine only to the Claude API (fallback answers, summary, chat). rupak.k is fine with library text, including real client documents, going to Claude. Audio never leaves the machine except into Fleck's own storage.
 - External secrets: `ANTHROPIC_API_KEY` (from rupak.k), and Google OAuth client id/secret for real Google sign-in. Both in `.env`, never committed.
 - Real client documents (`clients/jf/`, Joele Frank) are out of the MVP: the MVP is built and tested on the demo library only. rupak.k adds the real material after accepting the MVP. They are never committed.
-- Built so it can later be deployed for the whole team (multi-user safe), but the MVP runs on one Mac.
+- One team, one Mac for the MVP. Several team members may sign in (from the same Mac or, later, a deployed instance) and all see the same data.
 - Stable, labelled UI (accessible names on every control) and a deterministic replay mode, so rupak.k's Walker plugin can later drive it for the demo video.
 
 ## 7. Software stack (Claude's call)
@@ -76,7 +76,7 @@ iOS, Android, Windows; Outlook calendar; billing, pricing tiers, admin console, 
 | Local model | Ollama, `qwen3:8b` (4-bit, ~5 GB), thinking mode off | Best ~8B model at answering only from the passages it's given; fits next to Whisper in 24 GB |
 | Embeddings | Ollama `qwen3-embedding:0.6b`, called by Weaviate's `text2vec-ollama` module | Better retrieval than smaller embedders for ~0.5 GB more; one model server for both (rupak.k's suggestion) |
 | Ollama placement | Native on macOS, not in Docker | Docker on macOS can't use the GPU |
-| Vector search | Weaviate, hybrid (keyword + vector) search, one tenant per team | Hybrid search catches exact terms like "SLA" and "BOPIS" |
+| Vector search | Weaviate, hybrid (keyword + vector) search. Multi-tenancy on, with a single tenant `default`, created by the api at startup (idempotent), never on sign-in | Hybrid search catches exact terms like "SLA"; keeping the tenant means splitting teams later needs no query changes |
 | Document parsing | `markitdown` (PDF, DOCX, PPTX, XLSX → Markdown) | One library for every format the team uses |
 | api + worker | FastAPI, SQLAlchemy, Alembic, `uv`; background jobs in a Postgres table (no Redis) | Fewer moving parts |
 | Storage | Postgres (data, traces, cost); MinIO (audio, transcripts, original documents) | MinIO swaps for S3 in the cloud |

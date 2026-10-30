@@ -92,6 +92,38 @@ iOS, Android, Windows; Outlook calendar; several teams with separate data (one t
 | Test audio | Scripted conversation spoken with macOS `say` voices, stereo WAV: left = salesperson, right = client | Built in, no extra install; WAVs committed so tests run anywhere |
 | Tests | pytest (api, worker, helper pipeline), Vitest (web), Playwright end to end | |
 
+### 7.0 Audio routing
+
+Live and replay differ only at the source. From the 16 kHz streams onward, the code path is the same.
+
+```
+ SOURCE (one per recording)                          SAME PATH FOR BOTH SOURCES
+ ─────────────────────────                           ──────────────────────────────────────────────
+
+ live                                                 "You" stream ─┐
+  Mic ──▶ AVAudioEngine, voice processing ──▶ 16 kHz mono ──────────┤
+          (Apple echo cancellation removes                          │   smoothed RMS energy
+           the call heard through speakers)                         ├──▶ speaker gate (§7.2)
+  Call audio ──▶ ScreenCaptureKit ──────────▶ 16 kHz mono ──────────┤   client / you / overlap
+  (whole system output)                       "Client" stream       │
+                                                                    ├──▶ VAD ──▶ mlx-whisper
+ replay  (tests, demo, Walker)                                      │           partials (preview)
+  stereo WAV, played at real-time speed                             │           finals (segment_id)
+   left channel  ──▶ 16 kHz mono ──▶ "You" stream ──────────────────┤               │
+   right channel ──▶ 16 kHz mono ──▶ "Client" stream ───────────────┘               ▼
+                                                              Client final + gate = client
+   bleed variant: right channel also mixed into left                     │
+   (delayed, quieter, reverb) = call heard through                       ▼
+   speakers, for tuning the gate and echo tests             classify() ──▶ live answer path
+                                                            (CPU, §7.2)    (helper: Weaviate,
+                                                                            qwen3:8b, checks §7.4)
+                                                                                 │
+  Both streams' audio, in chunks ─────▶ api ──▶ MinIO (recording)                ▼
+  All finals + answers ───────────────▶ api ──▶ Postgres ──▶ browser (WebSocket)
+```
+
+Replay skips only Apple's echo cancellation, which works on live devices and can't be applied to a file. The bleed variant stands in for what leaks past it.
+
 ### 7.1 Memory and latency budget
 
 All three models share one GPU on the Mac. Memory fits; latency is the tight part, because every generated token rereads the model's weights and the local model must read the retrieved passages before its first word.
@@ -204,6 +236,22 @@ So: XLSX is read with `openpyxl` directly (already a markitdown dependency, no d
 | Embeddings | `qwen3-embedding:0.6b` | `sha256:ac6da0dfba84a81fdbfbaf330198c33cd77c4cdfc53e8bc50eb581914a15621d` | 0.64 GB |
 | Fallback answer model (only if §7.1 needs it) | `qwen3:4b`, pinned when first used | | |
 
+### 7.6 Ports (fixed, rupak.k's rule)
+
+Fixed so Walker and the tests can rely on them. All bound to `localhost`.
+
+| Service | Port |
+|---|---|
+| web (React) | 5173 |
+| api (FastAPI, REST + WebSocket) | 8000 |
+| weaviate | 8080 (HTTP), 50051 (gRPC) |
+| gsim (Google simulator) | 8090 |
+| postgres | 5432 |
+| minio | 9000 (S3 API), 9001 (console) |
+| ollama (native) | 11434 |
+
+`deploy/docker-compose.yml` and `.env.example` use exactly these. **(Ports other than api, web and weaviate: Claude's call.)**
+
 ## 8. The test conversation
 
 A 6–8 minute presales call between rupak.k as salesperson (left channel) and a prospect (right channel), voiced by two different `say` voices. The prospect is a fictional firm wanting AI automation of an existing document workflow. **(Claude's call.)** The script includes, in order:
@@ -245,4 +293,4 @@ Live capture is checked by hand before hand-over: one real call on speakers in a
 
 ## 11. Left to Claude
 
-Milestone breakdown; data model; REST routes; UI layout and copy; prompt wording; classifier implementation behind the §7.2 contract and its thresholds; streaming window settings; chunk sizes; how "used it" is measured; ports and service names.
+Milestone breakdown; data model; REST routes; UI layout and copy; prompt wording; classifier implementation behind the §7.2 contract and its thresholds; streaming window settings; chunk sizes; how "used it" is measured; compose service names.

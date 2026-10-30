@@ -46,3 +46,4 @@ Columns: **What** was decided · **Options** considered · **Why** · **Critic**
 | 38 | 2026-10-30 | Live fallback sends only the question text to Haiku; `FLECK_LIVE_FALLBACK=claude\|off` | Drop the live fallback; send transcript context | Reconciles rupak.k's Claude fallback with a local-only live path | — |
 | 39 | 2026-10-30 | Helper runs the live path; api only relays to the browser | Live path in the api | The browser can't receive from the helper directly; keeps live work next to Whisper | — |
 | 40 | 2026-10-30 | Calendar read-only; client linked manually by dropdown (rule: rupak.k); unlinked meetings get a title-based brief | Auto-link by attendee domain | Manual is enough for the MVP | — |
+| 41 | 2026-10-30 | All ports fixed: web 5173, api 8000, weaviate 8080/50051 (rupak.k); gsim 8090, postgres 5432, minio 9000/9001, ollama 11434 | Leave to build | Walker and tests need stable URLs | — |

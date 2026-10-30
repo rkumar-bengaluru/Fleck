@@ -14,7 +14,8 @@ TENANT = "default"
 COLLECTION = "Passage"
 EMBED_MODEL = "qwen3-embedding:0.6b"
 QUERY_TASK = "Given a client's question in a sales meeting, retrieve passages from the firm's documents that answer it"
-TABLE_CHARS, EMBED_CHARS = 3000, 6000  # a wide table chunk stops early; nothing longer than EMBED_CHARS is embedded
+TABLE_CHARS, EMBED_CHARS = 3000, 3000  # a wide table chunk stops early; nothing longer than EMBED_CHARS is embedded
+EMBED_CTX = 1024  # tokens; fits EMBED_CHARS at the library's densest ~3.2 chars/token; 1.4 GB loaded vs 2.4 GB at the 4096 default. One value everywhere: a change reloads the model
 log = logging.getLogger("fleck.retrieval")
 CHUNK_CHARS, OVERLAP_CHARS, TABLE_ROWS = 1400, 200, 8  # ~350 and ~50 tokens at 4 chars/token
 
@@ -116,7 +117,7 @@ class Embedder:
                 log.warning("truncating a %d-character text to %d for embedding", len(t), EMBED_CHARS)
         texts = [t[:EMBED_CHARS] for t in texts]
         for i in range(0, len(texts), 32):
-            r = httpx.post(f"{self.url}/api/embed", json={"model": EMBED_MODEL, "input": texts[i:i + 32], "keep_alive": self.keep_alive}, timeout=self.timeout)
+            r = httpx.post(f"{self.url}/api/embed", json={"model": EMBED_MODEL, "input": texts[i:i + 32], "keep_alive": self.keep_alive, "options": {"num_ctx": EMBED_CTX}}, timeout=self.timeout)
             r.raise_for_status()
             out += r.json()["embeddings"]
         return out

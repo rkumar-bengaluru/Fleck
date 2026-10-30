@@ -92,7 +92,7 @@ iOS, Android, Windows; Outlook calendar; several teams with separate data (one t
 | Desktop helper | Python 3.12, `rumps` + PyObjC menu-bar app, packaged with py2app | Python end to end; one language with the api |
 | Call audio | ScreenCaptureKit (system audio); mic via AVAudioEngine with Apple voice processing (echo cancellation, since rupak.k uses speakers) | No bot joins the call |
 | Live transcription | `mlx-whisper`, `large-v3-turbo`, on the Mac's GPU | Fast enough to keep up with speech, no network |
-| Local model | Ollama, `qwen3:4b-q4_K_M` (pinned, §7.5), thinking mode off. Was `qwen3:8b`; measured too slow (§7.1, decision 72) | Best ~8B model at answering only from the passages it's given; fits next to Whisper in 24 GB |
+| Local model | Ollama, `qwen3:4b-q4_K_M` (pinned, §7.5), thinking mode off. Was `qwen3:8b`; measured too slow (§7.1, decision 72) | Qwen3 answers well from only the passages it's given; the 4B size meets the 3 s target where 8B didn't (decision 72); fits next to Whisper in 24 GB |
 | Embeddings | Ollama `qwen3-embedding:0.6b`, called by the api; vectors pushed to Weaviate as self-provided vectors (no Weaviate vectoriser module) | Better retrieval for ~0.5 GB more (rupak.k's suggestion); one hop instead of two, and query-embedding time is measured in the api (rupak.k's suggestion) |
 | Ollama placement | Native on macOS, not in Docker | Docker on macOS can't use the GPU |
 | Vector search | Weaviate, hybrid (keyword + vector) search. Multi-tenancy on, with a single tenant `default`, created by the api at startup (idempotent), never on sign-in | Hybrid search catches exact terms like "SLA"; keeping the tenant means splitting teams later needs no query changes |

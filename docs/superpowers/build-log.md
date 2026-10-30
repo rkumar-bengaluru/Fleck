@@ -116,3 +116,17 @@ rupak.k ran the probe after granting Screen & System Audio Recording and notific
 ### Task 6: demo library content and parsing fixtures
 
 Firm docs retitled `Rate card FY2026`, `Delivery FAQ`, `Capabilities` (firm name on the line below); rate-card table heading now "Time and materials (USD per person per month)", rows unchanged. Three case studies added (`calloway-marsh/`, `meridian-intel/`, `brightwater-insurance/`), `clients/README.md` updated. `api/tests/fixtures/make_xlsx.py` builds `rate-card.xlsx` (merged title row, `"$"#,##0` formats) and `rate-card.pptx` (title + 4-row rate table); both byte-identical across two runs. openpyxl and python-pptx added to fleck-api dev group.
+
+### Task 4 review rounds: three adversarial passes on the number check
+
+The first build (e225323, 44 tests) passed its own tests but an adversarial reviewer found false accepts, each now a regression test with the exact input:
+
+- Round 1 (d97a36b, 96f44f2, b4143e1): passage units like `4 h` read as bare numbers ("Restore within 4 days" passed); clause numbers ("7.") read as figures; rate period ignored ("$5,200 per year" vs per month); "$1.5 million" split into two numbers; fallback missed partial client names, "200k", "fifty grand", lakh/₹, other currencies, "40/hr". 96f44f2 was committed with one test failing (an `| tail` hid the exit code); b4143e1 fixed it and later rounds check the exit code directly.
+- Round 2 (cad4938): a "$" cell under a "per month" heading didn't inherit the period; a period word elsewhere in the sentence was missed; clause stripping ate "1.5" before "Million"; "$10 bn" didn't scale; the fallback blocked "ISO 27001", "SOC 2", "TLS 1.3" (over-blocking).
+- Round 3 (a42ad90): "per quarter", "per seat" ignored; passage-side "per calendar month"/"pm" unread; the fallback blocked "an SLA with 3 severity levels" and missed "six figures" and "ninety nine point nine".
+
+Result: 119 passed. Known limits accepted as decision 79. The Milestone B critique then found spoken "one" and "two" still unread ("start within two weeks" passed against "4 weeks"); fixed in the Milestone B follow-up below.
+
+### Milestone B critique
+
+Verdict: Agree with changes. Verified by the controller: "A team can start within two weeks of signature. [1]" passed against "within 4 weeks"; "Our SLA response time is two hours." and "Northbeam has done this before for many banks." passed the fallback. Job-queue flakiness reported by the critic (2 of 5 runs) did not reproduce in 5 runs here; host and Postgres clocks agree within 0.1 s, but `run_after` moves to server time anyway. Follow-up work: spoken small numbers, uncited-sentence checks, no first-person firm claims in the fallback, label-on-same-line check, job `on_fail` hook, server-time scheduling, worker environment. Doc drift fixed (decisions 6, 70; spec §7 "Why"; plan architecture line).

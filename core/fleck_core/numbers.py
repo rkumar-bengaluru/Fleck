@@ -3,7 +3,7 @@ import re
 from datetime import datetime
 from decimal import Decimal
 
-from text_to_num import alpha2digit
+from text_to_num import alpha2digit, text2num
 
 CODES = "USD|INR|EUR|GBP|JPY|CNY|RMB|CAD|AUD|CHF|SGD|AED|NZD|HKD|SEK|NOK|DKK|ZAR|BRL|MXN|KRW"
 _SYMBOLS = {"$": "USD", "₹": "INR", "€": "EUR", "£": "GBP", "¥": "JPY"}
@@ -56,13 +56,20 @@ def _numeric_date(m: re.Match) -> str:
     return m[0]  # ambiguous d/m vs m/d: leave as is
 
 
+def _dozens(m: re.Match) -> str:
+    try:
+        return str((int(m[1]) if m[1].isdigit() else text2num(m[1].lower(), "en")) * 12)
+    except ValueError:
+        return m[0]
+
+
 def normalize_numbers(text: str) -> str:
     t = re.sub(r"(?<=\d),(?=\d{3}\b|\d{2},\d)", "", text)  # 6,900 and lakh grouping 5,00,000
     t = _scale(t)
     t = alpha2digit(t, "en")
     t = _scale(t)
     t = re.sub(r"\ba dozen\b", "12", t, flags=re.I)
-    t = re.sub(r"(\d+) dozen\b", lambda m: str(int(m[1]) * 12), t, flags=re.I)
+    t = re.sub(r"\b(\w+) dozen\b", _dozens, t, flags=re.I)
     t = re.sub(r"\bp\.a\b\.?|\bannual(?:ly)?\b|\byearly\b", "per year", t, flags=re.I)
     t = re.sub(r"\b(month|week|dai|hour)ly\b", lambda m: "per " + {"dai": "day"}.get(m[1].lower(), m[1].lower()), t, flags=re.I)
     t = re.sub(r"\bminus\s+(?=\d)", "-", t, flags=re.I)

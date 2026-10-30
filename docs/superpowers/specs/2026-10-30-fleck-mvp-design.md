@@ -65,7 +65,7 @@ iOS, Android, Windows; Outlook calendar; several teams with separate data (one t
 - **What leaves the Mac** (rupak.k's rule, with Claude's resolution of the fallback marked):
   - The transcript and the user's notes are meeting text. They go to Claude only for the summary and team chat (goals 7–8), after the meeting, never during it.
   - Library text goes to Claude for the summary and team chat. rupak.k is fine with this, including real client documents later.
-  - **The live help path is local.** The helper detects the question, searches Weaviate, asks `qwen3:8b`, and runs the citation and number checks (§7.4), all on the Mac. The api (local Docker) only relays the result to the browser and stores it.
+  - **The live help path is local.** The helper detects the question, searches Weaviate, asks `qwen3:4b`, and runs the citation and number checks (§7.4), all on the Mac. The api (local Docker) only relays the result to the browser and stores it.
   - The one exception is the live fallback (goal 6). It sends **only the client's question text**, with no transcript and no library text, to Claude Haiku. `FLECK_LIVE_FALLBACK=claude|off` turns it off, making the live path fully local. **(Claude's resolution: rupak.k asked for both a Claude fallback and a local-only live path.)**
   - Test: with `FLECK_LIVE_FALLBACK=off`, a replay of the test conversation fails if anything in the live path opens a connection that leaves the Mac.
   - Audio never leaves the Mac except into Fleck's own storage.
@@ -84,7 +84,7 @@ iOS, Android, Windows; Outlook calendar; several teams with separate data (one t
  │  live transcript (MLX Whisper) │  transcript  │ postgres   minio   weaviate   gsim     │
  │  question detection            │  + audio     └────────────────────────────────────────┘
  └────────────────────────────────┘                       │            │
- Ollama (native, Metal GPU): qwen3:8b, embeddings  ◀──────┘            └──▶ Claude API
+ Ollama (native, Metal GPU): qwen3:4b, embeddings  ◀──────┘            └──▶ Claude API
 ```
 
 | Part | Choice | Why |
@@ -92,7 +92,7 @@ iOS, Android, Windows; Outlook calendar; several teams with separate data (one t
 | Desktop helper | Python 3.12, `rumps` + PyObjC menu-bar app, packaged with py2app | Python end to end; one language with the api |
 | Call audio | ScreenCaptureKit (system audio); mic via AVAudioEngine with Apple voice processing (echo cancellation, since rupak.k uses speakers) | No bot joins the call |
 | Live transcription | `mlx-whisper`, `large-v3-turbo`, on the Mac's GPU | Fast enough to keep up with speech, no network |
-| Local model | Ollama, `qwen3:8b-q4_K_M` (pinned, §7.5), thinking mode off | Best ~8B model at answering only from the passages it's given; fits next to Whisper in 24 GB |
+| Local model | Ollama, `qwen3:4b-q4_K_M` (pinned, §7.5), thinking mode off. Was `qwen3:8b`; measured too slow (§7.1, decision 72) | Best ~8B model at answering only from the passages it's given; fits next to Whisper in 24 GB |
 | Embeddings | Ollama `qwen3-embedding:0.6b`, called by the api; vectors pushed to Weaviate as self-provided vectors (no Weaviate vectoriser module) | Better retrieval for ~0.5 GB more (rupak.k's suggestion); one hop instead of two, and query-embedding time is measured in the api (rupak.k's suggestion) |
 | Ollama placement | Native on macOS, not in Docker | Docker on macOS can't use the GPU |
 | Vector search | Weaviate, hybrid (keyword + vector) search. Multi-tenancy on, with a single tenant `default`, created by the api at startup (idempotent), never on sign-in | Hybrid search catches exact terms like "SLA"; keeping the tenant means splitting teams later needs no query changes |
@@ -129,7 +129,7 @@ Live and replay differ only at the source. From the 16 kHz streams onward, the c
    (delayed, quieter, reverb) = call heard through                       ▼
    speakers, for tuning the gate and echo tests             classify() ──▶ live answer path
                                                             (CPU, §7.2)    (helper: Weaviate,
-                                                                            qwen3:8b, checks §7.4)
+                                                                            qwen3:4b, checks §7.4)
                                                                                  │
   Both streams' audio, in chunks ─────▶ api ──▶ MinIO (recording)                ▼
   All finals + answers ───────────────▶ api ──▶ Postgres ──▶ browser (WebSocket)
@@ -144,9 +144,9 @@ All three models share one GPU on the Mac. Memory fits; latency is the tight par
 | Model | Memory |
 |---|---|
 | Whisper `large-v3-turbo` | ~2 GB |
-| `qwen3:8b` 4-bit + KV cache (4k context) | ~6–7 GB |
+| `qwen3:4b` 4-bit + KV cache (4k context) (was `qwen3:8b`, ~6–7 GB) | ~3–4 GB |
 | `qwen3-embedding:0.6b` | ~0.5–1 GB |
-| **Total** | **~8.5–10 GB** of 24 GB, leaving room for macOS, Docker, browser and the call app |
+| **Total** | **~5.5–7 GB** of 24 GB, leaving room for macOS, Docker, browser and the call app |
 
 Time from the client finishing a question to the first words on screen (estimates, to be measured):
 
@@ -155,7 +155,7 @@ Time from the client finishing a question to the first words on screen (estimate
 | End of speech detected (silence) | ~0.6 s |
 | Whisper finalises the last window | 0.3–0.5 s |
 | Question classified (CPU, no LLM, §7.2) + hybrid search | ≤ 0.05 s + ~0.15 s |
-| `qwen3:8b` reads ~1,000 prompt tokens, first token out | 1–1.5 s |
+| `qwen3:4b` reads ~1,000 prompt tokens, first token out (measured p95 1.11 s; ~0.1 s when started early) | 1–1.5 s |
 | **First words** | **~2.2–2.8 s** against the 3 s target |
 
 To keep headroom: **(Claude's call)**
@@ -166,6 +166,8 @@ To keep headroom: **(Claude's call)**
 4. **Fallback model.** If `qwen3:8b` misses the target when measured, switch to `qwen3:4b`.
 
 Item 2 never shows anything on screen: an answer is shown only after the final-text trigger in §7.2.
+
+**Measured (2026-10-30, M5, decision 72).** With fresh passages and a fresh question each time (1,045 prompt tokens), `qwen3:8b` took 2.59 s (p95) to its first token, putting first words at ~3.8 s, over the target; `qwen3:4b` took 1.11 s, giving ~2.4 s. Item 4 applied: the live model is `qwen3:4b`, and item 2 (start early) is mandatory, which cuts the first token to ~0.1 s when the passages were read on the partial text.
 
 Measuring this budget on rupak.k's Mac is the first task of the build. If the measured numbers can't meet §5, work stops and goes back to rupak.k.
 
@@ -221,7 +223,7 @@ Each answer Fleck showed is marked **Used** or **Not used** in the notes.
 
 The model never decides what a source is called. Rules enforced in code, not only in prompts:
 
-**Library answers (`qwen3:8b`)**
+**Library answers (`qwen3:4b`)**
 1. The prompt gives at most 3 passages, numbered `[1]`–`[3]`, each with its document kind (client / firm / reference). Each claim must end with the number of the passage it comes from. If the passages don't answer the question, the model replies `NONE`, which hands over to the fallback.
 2. The api maps each `[n]` to the Weaviate result's `doc_id` + `chunk_id`. **An answer with no valid citation, or citing a number it wasn't given, is rejected.** The source line on screen (document title, client, kind) is rendered from Weaviate metadata, never from the model's text. **(Numbered markers instead of the model writing `doc_id`s: Claude's adjustment, cheaper and streamable.)**
 3. **Number check.** Every figure in a sentence (amounts, currencies, %, durations, team sizes, dates) must appear, after normalising ("6,900" = "6900" = "six thousand nine hundred"), in a passage that sentence cites. Sentences without figures stream to the screen token by token. Sentences with a figure are held until complete and checked. A sentence that fails is replaced by **Not in our material** with a link to the cited source. **(Claude's addition: a valid citation alone doesn't stop a wrong number.)**
@@ -243,7 +245,7 @@ Note on where words appear: the number check compares the model's answer with li
 
 **macOS permissions.** Committed now in `helper/packaging/`:
 - `Info.plist`: bundle id `ai.fleck.helper` (never changes), `LSUIElement` (menu bar only), `NSMicrophoneUsageDescription`, `NSScreenCaptureUsageDescription`.
-- `entitlements.plist`: `com.apple.security.device.audio-input`, needed under the hardened runtime.
+- `entitlements.plist`: `com.apple.security.device.audio-input`, needed under the hardened runtime, and `com.apple.security.cs.disable-library-validation`: a self-signed identity has no Team ID, so library validation would refuse the bundled Python libraries (decision 68).
 - **No screen-capture entitlement exists.** macOS grants Screen Recording per app through the privacy prompt, keyed to bundle id + signing certificate. So the stable bundle id and the one self-signed certificate (§9) are what keep the permission across rebuilds. **(Claude's correction of the suggested `com.apple.security.screen-capture`.)**
 - The first build task proves all four edges together from the signed bundle: menu-bar app runs, mic records, system audio records, notification action fires.
 
@@ -260,9 +262,9 @@ So: XLSX is read with `openpyxl` directly (already a markitdown dependency, no d
 
 | Model | Tag | Manifest digest (registry, 2026-10-30) | Size |
 |---|---|---|---|
-| Answer model | `qwen3:8b-q4_K_M` | `sha256:500a1f067a9f782620b40bee6f7b0c89e17ae61f686b92c24933e4ca4b2b8b41` | 5.2 GB |
+| Answer model | `qwen3:4b-q4_K_M` | `sha256:2bfd38a7daaf4b1037efe517ccb73d1a3bbd4822cf89f1a82be1569050a114e0` | 2.6 GB |
 | Embeddings | `qwen3-embedding:0.6b` | `sha256:ac6da0dfba84a81fdbfbaf330198c33cd77c4cdfc53e8bc50eb581914a15621d` | 0.64 GB |
-| Fallback answer model (only if §7.1 needs it) | `qwen3:4b`, pinned when first used | | |
+| Former answer model (measured too slow, decision 72) | `qwen3:8b-q4_K_M` | `sha256:500a1f067a9f782620b40bee6f7b0c89e17ae61f686b92c24933e4ca4b2b8b41` | 5.2 GB |
 
 ### 7.6 Ports (fixed, rupak.k's rule)
 

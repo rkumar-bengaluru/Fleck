@@ -30,5 +30,5 @@ def db_url():
 @pytest.fixture
 def make_session(db_url):
     engine = make_engine(db_url)
-    yield sessionmaker(engine)
+    yield sessionmaker(engine, expire_on_commit=False)
     engine.dispose()

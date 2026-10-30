@@ -240,4 +240,5 @@ class Job(Base):
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     run_after: Mapped[datetime] = _now()
     last_error: Mapped[str | None] = mapped_column(Text)
+    locked_at: Mapped[datetime | None]  # set on claim; a stale one means the worker died
     created_at: Mapped[datetime] = _now()

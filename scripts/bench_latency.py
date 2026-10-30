@@ -6,7 +6,7 @@ import numpy as np
 from fleck_core.answer import OllamaClient
 from fleck_helper.transcribe import StreamTranscriber
 
-MODEL = sys.argv[1] if len(sys.argv) > 1 else "qwen3:8b-q4_K_M"
+MODEL = sys.argv[1] if len(sys.argv) > 1 else "qwen3:4b-q4_K_M"  # decision 72
 N = 30
 QUESTION = "What does a senior engineer cost per month, offshore?"
 SYSTEM = ("You are a presales assistant for Northbeam Digital. Answer in two short sentences using only the passages. "
@@ -52,10 +52,11 @@ def you_windows(stop):
 
 def trial(contended):
     """One client question. realistic: You talks 4 s, stops, 1 s gap, client asks.
-    contended: a client partial (non-preemptible) is already running when the final arrives, while Qwen generates."""
+    contended: a client partial (non-preemptible) is already running when the final arrives, while Qwen generates.
+    No You window runs in the contended case."""
     stop = threading.Event()
     if contended:
-        stop.set()  # one You window, started just before the question
+        stop.set()  # no You window: the client partial in flight and Qwen generating are the contention
     th = threading.Thread(target=you_windows, args=(stop,)); th.start()
     llm_stop = threading.Event()
     llm = threading.Thread(target=lambda: [run(" llm") for _ in iter(llm_stop.is_set, True)]) if contended else None
@@ -101,8 +102,8 @@ for name, c in (("realistic", False), ("contended", True)):
     res[name] = [trial(c) for _ in range(N)]
     print(f"{name} transcript:", res[name][-1][1])
 ta = [d for d, _ in res["contended"]]  # gate uses the contended case
-cold = [run(f" [{time.time_ns()}]") for _ in range(N)]  # unique prefix defeats the prompt cache
-warm = [run("") for _ in range(N)]
+cold = [run(f" [{time.time_ns()}]") for _ in range(N)]  # nonce ends SYSTEM: passages + question re-read, as live
+warm = [run("") for _ in range(N)]  # identical prompt, fully cached: the start-early case (spec 7.1 item 2)
 
 rss = subprocess.run(["ps", "-o", "rss=", "-p", str(os.getpid())], capture_output=True, text=True).stdout.strip()
 print(subprocess.run(["ollama", "ps"], capture_output=True, text=True).stdout)
@@ -110,5 +111,8 @@ r = {"model": MODEL, "a_realistic": pct([d for d, _ in res["realistic"]]), "a_tr
      "b_warm_ttft": pct([c[0] for c in warm]), "b_warm_total": pct([c[1] for c in warm]), "helper_rss_mb": int(rss) / 1024}
 for k, v in r.items():
     print(k, v if not isinstance(v, tuple) else f"p50 {v[0]:.2f}s p95 {v[1]:.2f}s")
-est = 0.6 + r["a_transcribe_final"][1] + 0.2 + r["b_warm_ttft"][1]
-print(f"estimated first words = 0.6 + {r['a_transcribe_final'][1]:.2f} + 0.2 + {r['b_warm_ttft'][1]:.2f} = {est:.2f}s ->", "PASS" if est <= 3.0 else "FAIL")
+# Gate on the live case: fresh passages + question (cold). Also show the contended case with start-early.
+est = 0.6 + r["a_realistic"][1] + 0.2 + r["b_cold_ttft"][1]
+early = 0.6 + r["a_transcribe_final"][1] + 0.2 + r["b_warm_ttft"][1]
+print(f"contended + start-early = 0.6 + {r['a_transcribe_final'][1]:.2f} + 0.2 + {r['b_warm_ttft'][1]:.2f} = {early:.2f}s")
+print(f"estimated first words = 0.6 + {r['a_realistic'][1]:.2f} + 0.2 + {r['b_cold_ttft'][1]:.2f} = {est:.2f}s ->", "PASS" if est <= 3.0 else "FAIL")

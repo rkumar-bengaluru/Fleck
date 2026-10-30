@@ -6,7 +6,7 @@ if ! curl -sf localhost:11434/api/tags >/dev/null; then
   for _ in $(seq 30); do curl -sf localhost:11434/api/tags >/dev/null && break; sleep 1; done
 fi
 rc=0
-for pin in "qwen3:8b-q4_K_M 500a1f067a9f782620b40bee6f7b0c89e17ae61f686b92c24933e4ca4b2b8b41" \
+for pin in "qwen3:4b-q4_K_M 2bfd38a7daaf4b1037efe517ccb73d1a3bbd4822cf89f1a82be1569050a114e0" \
            "qwen3-embedding:0.6b ac6da0dfba84a81fdbfbaf330198c33cd77c4cdfc53e8bc50eb581914a15621d"; do
   set -- $pin
   ollama pull "$1"

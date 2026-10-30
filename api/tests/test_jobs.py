@@ -60,3 +60,21 @@ def test_future_job_not_claimed(make_session):
     with make_session() as s:
         jobs.enqueue(s, "t_ok", {}, run_after=datetime.now(timezone.utc) + timedelta(hours=1))
         assert jobs.run_once(s) is False
+
+
+def test_stale_running_job_is_reclaimed_then_failed_past_cap(make_session):
+    jobs._handlers["t_ok"] = lambda s, p: None
+    with make_session() as s:
+        jid = jobs.enqueue(s, "t_ok", {})
+        j = s.get(Job, jid)
+        j.status, j.attempts, j.locked_at = "running", 1, datetime.now(timezone.utc) - timedelta(minutes=5)
+        s.commit()
+        assert jobs.run_once(s) is False  # lock still fresh
+        j.locked_at = datetime.now(timezone.utc) - timedelta(minutes=11)
+        s.commit()
+        assert jobs.run_once(s) is True
+        assert (j.status, j.attempts) == ("done", 2)
+        j.status, j.attempts, j.locked_at = "running", 3, datetime.now(timezone.utc) - timedelta(minutes=11)
+        s.commit()
+        assert jobs.run_once(s) is True
+        assert (j.status, j.last_error) == ("failed", "worker lost")

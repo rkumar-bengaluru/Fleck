@@ -1,4 +1,4 @@
-.PHONY: up down test ensure-ollama helper-app
+.PHONY: up down test gen-types ensure-ollama helper-app
 up:
 	docker compose -f deploy/docker-compose.yml up -d --build --wait
 down:
@@ -13,3 +13,6 @@ helper-app:
 	rm -rf build dist
 	cd helper/packaging && uv run --package fleck-helper python setup.py py2app  # cwd without pyproject.toml: py2app rejects install_requires
 	helper/packaging/sign.sh "dist/Fleck Helper.app"
+
+gen-types:
+	uv run --package fleck-core python scripts/gen_event_types.py

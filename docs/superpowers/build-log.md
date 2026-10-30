@@ -108,3 +108,7 @@ Gate: 0.6 + 0.50 + 0.2 + 1.24 = **2.54 s <= 3.0 s: PASS**. Contended with start-
 ### Task 2b follow-up: all four macOS edges proven
 
 rupak.k ran the probe after granting Screen & System Audio Recording and notifications: `menubar` true, `mic_rms` 0.053 (speech), `system_rms` 0.338 (test tone via ScreenCaptureKit), `notification_authorized` true, `action_received` true. The earlier instant denials were un-granted permissions, not the self-signed certificate.
+
+### Task 5: shared event schema
+
+`core/fleck_core/events.py` holds the segment, assist and meeting_state models plus `parse_event` (pydantic discriminated union on `type`; unknown type raises `ValidationError`, a `ValueError`). `scripts/gen_event_types.py` writes `web/src/events.ts` from the JSON schema (`make gen-types`); CI regenerates and fails on `git diff --exit-code web/src/events.ts`. Defaults are marked required in the schema, since they are always present on the wire.

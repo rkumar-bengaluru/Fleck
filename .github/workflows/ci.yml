@@ -18,6 +18,7 @@ jobs:
       - name: MinIO
         run: docker run -d -p 9000:9000 -e MINIO_ROOT_USER=fleck -e MINIO_ROOT_PASSWORD=fleck-secret cgr.dev/chainguard/minio@sha256:3b6e40c30ecd5cea627e382ff0b82ca841f58c52294578787043ee80c8ef7c82 server /data
       - run: uv run --all-packages pytest core api gsim helper/tests/unit -m "not ollama"
+      - run: make gen-types && git diff --exit-code web/src/events.ts
       - uses: pnpm/action-setup@v4
         if: hashFiles('web/package.json') != ''
       - run: pnpm --dir web install && pnpm --dir web test

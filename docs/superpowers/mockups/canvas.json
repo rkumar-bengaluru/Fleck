@@ -1,0 +1,18 @@
+{"v":3,"createdOnFiles":{"v":1,"at":"2026-10-30T12:00:00Z"},"title":"Fleck MVP mockups","launch":{"view":"canvas"},"pages":[],
+"boards":{
+"Main.dc.html":{"x":0,"y":0,"w":1440,"h":900,"title":"Desktop: answer panel over the call"},
+"PanelStates.dc.html":{"x":1520,"y":0,"w":1120,"h":900,"title":"Desktop: answer panel states"},
+"MenuBar.dc.html":{"x":2720,"y":0,"w":380,"h":560,"title":"Desktop: menu-bar menu"},
+"WebToday.dc.html":{"x":0,"y":1320,"w":1280,"h":900,"title":"Web: Today","expand":"fill"},
+"WebBrief.dc.html":{"x":1360,"y":1320,"w":1280,"h":1000,"title":"Web: Pre-meeting brief","expand":"fill"},
+"WebLive.dc.html":{"x":2720,"y":1320,"w":1280,"h":900,"title":"Web: Meeting, live","expand":"fill"},
+"WebAfter.dc.html":{"x":0,"y":2720,"w":1280,"h":1100,"title":"Web: After the meeting","expand":"fill"},
+"WebLibrary.dc.html":{"x":1360,"y":2720,"w":1280,"h":900,"title":"Web: Library","expand":"fill"}
+},
+"order":["Main.dc.html","PanelStates.dc.html","MenuBar.dc.html","WebToday.dc.html","WebBrief.dc.html","WebLive.dc.html","WebAfter.dc.html","WebLibrary.dc.html"],
+"notes":{
+"t_desktop":{"x":0,"y":-300,"text":"Desktop helper: what you see during the call","kind":"title1","maxW":3100},
+"t_web":{"x":0,"y":1020,"text":"Web app: before and during the meeting","kind":"title1","maxW":4000},
+"t_after":{"x":0,"y":2420,"text":"Web app: after the meeting, and the library","kind":"title1","maxW":2640}
+},
+"designSystems":[]}

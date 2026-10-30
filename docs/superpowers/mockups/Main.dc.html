@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Answer panel over the call</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#0B6B63}a:hover{color:#084F49}
+button{font:inherit}
+button:focus-visible{outline:2px solid #5ED1C3;outline-offset:2px}
+</style>
+</helmet>
+<div style="width:1440px;height:900px;position:relative;overflow:hidden;font-family:'Atkinson Hyperlegible Next',system-ui,sans-serif;background:#3A4652;color:#F4F7FA;font-variant-numeric:tabular-nums">
+
+  <div style="height:28px;background:rgba(18,24,30,0.85);display:flex;align-items:center;justify-content:space-between;padding:0 16px;font-size:13px;color:#E3E9EF">
+    <div style="display:flex;gap:20px;align-items:center"><span style="font-weight:700">Video call</span><span>File</span><span>View</span><span>Window</span></div>
+    <div style="display:flex;gap:16px;align-items:center">
+      <span style="display:flex;gap:6px;align-items:center;font-weight:700"><span style="width:8px;height:8px;border-radius:50%;background:#FF5A4F"></span>Fleck 23:41</span>
+      <span>Thu 30 Oct 11:24</span>
+    </div>
+  </div>
+
+  <div style="position:absolute;left:50%;top:0;transform:translateX(-50%);width:180px;height:30px;background:#000;border-radius:0 0 14px 14px"></div>
+
+  <div style="position:absolute;left:40px;top:52px;right:40px;bottom:28px;background:#1E2328;border-radius:12px;display:flex;flex-direction:column;overflow:hidden">
+    <div style="flex:1;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:10px">
+      <div style="background:#2B3239;border-radius:8px;display:flex;align-items:center;justify-content:center;position:relative">
+        <div style="width:132px;height:132px;border-radius:50%;background:#55606B;display:flex;align-items:center;justify-content:center;font-size:44px;font-weight:700;color:#E3E9EF">DW</div>
+        <span style="position:absolute;left:14px;bottom:12px;font-size:14px;background:rgba(0,0,0,0.55);padding:4px 8px;border-radius:4px">Dana Whitfield, Harbourline Legal</span>
+      </div>
+      <div style="background:#2B3239;border-radius:8px;display:flex;align-items:center;justify-content:center;position:relative">
+        <div style="width:132px;height:132px;border-radius:50%;background:#4D5A50;display:flex;align-items:center;justify-content:center;font-size:44px;font-weight:700;color:#E3E9EF">ML</div>
+        <span style="position:absolute;left:14px;bottom:12px;font-size:14px;background:rgba(0,0,0,0.55);padding:4px 8px;border-radius:4px">Marcus Lee, Harbourline Legal</span>
+      </div>
+      <div style="background:#2B3239;border-radius:8px;display:flex;align-items:center;justify-content:center;position:relative">
+        <div style="width:132px;height:132px;border-radius:50%;background:#5A5266;display:flex;align-items:center;justify-content:center;font-size:44px;font-weight:700;color:#E3E9EF">RK</div>
+        <span style="position:absolute;left:14px;bottom:12px;font-size:14px;background:rgba(0,0,0,0.55);padding:4px 8px;border-radius:4px">Rupak K (you)</span>
+      </div>
+      <div style="background:#2B3239;border-radius:8px;display:flex;align-items:center;justify-content:center;position:relative">
+        <div style="width:132px;height:132px;border-radius:50%;background:#4F5B66;display:flex;align-items:center;justify-content:center;font-size:44px;font-weight:700;color:#E3E9EF">PS</div>
+        <span style="position:absolute;left:14px;bottom:12px;font-size:14px;background:rgba(0,0,0,0.55);padding:4px 8px;border-radius:4px">Priya S, Northbeam</span>
+      </div>
+    </div>
+    <div style="height:64px;display:flex;align-items:center;justify-content:center;gap:12px;background:#171B1F">
+      <span style="padding:10px 18px;border-radius:8px;background:#2B3239;font-size:14px">Mute</span>
+      <span style="padding:10px 18px;border-radius:8px;background:#2B3239;font-size:14px">Stop video</span>
+      <span style="padding:10px 18px;border-radius:8px;background:#2B3239;font-size:14px">Share screen</span>
+      <span style="padding:10px 18px;border-radius:8px;background:#B3261E;font-size:14px;font-weight:700">Leave</span>
+    </div>
+  </div>
+
+  <div role="region" aria-label="Fleck answer" style="position:absolute;left:50%;top:44px;transform:translateX(-50%);width:{{panelWidth}}px;background:rgba(17,24,31,0.94);border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,0.45);border:1px solid rgba(255,255,255,0.10);overflow:hidden">
+    <div style="display:flex">
+      <div style="width:6px;background:#2FB8A8"></div>
+      <div style="flex:1;padding:14px 18px 12px 16px;display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px">
+          <span style="font-size:14px;color:#A9B6C3">Client asked at 23:12</span>
+          <span style="font-size:13px;color:#A9B6C3">3 of 3</span>
+        </div>
+        <div style="font-size:16px;color:#D5DEE7;font-weight:500">What does a senior engineer cost per month, offshore?</div>
+        <div style="font-size:{{answerSize}}px;line-height:1.35;color:#FFFFFF;font-weight:500">$5,200 a month offshore in Bengaluru, $13,500 onsite.<sup style="font-size:11px;color:#5ED1C3;margin-left:2px">1</sup> Teams of 10 or more for 6+ months get 5% off.<sup style="font-size:11px;color:#5ED1C3;margin-left:2px">1</sup></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:2px">
+          <div style="display:flex;align-items:center;gap:8px;min-width:0">
+            <span style="background:#2FB8A8;color:#08201D;font-size:13px;font-weight:700;padding:3px 8px;border-radius:5px;white-space:nowrap">Our material</span>
+            <span style="font-size:14px;color:#D5DEE7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Rate card FY2026, Northbeam</span>
+          </div>
+          <div style="display:flex;gap:4px">
+            <button aria-label="Previous answer" style="width:32px;height:32px;border-radius:6px;border:1px solid rgba(255,255,255,0.18);background:transparent;color:#E3E9EF;cursor:pointer"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M8 2 4 6l4 4" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg></button>
+            <button aria-label="Next answer" disabled style="width:32px;height:32px;border-radius:6px;border:1px solid rgba(255,255,255,0.08);background:transparent;color:#5E6B78"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="m4 2 4 4-4 4" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg></button>
+            <button aria-label="Hide panel (Option Command F)" style="height:32px;padding:0 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.18);background:transparent;color:#E3E9EF;font-size:13px;cursor:pointer">Hide ⌥⌘F</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="position:absolute;left:50%;top:{{calloutTop}}px;transform:translateX(-50%);width:520px;display:flex;justify-content:center">
+    <span style="font-size:13px;color:#C9D3DC;background:rgba(17,24,31,0.7);padding:4px 10px;border-radius:12px">Floats over every app, never takes focus, hidden from screen shares</span>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"panelWidth":{"editor":"range","min":420,"max":640,"step":10,"default":540},"answerSize":{"editor":"range","min":16,"max":26,"step":1,"default":20},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const answerSize = this.props.answerSize ?? 20;
+    return {
+      panelWidth: this.props.panelWidth ?? 540,
+      answerSize,
+      calloutTop: 44 + 150 + Math.round((answerSize - 20) * 2.8) + 16
+    };
+  }
+}
+</script>
+</body>
+</html>

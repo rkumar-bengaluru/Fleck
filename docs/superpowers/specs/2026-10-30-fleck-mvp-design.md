@@ -26,11 +26,11 @@ A desktop assistant that sits openly in the meeting with the salesperson. It lis
 ## 3. Goals
 
 1. **Sign in with Google.** Every member of the presales team signs in with Google. The team shares one library of past material. Who counts as the team is an allow-list in `.env` (`FLECK_ALLOWED_DOMAINS`, `FLECK_ALLOWED_EMAILS`); anyone else is refused at sign-in. The allow-list is only the sign-in gate, not a way to split teams: the MVP has exactly one team (rupak.k's rule). Everyone signed in sees the whole library and every meeting, since team chat spans all meetings; each meeting records who recorded it. **(Visibility: Claude's call.)**
-2. **Calendar sync.** The user's Google Calendar appears in Fleck. Each meeting can be linked to a client.
+2. **Calendar sync.** The user's Google Calendar appears in Fleck, read-only (`calendar.readonly`; Fleck never writes to it). The user links a meeting to a client by hand, with a dropdown of library clients on the event page; ad-hoc recordings are linked the same way. A meeting with no client still gets a brief, built from its title and description only. (Manual link: rupak.k's rule.)
 3. **Library.** The team uploads past material (PDF, Word, PowerPoint, Excel, Markdown), filed by client, plus firm-wide material and reference material. Fleck indexes it for search. Each document has a kind: **client** (our past work for that client), **firm** (rate card, capabilities, FAQ) or **reference** (third-party examples). Reference documents may be quoted for their terms but are never presented as the firm's past work. **(Claude's call.)**
 4. **Pre-meeting brief.** Before a meeting with a known client: the questions this client is likely to ask, each with the best answer from the library and its source. **(Claude's call, accepted by rupak.k to review.)**
 5. **Meeting kick-off.** A macOS notification 5 minutes before a meeting starts recording with one click; an ad-hoc **Start recording** for unplanned calls. Fleck captures the user's mic and the call audio, and transcribes both live on the Mac.
-6. **Help during the meeting.** When the client asks a question, a short answer (2–3 lines plus the source) appears next to the live transcript, written by a local model from the library. When the library has nothing relevant, Claude answers, labelled **General knowledge, not from our material**.
+6. **Help during the meeting.** When the client asks a question, a short answer (2–3 lines plus the source) appears next to the live transcript, written by a local model from the library. When the library has nothing relevant, Claude answers from the question text alone, labelled **General knowledge, not from our material** (§6).
 7. **After the meeting.** The recording, full transcript and the user's own notes are saved. A summary keeps the user's notes word for word and adds what was discussed. The notes mark every moment Fleck helped: the question, the answer it showed, its source, and whether the salesperson's reply used it (§7.3).
 8. **Team chat on notes.** The team asks Claude questions about one meeting or across all meetings and the library; answers cite meetings, timestamps and documents.
 9. **Testable end to end, and left running for review.** A scripted presales conversation, recorded as audio, drives the whole flow in tests. At hand-over the stack is up on rupak.k's Mac with that conversation already processed, so they can play the recording, read the notes and see where the model helped.
@@ -49,7 +49,13 @@ iOS, Android, Windows; Outlook calendar; several teams with separate data (one t
 ## 6. Constraints
 
 - Development and use on rupak.k's Mac: Apple M5, 24 GB, macOS 26. The live path (capture, transcription, local model) runs entirely on it.
-- Meeting text and library text leave the machine only to the Claude API (fallback answers, summary, chat). rupak.k is fine with library text, including real client documents, going to Claude. Audio never leaves the machine except into Fleck's own storage.
+- **What leaves the Mac** (rupak.k's rule, with Claude's resolution of the fallback marked):
+  - The transcript and the user's notes are meeting text. They go to Claude only for the summary and team chat (goals 7–8), after the meeting, never during it.
+  - Library text goes to Claude for the summary and team chat. rupak.k is fine with this, including real client documents later.
+  - **The live help path is local.** The helper detects the question, searches Weaviate, asks `qwen3:8b`, and runs the citation and number checks (§7.4), all on the Mac. The api (local Docker) only relays the result to the browser and stores it.
+  - The one exception is the live fallback (goal 6). It sends **only the client's question text**, with no transcript and no library text, to Claude Haiku. `FLECK_LIVE_FALLBACK=claude|off` turns it off, making the live path fully local. **(Claude's resolution: rupak.k asked for both a Claude fallback and a local-only live path.)**
+  - Test: with `FLECK_LIVE_FALLBACK=off`, a replay of the test conversation fails if anything in the live path opens a connection that leaves the Mac.
+  - Audio never leaves the Mac except into Fleck's own storage.
 - External secrets: `ANTHROPIC_API_KEY` (from rupak.k), and Google OAuth client id/secret for real Google sign-in. Both in `.env`, never committed.
 - Real client documents (`clients/jf/`, Joele Frank) are out of the MVP: the MVP is built and tested on the demo library only. rupak.k adds the real material after accepting the MVP. They are never committed.
 - One team, one Mac for the MVP. Several team members may sign in (from the same Mac or, later, a deployed instance) and all see the same data.
@@ -210,7 +216,13 @@ A 6–8 minute presales call between rupak.k as salesperson (left channel) and a
 
 The script, the reference transcript and the expected outcome for each question (answered from library / Claude / "not in our material", and which document) are committed next to the WAV. They are the acceptance test for goals 5–7 and the anti-goal targets.
 
-The demo library in `clients/` is rewritten so the fictional firm (Northbeam Digital) is an AI-automation consultancy: `_firm/` rewritten, Larkspur replaced by three fictional past projects (a track-changes legal document flow, an investigation research agent, a contract-extraction pipeline), each with proposal, SOW and case study. The CUAD contracts stay in `clients/_reference/` as reference material. **(Claude's call.)**
+The demo library is the minimum needed to pass this test, about 10 pages in total (rupak.k's rule):
+- `_firm/rate-card.md` (rates), `_firm/delivery-faq.md` (IP, SLA, warranty, start time) and `_firm/capabilities.md`: kept as they are
+- `larkspur-retail/`: kept as it is (also preserved on branch `demo/larkspur-original`)
+- three new one-page AI-automation case studies, each in its own client folder: a track-changes legal document flow, an investigation research agent, a contract-extraction pipeline **(the three topics: Claude's call)**
+- the CUAD contracts in `clients/_reference/`, as reference material
+
+Content work never blocks development: the case studies are written in the same task as the test conversation script.
 
 ## 9. Ready for rupak.k's review when
 

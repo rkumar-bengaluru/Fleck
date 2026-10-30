@@ -8,7 +8,7 @@ Columns: **What** was decided · **Options** considered · **Why** · **Critic**
 |---|---|---|---|---|---|
 | 1 | 2026-10-30 | Demo contracts from CUAD v1 (6 IT-services contracts), kept in `clients/_reference/` as reference-only | GSA SOW samples (links 404); generic template sites | Only public, licensed (CC BY 4.0) set of real services contracts found | — |
 | 2 | 2026-10-30 | Simulated firm "Northbeam Digital" instead of rupak.k's firm | Use the real firm name | Invented facts must not carry a real company's name | — |
-| 3 | 2026-10-30 | Rewrite Northbeam as an AI-automation consultancy | Keep retail OMS story | Questions in the test conversation should match rupak.k's real meetings | — |
+| 3 | 2026-10-30 | ~~Rewrite Northbeam as an AI-automation consultancy~~ Superseded by rupak.k: minimal library, only three new one-page case studies (see 37) | Keep retail OMS story | Questions in the test conversation should match rupak.k's real meetings | — |
 | 4 | 2026-10-30 | `clients/jf/` git-ignored | Commit it | Real client SOWs. MVP uses the demo library only; library text may go to Claude (both rupak.k's decisions) | — |
 | 5 | 2026-10-30 | Pre-meeting brief added as a goal | Leave out | "Ahead of the game" is easiest before the call starts | — |
 | 6 | 2026-10-30 | Local model `qwen3:8b` via Ollama, thinking off | Llama 3.1 8B, Mistral 7B, Gemma | Strongest ~8B at grounded answers; fits 24 GB with Whisper | — |
@@ -22,7 +22,7 @@ Columns: **What** was decided · **Options** considered · **Why** · **Critic**
 | 14 | 2026-10-30 | "Used it" marker on each assist; defined by rupak.k (similarity ≥ 0.75 within 15 s, plus manual override), see spec §7.3 | Leave out | Shows where the model actually helped, as rupak.k asked | — |
 | 15 | 2026-10-30 | Team = allow-list (`FLECK_ALLOWED_DOMAINS`, `FLECK_ALLOWED_EMAILS`), auth gate only; one team, Weaviate tenant `default` created by the api at startup (rule: rupak.k) | Anyone with Google; invite flow; tenant per domain | Library holds rates and SOWs; multi-team is future work | — |
 | 16 | 2026-10-30 | Document kinds: client / firm / reference; reference never cited as our work | Treat all alike | Real CUAD companies must not appear as our clients | — |
-| 17 | 2026-10-30 | Three fictional AI-automation past projects replace Larkspur | Rewrite Larkspur only | Enough variety for the "similar project" questions | — |
+| 17 | 2026-10-30 | ~~Three fictional AI-automation past projects replace Larkspur~~ Superseded: Larkspur kept, three one-page case studies added (see 37) | Rewrite Larkspur only | Enough variety for the "similar project" questions | — |
 | 18 | 2026-10-30 | Hand-over on `gsim`; real Google switched on via `.env`, checked by hand | Real Google only | Works without Google Cloud setup | — |
 | 19 | 2026-10-30 | Whole-system audio capture; manual check in Meet (browser) and Zoom | Per-app capture | One path covers every app | — |
 | 20 | 2026-10-30 | Helper signed with a local self-signed certificate | Ad-hoc signing; Apple Developer ID | Keeps macOS permissions across rebuilds, no paid account | — |
@@ -42,3 +42,7 @@ Columns: **What** was decided · **Options** considered · **Why** · **Critic**
 | 34 | 2026-10-30 | XLSX read with `openpyxl`; all tables chunked by rows with headers repeated | docling or unstructured for XLSX | Tested: markitdown loses XLSX headers and formats; openpyxl is already installed with it, docling pulls in PyTorch | — |
 | 35 | 2026-10-30 | Embeddings computed in the api, pushed as vectors (rupak.k's suggestion) | Weaviate `text2vec-ollama` | One hop, deterministic, measurable | — |
 | 36 | 2026-10-30 | Ollama models pinned by tag, verified against manifest digest after pull (rule: rupak.k) | Pull `latest` | Ollama can't pull by digest; verify instead | — |
+| 37 | 2026-10-30 | Minimal demo library (rule: rupak.k); case-study topics: legal track-changes flow, investigation agent, contract extraction | Full rewrite | Mirrors rupak.k's real work without blocking development | — |
+| 38 | 2026-10-30 | Live fallback sends only the question text to Haiku; `FLECK_LIVE_FALLBACK=claude\|off` | Drop the live fallback; send transcript context | Reconciles rupak.k's Claude fallback with a local-only live path | — |
+| 39 | 2026-10-30 | Helper runs the live path; api only relays to the browser | Live path in the api | The browser can't receive from the helper directly; keeps live work next to Whisper | — |
+| 40 | 2026-10-30 | Calendar read-only; client linked manually by dropdown (rule: rupak.k); unlinked meetings get a title-based brief | Auto-link by attendee domain | Manual is enough for the MVP | — |

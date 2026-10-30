@@ -35,6 +35,19 @@ A desktop assistant that sits openly in the meeting with the salesperson. It lis
 8. **Team chat on notes.** The team asks Claude questions about one meeting or across all meetings and the library; answers cite meetings, timestamps and documents.
 9. **Testable end to end, and left running for review.** A scripted presales conversation, recorded as audio, drives the whole flow in tests. At hand-over the stack is up on rupak.k's Mac with that conversation already processed, so they can play the recording, read the notes and see where the model helped.
 
+10. **User guide.** `docs/user-guide.md`, written for rupak.k to follow alone, step by step, from a clean Mac to a first real meeting:
+    1. install prerequisites (Docker, `uv`, Ollama, the pinned models) and fill in `.env`
+    2. start the stack and check it's healthy
+    3. install the helper, grant Microphone and Screen Recording, pair it with Fleck
+    4. sign in (simulated Google first, then real Google, including the Google Cloud setup)
+    5. add material to the library
+    6. replay the test conversation and read the result
+    7. record a first real meeting: link it to a client, read the brief, record, use the live answers, stop, read the notes and the "used it" markers, chat
+    8. troubleshooting: permissions, models not loaded, no audio, slow answers
+
+    Every command and every on-screen label in the guide is copied from the product. Before hand-over Claude follows the guide from step 1 on a fresh stack and fixes the guide or the product wherever they differ. **(Claude's call: the guide is checked by walking through it, not by review.)**
+11. **Build log.** `docs/superpowers/build-log.md`, kept as the work happens: a dated entry for each build and test run, with what was run, the measured numbers (latency, trigger counts, memory, soak results) and what was changed because of them. Failures and dead ends stay in, not only successes. It complements the decision log: decisions say *why*, the build log says *what happened*.
+
 ## 4. Non-goals (not in the MVP)
 
 iOS, Android, Windows; Outlook calendar; several teams with separate data (one team, one tenant in the MVP); billing, pricing tiers, admin console, SSO beyond Google; telling individual client speakers apart (the client side is one speaker, **Client**); CRM, Slack or Notion integrations; editing documents inside Fleck; languages other than English.
@@ -315,6 +328,8 @@ Content work never blocks development: the case studies are written in the same 
 3. In the browser rupak.k can sign in, see the calendar, open that meeting, play the recording, read the transcript and the notes with every moment Fleck helped marked, and chat about it.
 4. All automated tests pass, and the latency and question-detection targets in §5 and the 60-minute soak run (§7.7) are measured on the Mac and written into the hand-over note.
 5. The decision log lists every call made without rupak.k, each with the critique agent's verdict.
+6. The build log (goal 11) covers every build and test run, including the measurements in point 4.
+7. The user guide (goal 10) has been followed end to end on a fresh stack, with no step that differs from the product.
 
 The hand-over runs on `gsim` by default: the demo meeting is linked to a fixed event in the simulated calendar, so it works without any Google setup. Real Google sign-in and calendar are switched on by putting OAuth credentials in `.env`; the hand-over note gives the Google Cloud setup steps and rupak.k checks real sign-in by hand. **(Claude's call.)**
 

@@ -26,9 +26,9 @@ log = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class Trigger:
     segment_id: str  # the turn's last segment
-    question: str  # the turn from its first question-shaped sentence on
+    question: str  # the turn's client-gated text
     end_ms: int
-    # Embedder.embed_query(question), for search and brief matching (Tasks 13, 14); None if the rules decided
+    # Embedder.embed_query(question) (0.6b), for search and brief matching (Tasks 13, 14); None if the rules decided
     embedding: list[float] | None = field(default=None, repr=False, compare=False)
 
 
@@ -69,7 +69,7 @@ def _spawn(fn, *args) -> Future:
 
 class Pipeline:
     def __init__(self, meeting_id: str, transcriber=None, min_confidence: float | None = None, embed: Embed | None = None):
-        """`embed` defaults to the live embedder with the 150 ms budget (over it, the rules decide)."""
+        """`embed` defaults to the live embedder with the 300 ms budget (over it, the rules decide)."""
         if transcriber is None:
             from fleck_helper.transcribe import StreamTranscriber
             transcriber = StreamTranscriber()
@@ -157,8 +157,13 @@ class Pipeline:
                 # next segment's "Who owns…?"; none after a cut-off one, so "How quickly could you" + "start?" stays whole
                 text = " ".join(t if t[-1] in ".?!" or question_rules.is_fragment(question_rules._norm(t)) else t + "."
                                 for t in texts)
+                hit = lambda v: v.is_question and v.confidence >= self.min_confidence  # noqa: E731
                 v = classify(text, "client", self.embed) if texts else None
-                if v and v.is_question and v.confidence >= self.min_confidence:
+                if v and not hit(v) and len(texts) > 1:
+                    # statements before a pause dilute the turn ("…just before that. Who owns the code?"), so the
+                    # last segment gets its own look; still one trigger per turn
+                    v = classify(texts[-1], "client", self.embed)
+                if v and hit(v):
                     yield Trigger(head[-1].final.segment_id, v.question, head[-1].final.end_ms, v.embedding)
             else:
                 yield head

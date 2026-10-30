@@ -105,14 +105,23 @@ ta = [d for d, _ in res["contended"]]  # gate uses the contended case
 cold = [run(f" [{time.time_ns()}]") for _ in range(N)]  # nonce ends SYSTEM: passages + question re-read, as live
 warm = [run("") for _ in range(N)]  # identical prompt, fully cached: the start-early case (spec 7.1 item 2)
 
+from fleck_helper.classify import live_embed  # noqa: E402  (decision 95: the classify embed is its own budget term)
+
+live_embed("warm up", timeout=30)
+cls_ms = []
+for i in range(N):
+    t = time.perf_counter(); live_embed(f"{QUESTION} [{i}]", timeout=5); cls_ms.append(time.perf_counter() - t)
 rss = subprocess.run(["ps", "-o", "rss=", "-p", str(os.getpid())], capture_output=True, text=True).stdout.strip()
 print(subprocess.run(["ollama", "ps"], capture_output=True, text=True).stdout)
 r = {"model": MODEL, "a_realistic": pct([d for d, _ in res["realistic"]]), "a_transcribe_final": pct(ta), "b_cold_ttft": pct([c[0] for c in cold]), "b_cold_total": pct([c[1] for c in cold]),
-     "b_warm_ttft": pct([c[0] for c in warm]), "b_warm_total": pct([c[1] for c in warm]), "helper_rss_mb": int(rss) / 1024}
+     "b_warm_ttft": pct([c[0] for c in warm]), "b_warm_total": pct([c[1] for c in warm]), "c_classify_embed": pct(cls_ms),
+     "helper_rss_mb": int(rss) / 1024}
 for k, v in r.items():
     print(k, v if not isinstance(v, tuple) else f"p50 {v[0]:.2f}s p95 {v[1]:.2f}s")
 # Gate on the live case: fresh passages + question (cold). Also show the contended case with start-early.
-est = 0.6 + r["a_realistic"][1] + 0.2 + r["b_cold_ttft"][1]
-early = 0.6 + r["a_transcribe_final"][1] + 0.2 + r["b_warm_ttft"][1]
-print(f"contended + start-early = 0.6 + {r['a_transcribe_final'][1]:.2f} + 0.2 + {r['b_warm_ttft'][1]:.2f} = {early:.2f}s")
-print(f"estimated first words = 0.6 + {r['a_realistic'][1]:.2f} + 0.2 + {r['b_cold_ttft'][1]:.2f} = {est:.2f}s ->", "PASS" if est <= 3.0 else "FAIL")
+# The 0.2 s term is classify + search; the classify embed (both embeds in parallel) is now measured, plus 0.15 s search.
+c = r["c_classify_embed"][1]
+est = 0.6 + r["a_realistic"][1] + c + 0.15 + r["b_cold_ttft"][1]
+early = 0.6 + r["a_transcribe_final"][1] + c + 0.15 + r["b_warm_ttft"][1]
+print(f"contended + start-early = 0.6 + {r['a_transcribe_final'][1]:.2f} + {c:.2f} + 0.15 + {r['b_warm_ttft'][1]:.2f} = {early:.2f}s")
+print(f"estimated first words = 0.6 + {r['a_realistic'][1]:.2f} + {c:.2f} + 0.15 + {r['b_cold_ttft'][1]:.2f} = {est:.2f}s ->", "PASS" if est <= 3.0 else "FAIL")

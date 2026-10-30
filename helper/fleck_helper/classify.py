@@ -1,42 +1,50 @@
-"""Question classifier (spec 7.2 contract, decision 94): a permissive question-shape gate, then a learned score.
+"""Question classifier (spec 7.2 contract, decisions 94 and 95): hard vetoes, then a learned score.
 
-The score is a logistic regression over the L2-normalised qwen3-embedding vector of the question text under a
-classification instruction (`CLASSIFY_TASK`). The live path fetches it in the same /api/embed request as the
-`Embedder.embed_query` vector that search uses, which travels on in the verdict and the Trigger. The model is `question_model.json`, retrained
-with scripts/train_classifier.py. If the embedder fails or takes over 150 ms, the CPU rules in question_rules decide
-(logged once)."""
+The score is a logistic regression over the L2-normalised qwen3-embedding:4b vector of the transcript under a
+classification instruction (`CLASSIFY_TASK`). On the live path that call runs in parallel with the 0.6b
+`Embedder.embed_query` call whose vector search uses; that vector travels on in the verdict and the Trigger.
+The model is `question_model.json`, retrained with scripts/train_classifier.py. If either embed fails or the pair
+takes over 300 ms, the CPU rules in question_rules decide (logged once)."""
 import json
 import logging
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from functools import cache
 from pathlib import Path
 from typing import Callable, Literal
 
+import httpx
 import numpy as np
 
 from fleck_helper import question_rules as rules
 
 MODEL_PATH = Path(__file__).with_name("question_model.json")
-EMBED_TIMEOUT_S = 0.15  # the live budget; over it, the rules decide
+CLASSIFY_MODEL = "qwen3-embedding:4b"  # the classifier's own embedder; search stays on 0.6b (decision 95)
+CLASSIFY_OPTIONS = {"num_ctx": 512}
+EMBED_TIMEOUT_S = 0.30  # the live budget for both embeds; over it, the rules decide
 CLASSIFY_TASK = ("Decide whether this line, spoken by a client on a sales call, is a substantive question about the vendor, "
                  "the engagement or the solution that the vendor should answer, rather than small talk, call logistics, "
                  "scheduling or a request to send something")
 # text -> (classification vector, search vector or None)
 Embed = Callable[[str], tuple[list[float], list[float] | None]]
 log = logging.getLogger(__name__)
+_URL = os.environ.get("FLECK_OLLAMA_URL", "http://localhost:11434")
 
-# Shape gate: permissive on purpose, the model decides relevance.
-_INDIRECT = re.compile(r"\b((like|love|want|wants|need|needs|interested|hoping|keen|curious|great|good|helpful|useful) to "
-                       r"(know|understand|hear|learn)|tell (me|us)|walk (me|us) through|wondering|curious"
-                       r"|kindly (explain|tell|share)|(ask|asks|asking) (what|how|whether|if|about|why|when|where|who|which))\b")
 _OPENING = re.compile(rules._FILLER + rf"({rules._WH}|{rules._AUX}|whats|hows|whos|wheres|whens|any)\b")
-_ENDS_WH = re.compile(r"\b(what|how|when|where|who|which|why)$")  # "and the timeline would be what"
-# Hard policy: asking the vendor to send something is a to-do, not a question for the library.
+# Hard policy: asking the vendor to send a document is a to-do, not a question for the library. "Can you share how
+# you…" or "…share some of the challenges…" are questions, so the veto needs a document-like object or none at all.
 _REQUEST = re.compile(rules._FILLER + r"((can|could|will) (you|someone|somebody)( please)? (send|email|forward|cc|share)"
-                      r"|would you (please )?(send|email|forward)|would you mind (sending|sharing|emailing|forwarding)|(would|will) you be able to (send|share|email|forward)"
-                      r"|please (send|share|email|forward))\b")
+                      r"|would you (please )?(send|email|forward)|would you mind (sending|sharing|emailing|forwarding)"
+                      r"|(would|will) you be able to (send|share|email|forward)|please (send|share|email|forward))\b(?P<rest>.*)")
+_DOCUMENT = re.compile(r"^(( (me|us|over|across|it|them|that|this|those|these|please|again|the|a|an|your|our|its|their"
+                       r"|copy|of|soft|full|latest|final|updated|signed|draft|whole|same|one|some|any))*( \w+){0,3} "
+                       r"(deck|decks|slides?|invite|minutes|link|agenda|recording|notes|documents?|docs?|files?|sow|proposal"
+                       r"|contracts?|template|quote|rate card|whitepaper|certificates?|reports?|diagram|policy|presentation"
+                       r"|pdf|case stud(y|ies)|numbers|details|requirements|draft|summary|email|mail|form|brochure"
+                       r"|checklist|spreadsheet|sheet|screenshot|demo link|credentials|nda|msa|invoice)\b"
+                       r"|( (me|us|over|across|it|them|that|this|please|again|later|afterwards|after the call))*$)")
 # Hard policy: "Arjun, can you check…" is the client talking to a colleague. Words that open a clause but are not names:
 _NOT_NAMES = frozenset("""sir madam maam ma'am hey hi hello right sure fine great alright hmm brilliant okay ok so and but
 also now then sorry yes yeah no well actually ballpark honestly perfect thanks good cool understood interesting quickly
@@ -49,7 +57,7 @@ class QuestionVerdict:
     is_question: bool
     confidence: float
     reason: str
-    question: str = ""  # the scored text: the transcript from its first question-shaped sentence on
+    question: str = ""  # the scored text: the whole transcript
     embedding: list[float] | None = field(default=None, repr=False, compare=False)
 
 
@@ -61,19 +69,15 @@ def _vocative(s: str) -> bool:
 
 
 def shape(s: str) -> str | None:
-    """Why a normalised sentence is not a candidate question, or None if it is one."""
-    body = s.rstrip("?.!, ")
+    """Why a normalised sentence is hard-vetoed, or None: everything else, statements included, goes to the model."""
     # a trailing particle is fine here ("…support single sign on"); the model judges the rest
     if (why := rules.veto(s)) and why != "fragment" or rules.is_fragment(s, prepositions=False):
         return why or "fragment"
-    if _REQUEST.match(s):
-        return "request to send or share"
+    if (m := _REQUEST.match(s)) and _DOCUMENT.match(m["rest"].rstrip("?.!, ")):
+        return "request to send or share a document"
     if _vocative(s):
         return "addressed to a colleague"
-    if (s.endswith("?") or any(_OPENING.match(c.strip()) for c in body.split(",")) or _ENDS_WH.search(body)
-            or _INDIRECT.search(body) or rules._ASK.search(body)):
-        return None
-    return "not shaped like a question"
+    return None
 
 
 def _sentences(transcript: str) -> list[str]:
@@ -81,16 +85,16 @@ def _sentences(transcript: str) -> list[str]:
 
 
 def question_text(transcript: str) -> str | None:
-    """The transcript from its first question-shaped sentence on, or None when no sentence has question shape."""
+    """The whole transcript, or None when every sentence is hard-vetoed (then nothing is embedded)."""
     sents = _sentences(transcript)
-    first = next((i for i, s in enumerate(sents) if shape(rules._norm(s)) is None), None)
-    return None if first is None else " ".join(s.strip() for s in sents[first:])
+    return " ".join(s.strip() for s in sents) if any(shape(rules._norm(s)) is None for s in sents) else None
 
 
 @cache
 def model() -> dict:
     m = json.loads(MODEL_PATH.read_text())
-    assert m["classify_instruction"] == CLASSIFY_TASK, "question_model.json was trained with another instruction"
+    assert m["classify_instruction"] == CLASSIFY_TASK and m["classify_model"] == CLASSIFY_MODEL, \
+        "question_model.json was trained with another instruction or embedding model"
     m["weights"] = np.asarray(m["weights"], np.float64)
     return m
 
@@ -106,18 +110,30 @@ def score(vector) -> float:
     return float(1 / (1 + np.exp(-(x @ model()["weights"] + model()["bias"]))))
 
 
-_embedder = None
 _fell_back = False
 
 
+def embed_classify(texts: list[str], timeout: float = EMBED_TIMEOUT_S) -> list[list[float]]:
+    """qwen3-embedding:4b vectors of `Instruct: {CLASSIFY_TASK}\\nQuery: {text}`, batched (training uses this too)."""
+    out = []
+    for i in range(0, len(texts), 32):
+        r = httpx.post(f"{_URL}/api/embed", timeout=timeout, json={
+            "model": CLASSIFY_MODEL, "options": CLASSIFY_OPTIONS, "keep_alive": -1,
+            "input": [f"Instruct: {CLASSIFY_TASK}\nQuery: {t}" for t in texts[i:i + 32]]})
+        r.raise_for_status()
+        out += r.json()["embeddings"]
+    return out
+
+
+_pool = ThreadPoolExecutor(2, thread_name_prefix="embed")
+
+
 def live_embed(text: str, timeout: float = EMBED_TIMEOUT_S) -> tuple[list[float], list[float]]:
-    """Both vectors in one /api/embed request: the classification input and exactly `Embedder.embed_query`'s input."""
-    global _embedder
-    from fleck_core.retrieval import QUERY_TASK, Embedder
-    if _embedder is None or _embedder.timeout != timeout:
-        _embedder = Embedder(os.environ.get("FLECK_OLLAMA_URL", "http://localhost:11434"), timeout=timeout)
-    cls, search = _embedder.embed([f"Instruct: {CLASSIFY_TASK}\nQuery: {text}", f"Instruct: {QUERY_TASK}\nQuery: {text}"])
-    return cls, search
+    """The 4b classification vector and exactly `Embedder.embed_query`'s 0.6b search vector, fetched in parallel."""
+    from fleck_core.retrieval import Embedder
+    search = _pool.submit(Embedder(_URL, timeout=timeout).embed_query, text)
+    cls = _pool.submit(embed_classify, [text], timeout)
+    return cls.result(timeout=timeout + 0.05)[0], search.result(timeout=timeout + 0.05)
 
 
 def classify(transcript: str, speaker: Literal["client", "you", "overlap"], embed: Embed | None = None) -> QuestionVerdict:

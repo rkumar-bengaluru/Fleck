@@ -7,7 +7,8 @@ if ! curl -sf localhost:11434/api/tags >/dev/null; then
 fi
 rc=0
 for pin in "qwen3:4b-q4_K_M 2bfd38a7daaf4b1037efe517ccb73d1a3bbd4822cf89f1a82be1569050a114e0" \
-           "qwen3-embedding:0.6b ac6da0dfba84a81fdbfbaf330198c33cd77c4cdfc53e8bc50eb581914a15621d"; do
+           "qwen3-embedding:0.6b ac6da0dfba84a81fdbfbaf330198c33cd77c4cdfc53e8bc50eb581914a15621d" \
+           "qwen3-embedding:4b df5bd2e3c74cd8d069d21dc038f1b359fcdc9458fce1c99bd43c9eb1518ff907"; do  # 4b: question classifier (decision 95)
   set -- $pin
   ollama pull "$1"
   id=$(ollama list | awk -v m="$1" '$1==m {print $2}')

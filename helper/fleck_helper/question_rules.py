@@ -21,7 +21,7 @@ _REJECT = re.compile(r"\b(" + "|".join([
     r"turn (on |off )?(your|my|the) (camera|video|mic)", r"(on|off) mute", r"(un)?mute (yourself|your|my)",
     r"speak up", r"repeat that", r"say that again", r"hold on", r"give me a (second|sec|minute|moment)", r"go first",
     r"in the chat", r"are you (still )?there", r"is everyone here", r"what did you say", r"sorry,? (what|can you repeat)",
-    r"does that make sense", r"any questions", r"(is|would) (that|this|it) (be )?(okay|ok|fine|clear|alright|all right|better)",
+    r"does that make sense", r"any questions", r"(is|would) (that|this|it) (be )?(okay|ok|fine|clear|alright|all right|better)( for you| with you| now)?$",
     r"is it (okay|ok|all right|alright) if", r"do you mind", r"(do you want|would you like) to",
     r"send (me |us )?(the|an?) (invite|deck|minutes|link|agenda|recording|notes)",
     r"(did|have) you (get|got|receive|received|seen) (my|the|our) (email|mail|message|invite|nda|note)",
@@ -126,7 +126,9 @@ def is_fragment(s: str, prepositions: bool = True) -> bool:
     # "could you" is cut off, "for you" is not; "…the project you did" is complete
     wh_before = re.search(r"\b(what|how|who|when|where|why|which|whether|if)\b", " ".join(words[:-2]))
     closes_clause = wh_before and last in _DO | {"is", "are", "was", "were", "have", "has"}
-    cut = last in _CUT and prev not in _PRONOUNS and not closes_clause or last in _PRONOUNS and prev in _CUT
+    # a subject pronoun right after a modal or auxiliary is cut off ("could you"); "…us or you", "…do it" are not
+    cut = (last in _CUT and prev not in _PRONOUNS and not closes_clause
+           or last in _PRONOUNS - {"it"} and prev in _CUT - {"and", "or", "but", "because", "so", "if", "than", "the", "a", "an"})
     return cut or prepositions and not q and last in _CUT_PREP
 
 

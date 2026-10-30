@@ -58,6 +58,8 @@ def test_conversation_recall(cached_embed):
     "Can you send the pricing deck after the call?",  # send/share requests are to-dos
     "Could you please share the deck?",
     "Please send the security whitepaper to my email.",
+    "Would you mind sharing the architecture diagram over email?",
+    "Can you send it over?",
     "How quickly could you",  # cut off mid-question
 ])
 def test_hard_policy_never_reaches_the_model(text):
@@ -67,17 +69,32 @@ def test_hard_policy_never_reaches_the_model(text):
     assert not v.is_question and v.confidence == 0.0, v
 
 
-def test_honorifics_and_topics_are_not_vocatives(cached_embed):
+def test_honorifics_and_topics_are_not_vocatives():
     assert question_text("Sir, what is the expected timeline for phase one?") is not None
     assert question_text("Ballpark, what would the whole project cost us?") is not None
 
 
-def test_committed_model_fits_train(embedding_cache):
+@pytest.mark.parametrize("text", [
+    "Can you share how you handle it when the requirement changes?",  # share + how/some-of: a question (decision 95)
+    "Can you share some of the challenges you faced in earlier projects?",
+    "um so what does it actually cost",  # disfluent, no "?": the model decides
+    "we were thinking about the timeline",  # statements reach the model too
+])
+def test_only_hard_vetoes_stop_a_line(text):
+    assert question_text(text) == text
+
+
+@pytest.mark.ollama
+def test_committed_model_fits_train():
+    """Needs Ollama: 2560-d vectors for all of train are too big for the CI cache."""
     texts = TRAIN["trigger"] + TRAIN["no_trigger"]
     y = np.array([1] * len(TRAIN["trigger"]) + [0] * len(TRAIN["no_trigger"]))
-    t = clf.trigger_threshold()
-    pred = np.array([(q := question_text(x)) is not None and clf.score(embedding_cache[q].astype(np.float64)) >= t
-                     for x in texts])
+    qs = [question_text(x) for x in texts]
+    keep = [i for i, q in enumerate(qs) if q is not None]
+    vecs = clf.embed_classify([qs[i] for i in keep], timeout=600)
+    p = np.zeros(len(texts))
+    p[keep] = [clf.score(v) for v in vecs]
+    pred = p >= clf.trigger_threshold()
     acc = (pred == (y == 1)).mean()
     print(f"train accuracy {acc:.3f}, recall {pred[y == 1].mean():.3f}, false positives {pred[y == 0].mean():.3f}")
     assert acc >= 0.95
@@ -93,7 +110,7 @@ def test_search_vector_and_question_come_back(cached_embed):
     search = [0.25] * 1024  # stands in for the embed_query vector fetched in the same request
     v = classify("Okay, that is about what we expected. How quickly could you have a team working on this?", "client",
                  lambda q: (cached_embed(q)[0], search))
-    assert v.question == "How quickly could you have a team working on this?"
+    assert v.question == "Okay, that is about what we expected. How quickly could you have a team working on this?"
     assert v.embedding == search and v.confidence >= clf.trigger_threshold()
 
 
@@ -126,9 +143,8 @@ def test_shape_gate_is_fast():
 def test_live_search_vector_is_embed_query():
     from fleck_core.retrieval import Embedder
     q = "Who owns the code you write for us?"
-    search = np.asarray(clf.live_embed(q, timeout=30)[1])
-    ref = np.asarray(Embedder("http://localhost:11434", timeout=30).embed_query(q))
-    assert search @ ref / np.linalg.norm(search) / np.linalg.norm(ref) > 0.999
+    search = clf.live_embed(q, timeout=30)[1]
+    assert search == Embedder("http://localhost:11434", timeout=30).embed_query(q)  # a separate call: bit-identical
 
 
 @pytest.mark.ollama

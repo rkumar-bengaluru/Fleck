@@ -313,3 +313,14 @@ Live §8 questions (title, kind, nearest-vector distance):
   - CI cache: 1034 classification vectors, 1.98 MB.
   - measure.py on the live 150 ms path: conversation.wav and conversation-bleed.wav 8/8 with 0 false triggers each, negative.wav 0/0, 0 rules fallbacks. The Mac replay tests also give 0/0/0 and 8/8.
   - Suites: `uv run pytest -m "not ollama" -q` 331 passed, 7 deselected, EXIT 0; `uv run --all-packages pytest helper/tests -q` 81 passed, 2 deselected, EXIT 0; `-m ollama` 2 passed, EXIT 0.
+- Fix round 5 (controller ruling, decision 95): the question model on qwen3-embedding:4b, with a gate of hard vetoes only.
+  - Training data: 1224 trigger and 1368 no_trigger lines; the gate passes 1221 and 923. The first run also vetoed 5 real questions ("…us or you", "…do it", "would it be better than…"); I narrowed the fragment and "is it better" vetoes, leaving 3 lines under 4 words.
+  - CV, threshold 0.6138: recall 0.957, FPR 0.0197; at 0.5: recall 0.967, FPR 0.031. Fit on all train: 0.985 (the @ollama test).
+  - Classify-embed latency, n=60: warm 4b alone p95 106 ms; the live pair (4b in parallel with 0.6b) p95 120 ms. While Whisper transcribes: 4b alone p95 192 ms, pair p95 189 ms (max 225 ms). All inside the 300 ms budget.
+  - First replay: q_ip missed on both conversation WAVs. Its merged turn ("The 15th of November would suit us. We close our budget cycle…" + "Who owns the code…") scored 0.10; the question alone scores 0.96. Fix: when a multi-segment turn is under the threshold, the last segment gets its own look. Replay is back to 8/8.
+  - bench_latency.py (classify p95 0.14 s + 0.15 s search):
+    - "estimated first words = 0.6 + 0.43 + 0.14 + 0.15 + 1.80 = 3.13s -> FAIL" (4b loaded). With 4b unloaded during the cold runs: 3.06 s FAIL.
+    - Qwen's cold first-token p95 was 1.78–1.80 s either way (decision 72: 1.11 s), so the drift is not the 4b model.
+    - Start-early path: 2.09–2.10 s.
+  - measure.py, live path: 8/8 and 0 false triggers on both conversation WAVs; negative.wav 0/0; 0 rules fallbacks. Mac replays: 0/0/0 and 8/8.
+  - Suites: `uv run pytest -m "not ollama" -q` 337 passed, 8 deselected, EXIT 0; `uv run --all-packages pytest helper/tests -q` 87 passed, 3 deselected, EXIT 0; `-m ollama` 3 passed, EXIT 0.

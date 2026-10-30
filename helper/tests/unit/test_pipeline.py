@@ -92,7 +92,8 @@ def test_unpunctuated_segment_does_not_hide_the_question():
     tr = FakeTranscriber({"client": ["we close our budget cycle just before that", "Who owns the code you write for us?"]})
     out = list(Pipeline("m1", tr, embed=lambda q: (EMBED(q)[0], search)).run(Src(_frames(audio))))
     trig = [e for e in out if isinstance(e, Trigger)]
-    assert [e.question for e in trig] == ["Who owns the code you write for us?"]  # the question part, for search
+    # the whole turn, with a full stop where Whisper left the first segment unpunctuated
+    assert [e.question for e in trig] == ["we close our budget cycle just before that. Who owns the code you write for us?"]
     assert trig[0].embedding == search  # the search vector travels on to Tasks 13 and 14 (decision 94)
 
 
@@ -178,3 +179,20 @@ def test_you_gap_does_not_split_a_client_turn():
 def test_client_gap_drops_the_whole_turn():
     out, _ = _run(_with_gap_in_pause("client"), {"client": ["Who owns the code you write for us?", "And the IP?"]})
     assert not any(isinstance(e, Trigger) for e in out)
+
+
+def test_last_segment_gets_its_own_look_when_a_preamble_dilutes_the_turn():
+    """Replay showed q_ip lost behind "The 15th of November would suit us. We close our budget cycle…" (decision 95).
+    The whole turn is given a statement's vector here; the last segment alone scores as the question it is."""
+    q = "Who owns the code you write for us?"
+    preamble = "The 15th of November would suit us. We close our budget cycle just before that."
+    calls = []
+
+    def embed(text):
+        calls.append(text)
+        return EMBED(q if text == q else "Okay, that works for us.")
+    a = _clip(1)
+    audio = np.concatenate([_silence(500), a, _silence(700), a, _silence(1500)])
+    out = list(Pipeline("m1", FakeTranscriber({"client": [preamble, q]}), embed=embed).run(Src(_frames(audio))))
+    assert [e.question for e in out if isinstance(e, Trigger)] == [q]
+    assert calls == [f"{preamble} {q}", q]  # one trigger, at most two looks

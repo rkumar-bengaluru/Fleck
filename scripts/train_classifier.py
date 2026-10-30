@@ -1,10 +1,12 @@
-"""Train the question classifier (decision 94): numpy logistic regression on qwen3-embedding query vectors.
+"""Train the question classifier (decisions 94, 95): numpy logistic regression on qwen3-embedding:4b vectors
+under CLASSIFY_TASK (search stays on 0.6b).
 
   uv run python scripts/train_classifier.py              train on fixtures/classifier/train.json; writes
                                                           helper/fleck_helper/question_model.json and the CI embedding cache
   uv run python scripts/train_classifier.py --eval F     score a held-out {"trigger": [...], "no_trigger": [...]} file
 
-Never tune on a held-out file: the threshold comes from 5-fold cross-validation on train only. Needs Ollama."""
+Never tune on a held-out file: the threshold comes from 5-fold cross-validation on train only. Needs Ollama with
+qwen3-embedding:4b (classifier) and qwen3-embedding:0.6b (search); scripts/ensure_ollama.sh pulls both."""
 import argparse
 import datetime
 import json
@@ -14,24 +16,26 @@ from pathlib import Path
 
 import httpx
 import numpy as np
-from fleck_core.retrieval import EMBED_MODEL, QUERY_TASK, Embedder
+from fleck_core.retrieval import EMBED_MODEL, QUERY_TASK
 
 from fleck_helper import classify
 
 ROOT = Path(__file__).parents[1]
 TRAIN = ROOT / "fixtures/classifier/train.json"
 CACHE = ROOT / "helper/tests/unit/data/question_embeddings.npz"
-# Ridge strength, by 5-fold CV recall at FPR <= 2% with CLASSIFY_TASK (fix round 4):
-# 3e-5 -> 0.892, 1e-5 -> 0.905, 3e-6 -> 0.894, 1e-6 -> 0.892. Never chosen on a held-out file.
+# Ridge strength, by 5-fold CV recall at FPR <= 2% (fix round 4 on 0.6b: 3e-5 -> 0.892, 1e-5 -> 0.905, 3e-6 -> 0.894,
+# 1e-6 -> 0.892; kept for 4b by the decision 95 ruling). Never chosen on a held-out file.
 L2 = 1e-5
 MAX_CV_FPR = 0.02  # the threshold is the lowest one whose cross-validated false-positive rate stays at or under this
-# Question texts the CI tests embed besides the training lines (pipeline tests); a missing one fails those tests.
+# The CI cache holds only what the CI tests embed: the fixture transcripts plus these (a missing one fails loudly).
 CI_EXTRA = [
     "How quickly could you start a team on this?",
     "What does a senior engineer cost per month?",
     "What does a senior engineer cost per month, offshore?",
-    "Is that right?",
-    "Can you see my screen? No, sorry… Can you see yours",
+    "Okay, that works for us.",
+    "we close our budget cycle just before that. Who owns the code you write for us?",
+    "Okay, that is about what we expected. How quickly could you have a team working on this?",
+    "Does Thursday work for the follow up?",
 ]
 URL = os.environ.get("FLECK_OLLAMA_URL", "http://localhost:11434")
 
@@ -44,13 +48,12 @@ def _texts(path: Path) -> tuple[list[str], np.ndarray]:
 
 def embed(questions: list[str]) -> np.ndarray:
     """The classification vectors, exactly as `classify.live_embed` asks for them, batched."""
-    vecs = Embedder(URL, timeout=300).embed([f"Instruct: {classify.CLASSIFY_TASK}\nQuery: {q}" for q in questions])
-    x = np.asarray(vecs, np.float64)
+    x = np.asarray(classify.embed_classify(questions, timeout=600), np.float64)
     return x / np.linalg.norm(x, axis=1, keepdims=True)
 
 
 def fit(x: np.ndarray, y: np.ndarray, l2: float = L2) -> tuple[np.ndarray, float]:
-    """Class-balanced, L2-regularised logistic regression by Newton's method (convex; 1024 features)."""
+    """Class-balanced, L2-regularised logistic regression by Newton's method (convex)."""
     xb = np.hstack([x, np.ones((len(x), 1))])
     sw = np.where(y == 1, 0.5 / max(y.mean(), 1e-9), 0.5 / max(1 - y.mean(), 1e-9))
     reg = np.full(xb.shape[1], l2)
@@ -85,8 +88,9 @@ def train(l2: float = L2):
           f"{int(shaped[y == 1].sum())} trigger and {int(shaped[y == 0].sum())} no_trigger lines")
     print("trigger lines the shape gate rejects:", [t for t, q, l in zip(texts, qs, y) if l and q is None])
     idx = np.flatnonzero(shaped)
-    x = np.zeros((len(texts), 1024))
-    x[idx] = embed([qs[i] for i in idx])
+    vecs = embed([qs[i] for i in idx])
+    x = np.zeros((len(texts), vecs.shape[1]))
+    x[idx] = vecs
     probe = np.asarray(classify.live_embed(qs[idx[0]], timeout=60)[0])
     assert np.dot(probe / np.linalg.norm(probe), x[idx[0]]) > 0.999, "batched embedding differs from live_embed"
 
@@ -112,9 +116,10 @@ def train(l2: float = L2):
     p = np.where(shaped, _prob(x, w, b), 0.0)
     fit_m = metrics(p, y, threshold)
     print(f"train (fit on all): {fit_m}")
-    digest = next(m["digest"] for m in httpx.get(f"{URL}/api/tags", timeout=10).json()["models"] if m["name"] == EMBED_MODEL)
-    out = {"embed_model": EMBED_MODEL, "embed_digest": digest, "classify_instruction": classify.CLASSIFY_TASK,
-           "search_instruction": QUERY_TASK, "l2": l2,
+    digests = {m["name"]: m["digest"] for m in httpx.get(f"{URL}/api/tags", timeout=10).json()["models"]}
+    out = {"classify_model": classify.CLASSIFY_MODEL, "classify_digest": digests[classify.CLASSIFY_MODEL],
+           "classify_options": classify.CLASSIFY_OPTIONS, "classify_instruction": classify.CLASSIFY_TASK,
+           "search_model": EMBED_MODEL, "search_digest": digests[EMBED_MODEL], "search_instruction": QUERY_TASK, "l2": l2,
            "threshold": threshold, "bias": round(float(b), 6), "weights": [round(float(v), 6) for v in w],
            "train_counts": {"trigger": int(y.sum()), "no_trigger": int((1 - y).sum()), "shape_passed": int(shaped.sum())},
            "cv": {"folds": 5, "max_fpr": MAX_CV_FPR, "at_threshold": cv, "at_0.5": cv_05}, "train": fit_m,
@@ -125,10 +130,12 @@ def train(l2: float = L2):
     refs = [ROOT / "fixtures/conversation/reference.json", ROOT / "fixtures/negative/reference.json"]
     extra = [classify.question_text(t["text"]) for r in refs for t in json.loads(r.read_text())["turns"]]
     extra += [classify.question_text(t) for t in CI_EXTRA]
-    cached = {qs[i]: x[i] for i in idx}
-    missing = sorted({q for q in extra if q and q not in cached})
+    by_text = {qs[i]: x[i] for i in idx}
+    wanted = sorted({q for q in extra if q})
+    missing = [q for q in wanted if q not in by_text]
     if missing:
-        cached.update(zip(missing, embed(missing)))
+        by_text.update(zip(missing, embed(missing)))
+    cached = {q: by_text[q] for q in wanted}  # only the CI texts: 2560-d vectors for all of train would be ~13 MB
     CACHE.parent.mkdir(parents=True, exist_ok=True)
     keys = sorted(cached)
     np.savez_compressed(CACHE, texts=np.array(json.dumps(keys)), vectors=np.array([cached[k] for k in keys], np.float16))

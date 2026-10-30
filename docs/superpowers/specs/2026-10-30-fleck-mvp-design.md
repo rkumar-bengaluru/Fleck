@@ -146,7 +146,8 @@ All three models share one GPU on the Mac. Memory fits; latency is the tight par
 | Whisper `large-v3-turbo` | ~2 GB |
 | `qwen3:4b` 4-bit + KV cache (4k context) (was `qwen3:8b`, ~6–7 GB) | ~3–4 GB |
 | `qwen3-embedding:0.6b` | ~0.5–1 GB |
-| **Total** | **~5.5–7 GB** of 24 GB, leaving room for macOS, Docker, browser and the call app |
+| `qwen3-embedding:4b` at `num_ctx` 512, the question classifier (decision 95) | ~2.9 GB |
+| **Total** | **~8.5–10 GB** of 24 GB, leaving room for macOS, Docker, browser and the call app |
 
 Time from the client finishing a question to the first words on screen (estimates, to be measured):
 
@@ -154,7 +155,7 @@ Time from the client finishing a question to the first words on screen (estimate
 |---|---|
 | End of speech detected (silence) | ~0.6 s |
 | Whisper finalises the last window | 0.3–0.5 s |
-| Question classified (CPU, no LLM, §7.2) + hybrid search | ≤ 0.05 s + ~0.15 s |
+| Question classified (no LLM, §7.2: `qwen3-embedding:4b` classify embed in parallel with the 0.6b search embed, decision 95) + hybrid search | ~0.11 s (p95 0.30 s budget, then CPU rules) + ~0.15 s |
 | `qwen3:4b` reads ~1,000 prompt tokens, first token out (measured p95 1.11 s; ~0.1 s when started early) | 1–1.5 s |
 | **First words** | **~2.2–2.8 s** against the 3 s target |
 

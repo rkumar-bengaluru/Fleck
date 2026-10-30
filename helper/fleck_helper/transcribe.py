@@ -12,10 +12,15 @@ class _Job:
         self.prio = _PRIO[(speaker, final)]
         self.done = threading.Event()
         self.text = ""  # stays "" if the job is dropped as stale
+        self.error: Exception | None = None
 
 
 class StreamTranscriber:
-    """Priority scheduler in front of one GPU worker (a job already running is never preempted)."""
+    """Priority scheduler in front of one GPU worker (a job already running is never preempted).
+
+    A queued partial dropped as stale returns "" (same as silence). A partial submitted after its
+    segment's final may still run; callers must ignore partials once the final is out.
+    An exception in the transcribe fn is re-raised in the calling thread; the worker survives."""
 
     def __init__(self, model: str = "mlx-community/whisper-large-v3-turbo", _fn=None):
         self.model, self._fn = model, _fn or self._whisper
@@ -39,6 +44,8 @@ class StreamTranscriber:
             self._q.append(job)
             self._cv.notify_all()
         job.done.wait()
+        if job.error:
+            raise job.error
         return job.text
 
     def _loop(self):
@@ -50,6 +57,8 @@ class StreamTranscriber:
                 self._q.remove(job)
             try:
                 job.text = self._fn(job.audio, job.final)
+            except Exception as e:
+                job.error = e
             finally:
                 job.done.set()
 

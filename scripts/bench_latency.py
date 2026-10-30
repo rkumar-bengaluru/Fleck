@@ -50,30 +50,37 @@ def you_windows(stop):
         tr.transcribe(mono[s : s + WIN], False, "you")
 
 
-def trial(worst):
-    """One client question. Realistic: You talks 4 s, stops, 1 s gap, client asks. Worst: a You window starts 0.2 s before the question."""
+def trial(contended):
+    """One client question. realistic: You talks 4 s, stops, 1 s gap, client asks.
+    contended: a client partial (non-preemptible) is already running when the final arrives, while Qwen generates."""
     stop = threading.Event()
-    if worst:
-        stop.set()  # exactly one window
+    if contended:
+        stop.set()  # one You window, started just before the question
     th = threading.Thread(target=you_windows, args=(stop,)); th.start()
-    time.sleep(0.2 if worst else 4.0)
+    llm_stop = threading.Event()
+    llm = threading.Thread(target=lambda: [run(" llm") for _ in iter(llm_stop.is_set, True)]) if contended else None
+    if llm:
+        llm.start()
+    time.sleep(0.2 if contended else 4.0)
     stop.set()
-    if not worst:
+    if not contended:
         time.sleep(1.0)
     tr.set_client_active(True)  # VAD: question starts
-    time.sleep(QDUR)
+    if contended:
+        time.sleep(QDUR - 0.1)
+        pt = threading.Thread(target=tr.transcribe, args=(q, False, "client", "q")); pt.start()  # partial in flight
+        time.sleep(0.1)
+    else:
+        time.sleep(QDUR)
     tr.set_client_active(False)  # VAD: question ends (silence)
     t = time.perf_counter(); txt = tr.transcribe(q, True, "client", "q")
     dt = time.perf_counter() - t
     th.join()
+    if llm:
+        llm_stop.set(); llm.join()
     return dt, txt
 
 
-res = {}
-for name, worst in (("realistic", False), ("worst", True)):
-    res[name] = [trial(worst) for _ in range(N)]
-    print(f"{name} transcript:", res[name][-1][1])
-ta = [d for d, _ in res["worst"]]  # gate uses the worst case
 
 ps = passages()
 ol = OllamaClient()
@@ -89,6 +96,11 @@ def run(nonce):
 
 
 run("")  # load model
+res = {}
+for name, c in (("realistic", False), ("contended", True)):
+    res[name] = [trial(c) for _ in range(N)]
+    print(f"{name} transcript:", res[name][-1][1])
+ta = [d for d, _ in res["contended"]]  # gate uses the contended case
 cold = [run(f" [{time.time_ns()}]") for _ in range(N)]  # unique prefix defeats the prompt cache
 warm = [run("") for _ in range(N)]
 

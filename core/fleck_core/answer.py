@@ -16,6 +16,8 @@ class OllamaClient:
                 if not line:
                     continue
                 d = json.loads(line)
+                if "error" in d:
+                    raise RuntimeError(f"ollama: {d['error']}")
                 if t := d.get("message", {}).get("content"):
                     yield t
                 if d.get("done"):

@@ -45,3 +45,19 @@ Re-run, 30 trials per scenario; `set_client_active` driven as the VAD would. Rea
 Memory: helper RSS 39 MB; `ollama ps` qwen3:8b-q4_K_M 5.6 GB, 100% GPU.
 
 Gate (worst case): 0.6 + 0.40 + 0.2 + 0.07 = **1.27 s <= 3.0 s: PASS**. `qwen3:4b` not needed. Cold TTFT of 2.55 s makes prefix warming mandatory. Numbers were relayed by the controller from the finished run; the benchmark was not re-run by me.
+
+### Task 2 review fix round 1: real contention trial
+
+The task review found the "worst case" above never contended: its You window finished before the question's final arrived, so 0.40 s was really the solo figure. The bench now has a **contended** scenario: a client partial is already running (never preempted) when the final arrives, a You window has just started, and Qwen generates on the GPU throughout. Also fixed: an exception in the Whisper call no longer kills the worker thread (re-raised in the caller); an Ollama mid-stream `{"error": ...}` now raises. Unit tests: 9 passed, 1 deselected.
+
+| Measure | p50 | p95 |
+|---|---|---|
+| (a) transcribe final, realistic | 0.39 s | 0.45 s |
+| (a) transcribe final, contended (partial in flight + Qwen generating) | 1.43 s | 1.53 s |
+| (b) TTFT cold prefix | 2.46 s | 2.69 s |
+| (b) TTFT warm prefix | 0.05 s | 0.06 s |
+| total generation cold / warm | 3.59 / 1.25 s | 4.08 / 1.52 s |
+
+Memory: helper RSS 73 MB; qwen3:8b-q4_K_M 5.6 GB, 100% GPU.
+
+Gate (contended): 0.6 + 1.53 + 0.2 + 0.06 = **2.39 s <= 3.0 s: PASS**, margin 0.6 s. The 1.27 s figure above is superseded. Whisper sharing the GPU with Qwen generation is the dominant cost; Task 11 should avoid running Whisper partials for the You stream while an answer is generating if the end-to-end p95 test comes in tight.

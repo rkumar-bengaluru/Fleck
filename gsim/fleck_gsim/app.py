@@ -29,9 +29,9 @@ def fixture_events(now: datetime, lo: datetime, hi: datetime) -> list[dict]:
         return {"id": id_, "summary": title, "status": "confirmed", "start": dt(start),
                 "end": dt(start + timedelta(minutes=minutes)), **kw}
 
-    today = now.replace(minute=0, second=0, microsecond=0)
-    demo = today + timedelta(hours=1)  # next whole hour
     midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    demo = min(now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1),
+               midnight + timedelta(hours=23))  # next whole hour, but never past 23:00 so it stays today
     me = _attendee("rupak@northbeam.test", "Rupak K", organizer=True, self=True)
     events = [
         timed("evt-demo", "Presales: demo prospect", demo, 45,
@@ -40,8 +40,6 @@ def fixture_events(now: datetime, lo: datetime, hi: datetime) -> list[dict]:
               attendees=[me, _attendee("dana.whitfield@harbourline.test", "Dana Whitfield", "needsAction"),
                          _attendee("marcus.lee@harbourline.test", "Marcus Lee"),
                          _attendee("priya@northbeam.test", "Priya S")]),
-        timed("evt-pricing", "Pricing review (internal)", demo + timedelta(hours=3), 30,
-              attendees=[me, _attendee("priya@northbeam.test", "Priya S")]),
         {"id": "evt-offsite", "summary": "Offsite", "status": "confirmed",  # all-day: the app must skip it
          "start": {"date": midnight.date().isoformat()},
          "end": {"date": (midnight + timedelta(days=1)).date().isoformat()}},
@@ -51,6 +49,9 @@ def fixture_events(now: datetime, lo: datetime, hi: datetime) -> list[dict]:
               hangoutLink="https://meet.google.com/orn-freg-ht1",
               attendees=[me, _attendee("sam.ortiz@orionfreight.test", "Sam Ortiz", "needsAction")]),
     ]
+    if demo + timedelta(hours=3, minutes=30) <= midnight + timedelta(days=1):  # skipped when it would cross midnight
+        events.append(timed("evt-pricing", "Pricing review (internal)", demo + timedelta(hours=3), 30,
+                            attendees=[me, _attendee("priya@northbeam.test", "Priya S")]))
     day = (lo.astimezone(now.tzinfo) - timedelta(days=1)).replace(hour=9, minute=30, second=0, microsecond=0)
     while day < hi:
         events.append(timed(f"evt-standup_{day:%Y%m%d}", "Standup", day, 15, recurringEventId="evt-standup",
@@ -96,7 +97,7 @@ def create_app(clock: Callable[[], datetime] = lambda: datetime.now().astimezone
     def allow(request: Request, email: str, redirect_uri: str, state: str = ""):
         if email not in ACCOUNTS:
             raise HTTPException(400, "unknown account")
-        return RedirectResponse(f"{redirect_uri}?{urlencode({'code': CODE + email, 'state': state})}", 302)
+        return RedirectResponse(f"{redirect_uri}{'&' if '?' in redirect_uri else '?'}{urlencode({'code': CODE + email, 'state': state})}", 302)
 
     @app.post("/token")
     async def token(request: Request):

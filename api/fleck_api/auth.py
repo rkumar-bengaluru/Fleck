@@ -5,10 +5,10 @@ import json
 import logging
 import secrets
 from datetime import datetime, timedelta, timezone
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 import httpx
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from sqlalchemy import delete, select
@@ -47,10 +47,19 @@ def _redirect_uri() -> str:
     return setting("FLECK_PUBLIC_API_URL", "http://localhost:8000") + "/api/auth/callback"
 
 
+def check_secret_key() -> None:
+    key = setting("FLECK_SECRET_KEY", "")
+    if key in ("", "change-me") or len(key) < 32:
+        raise RuntimeError("FLECK_SECRET_KEY must be set to a random value of at least 32 characters; generate one with: "
+                           'python -c "import secrets;print(secrets.token_urlsafe(32))"')
+
+
+def _secure() -> bool:
+    return setting("FLECK_PUBLIC_API_URL", "http://localhost:8000").startswith("https://")
+
+
 def _fernet() -> Fernet:
     key = setting("FLECK_SECRET_KEY", "")
-    if not key:
-        raise RuntimeError("FLECK_SECRET_KEY is not set")
     return Fernet(base64.urlsafe_b64encode(hashlib.sha256(key.encode()).digest()))
 
 
@@ -61,6 +70,8 @@ def _hash(token: str) -> str:
 def _allowed(email: str) -> bool:
     csv = lambda name: {x.strip().lower() for x in setting(name, "").split(",") if x.strip()}
     email = email.lower()
+    if "@" not in email:
+        return False
     return email in csv("FLECK_ALLOWED_EMAILS") or email.rsplit("@", 1)[-1] in csv("FLECK_ALLOWED_DOMAINS")
 
 
@@ -82,7 +93,7 @@ def login():
     q = urlencode({"client_id": setting("GOOGLE_CLIENT_ID", "gsim-client"), "redirect_uri": _redirect_uri(),
                    "response_type": "code", "scope": SCOPE, "state": state, "access_type": "offline", "prompt": "consent"})
     r = RedirectResponse(f"{_urls()['auth']}?{q}", 302)
-    r.set_cookie(STATE_COOKIE, state, max_age=600, httponly=True, samesite="lax")
+    r.set_cookie(STATE_COOKIE, state, max_age=600, httponly=True, samesite="lax", secure=_secure())
     return r
 
 
@@ -92,12 +103,26 @@ def _fail(error: str) -> RedirectResponse:
     return r
 
 
+def origin_guard_allowed(request: Request) -> bool:
+    """CSRF defence for cookie-authenticated writes: a browser always sends Origin (or Referer) cross-origin."""
+    if request.method in ("GET", "HEAD", "OPTIONS") or not request.url.path.startswith("/api") or COOKIE not in request.cookies:
+        return True
+    ok = {setting("FLECK_WEB_URL", "http://localhost:5173").rstrip("/"), setting("FLECK_PUBLIC_API_URL", "http://localhost:8000").rstrip("/")}
+    origin = request.headers.get("origin")
+    if origin is None and (ref := request.headers.get("referer")):
+        u = urlparse(ref)
+        origin = f"{u.scheme}://{u.netloc}"
+    return origin is None or origin.rstrip("/") in ok  # no Origin = non-browser client; none authenticates by cookie yet
+
+
 @router.get("/auth/callback")
 def callback(request: Request, code: str | None = None, state: str | None = None, error: str | None = None,
              s: Session = Depends(get_session)):
     expected = request.cookies.get(STATE_COOKIE)
     if not state or not expected or not secrets.compare_digest(state, expected):
-        raise HTTPException(400, "bad state")
+        r = Response("bad state", 400)
+        r.delete_cookie(STATE_COOKIE)
+        return r
     if error or not code:
         return _fail("denied")
     urls = _urls()
@@ -111,8 +136,8 @@ def callback(request: Request, code: str | None = None, state: str | None = None
     except (httpx.HTTPError, KeyError, ValueError) as e:  # never log the response: it may carry tokens
         log.warning("google sign-in failed: %s", type(e).__name__)
         return _fail("failed")
-    email = info["email"].lower()
-    if not _allowed(email):
+    email = (info.get("email") or "").lower()
+    if info.get("email_verified") is not True or not _allowed(email):
         return _fail("not_allowed")
     user = s.scalar(select(User).where(User.email == email))
     if user is None:
@@ -127,7 +152,10 @@ def callback(request: Request, code: str | None = None, state: str | None = None
         row = GoogleToken(user_id=user.id, token_enc="")
         s.add(row)
     elif not blob["refresh_token"]:  # Google sends the refresh token only on first consent; keep the old one
-        blob["refresh_token"] = json.loads(_fernet().decrypt(row.token_enc.encode())).get("refresh_token")
+        try:
+            blob["refresh_token"] = json.loads(_fernet().decrypt(row.token_enc.encode())).get("refresh_token")
+        except InvalidToken:  # key rotated or row corrupt: treat as no tokens and overwrite
+            log.warning("stored tokens for user %s are unreadable; overwriting", user.id)
     row.token_enc = _fernet().encrypt(json.dumps(blob).encode()).decode()
     raw = secrets.token_urlsafe(32)
     s.add(UserSession(user_id=user.id, token_hash=_hash(raw),
@@ -136,7 +164,7 @@ def callback(request: Request, code: str | None = None, state: str | None = None
     enqueue(s, "sync_calendar", {"user_id": user.id})
     r = RedirectResponse(f"{_web()}/", 302)
     r.delete_cookie(STATE_COOKIE)
-    r.set_cookie(COOKIE, raw, max_age=SESSION_DAYS * 86400, httponly=True, samesite="lax")
+    r.set_cookie(COOKIE, raw, max_age=SESSION_DAYS * 86400, httponly=True, samesite="lax", secure=_secure())
     return r
 
 

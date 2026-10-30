@@ -47,7 +47,7 @@ def test_gsim_events_relative_to_now():
     assert demo["start"]["dateTime"] == "2026-10-30T11:00:00+05:30" and demo["end"]["dateTime"] == "2026-10-30T11:45:00+05:30"
     assert {a["email"] for a in demo["attendees"]} >= {"dana.whitfield@harbourline.test", "marcus.lee@harbourline.test", "priya@northbeam.test"}
     assert demo["hangoutLink"].startswith("https://meet.google.com/") and "iManage" in demo["description"]
-    assert ev["Pricing review (internal)"]["start"]["dateTime"] == "2026-10-30T14:00:00+05:30"
+    assert ev["Pricing review (internal)"]["start"]["dateTime"] == "2026-10-30T14:00:00+05:30"  # demo + 3 h
     assert "hangoutLink" not in ev["Pricing review (internal)"]
     assert ev["Discovery: Orion Freight"]["start"]["dateTime"].startswith("2026-10-31")
     assert "date" in ev["Offsite"]["start"]  # all-day, for the app to skip
@@ -57,3 +57,17 @@ def test_gsim_events_relative_to_now():
     # the clock moves the fixtures
     later = _events(_client(NOW + timedelta(days=1, hours=2)), midnight + timedelta(days=1), midnight + timedelta(days=2))
     assert later["Presales: demo prospect"]["start"]["dateTime"] == "2026-10-31T13:00:00+05:30"
+
+
+def test_gsim_late_evening_stays_today():
+    midnight = NOW.replace(hour=0, minute=0)
+    for hh, mm in ((22, 40), (23, 30)):
+        now = NOW.replace(hour=hh, minute=mm)
+        ev = _events(_client(now), midnight, midnight + timedelta(days=1))
+        assert ev["Presales: demo prospect"]["start"]["dateTime"] == "2026-10-30T23:00:00+05:30"
+        assert "Pricing review (internal)" not in ev  # would cross midnight, so it is dropped
+
+
+def test_gsim_allow_appends_to_existing_query():
+    r = _client().get("/o/oauth2/v2/allow", params={"redirect_uri": "http://app/cb?x=1", "state": "s", "email": "rupak@northbeam.test"})
+    assert r.headers["location"].startswith("http://app/cb?x=1&code=")

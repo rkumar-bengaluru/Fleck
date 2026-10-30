@@ -25,6 +25,7 @@ def _get(url: str):
 def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app):
+        auth.check_secret_key()
         try:
             library.ensure_index()
         except Exception:  # weaviate may still be starting; /api/health reports it and the indexer retries
@@ -33,6 +34,12 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="fleck-api", lifespan=lifespan)
     app.middleware("http")(library.size_guard)
+
+    @app.middleware("http")
+    async def origin_guard(request, call_next):
+        if not auth.origin_guard_allowed(request):
+            return JSONResponse({"detail": "cross-origin request refused"}, status_code=403)
+        return await call_next(request)
     app.include_router(auth.router)
     app.include_router(library.router)
 

@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Fleck: Today</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0F3}
+a{color:#0B6B63}a:hover{color:#084F49}
+button,select{font:inherit}
+a:focus-visible,button:focus-visible,select:focus-visible{outline:2px solid #0B6B63;outline-offset:2px}
+</style>
+</helmet>
+<div style="min-height:900px;background:#EDF0F3;font-family:'Atkinson Hyperlegible Next',system-ui,sans-serif;font-variant-numeric:tabular-nums;color:#17222D;display:flex;flex-wrap:wrap">
+
+  <nav aria-label="Main" style="flex:1 1 200px;max-width:240px;box-sizing:border-box;padding:24px 16px;display:flex;flex-direction:column;gap:4px;background:#17222D;color:#E3E9EF">
+    <div style="font-size:22px;font-weight:700;padding:0 10px 20px;display:flex;align-items:center;gap:8px"><span style="width:12px;height:12px;border-radius:50%;background:#2FB8A8"></span>Fleck</div>
+    <a href="#" aria-current="page" style="padding:9px 10px;border-radius:7px;background:#263442;color:#FFFFFF;text-decoration:none;font-weight:700">Today</a>
+    <a href="#" style="padding:9px 10px;border-radius:7px;color:#C9D3DC;text-decoration:none">Meetings</a>
+    <a href="#" style="padding:9px 10px;border-radius:7px;color:#C9D3DC;text-decoration:none">Library</a>
+    <a href="#" style="padding:9px 10px;border-radius:7px;color:#C9D3DC;text-decoration:none">Ask across meetings</a>
+    <a href="#" style="padding:9px 10px;border-radius:7px;color:#C9D3DC;text-decoration:none">Settings</a>
+  </nav>
+
+  <main style="flex:999 1 560px;min-width:0;box-sizing:border-box;padding:32px clamp(16px,4vw,48px);display:flex;flex-direction:column;gap:28px;max-width:1040px">
+    <header style="display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap">
+      <div>
+        <h1 style="margin:0;font-size:34px;line-height:1.15;font-weight:700">Today</h1>
+        <p style="margin:6px 0 0;color:#566270;font-size:16px">Thursday 30 October. 3 meetings from your Google Calendar.</p>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;font-size:14px;color:#3D4955;background:#FFFFFF;border:1px solid #D5DBE1;border-radius:20px;padding:6px 12px"><span style="width:8px;height:8px;border-radius:50%;background:#1F8F5A"></span>Desktop app connected</div>
+    </header>
+
+    <section aria-label="Today's meetings" style="display:flex;flex-direction:column;gap:12px">
+
+      <article style="background:#FFFFFF;border:1px solid #D5DBE1;border-radius:12px;display:flex;flex-wrap:wrap;overflow:hidden">
+        <div style="flex:0 0 112px;padding:20px;box-sizing:border-box;border-right:1px solid #E3E8ED">
+          <div style="font-size:24px;font-weight:700">11:00</div>
+          <div style="font-size:14px;color:#566270">to 11:45</div>
+        </div>
+        <div style="flex:1 1 320px;padding:20px;display:flex;flex-direction:column;gap:10px;min-width:0">
+          <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start">
+            <h2 style="margin:0;font-size:20px;font-weight:700">Presales: Harbourline Legal</h2>
+            <span style="font-size:14px;color:#566270">Starts in 26 min</span>
+          </div>
+          <div style="font-size:15px;color:#3D4955">Dana Whitfield, Marcus Lee (harbourline.test), Priya S. Google Meet.</div>
+          <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+            <label for="client-1" style="font-size:14px;color:#566270">Client</label>
+            <select id="client-1" style="height:36px;border:1px solid #B8C2CC;border-radius:7px;padding:0 10px;background:#FFFFFF;color:#17222D;min-width:200px">
+              <option>Harbourline Legal</option><option>Larkspur Retail Group</option><option>No client</option>
+            </select>
+            <span style="flex:1"></span>
+            <a href="WebBrief.dc.html" style="height:36px;display:inline-flex;align-items:center;padding:0 16px;border-radius:7px;background:#0B6B63;color:#FFFFFF;text-decoration:none;font-weight:700">Open brief</a>
+            <button style="height:36px;padding:0 16px;border-radius:7px;border:1px solid #B8C2CC;background:#FFFFFF;color:#17222D;cursor:pointer">Record</button>
+          </div>
+        </div>
+      </article>
+
+      <article style="background:#FFFFFF;border:1px solid #D5DBE1;border-radius:12px;display:flex;flex-wrap:wrap;overflow:hidden">
+        <div style="flex:0 0 112px;padding:20px;box-sizing:border-box;border-right:1px solid #E3E8ED">
+          <div style="font-size:24px;font-weight:700">14:30</div>
+          <div style="font-size:14px;color:#566270">to 15:00</div>
+        </div>
+        <div style="flex:1 1 320px;padding:20px;display:flex;flex-direction:column;gap:10px;min-width:0">
+          <h2 style="margin:0;font-size:20px;font-weight:700">Pricing review (internal)</h2>
+          <div style="font-size:15px;color:#3D4955">Priya S, Arjun M. No meeting link.</div>
+          <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+            <label for="client-2" style="font-size:14px;color:#566270">Client</label>
+            <select id="client-2" style="height:36px;border:1px solid #B8C2CC;border-radius:7px;padding:0 10px;background:#FFFFFF;color:#17222D;min-width:200px"><option>No client</option><option>Harbourline Legal</option></select>
+          </div>
+        </div>
+      </article>
+
+      <article style="background:#FFFFFF;border:1px solid #D5DBE1;border-radius:12px;display:flex;flex-wrap:wrap;overflow:hidden">
+        <div style="flex:0 0 112px;padding:20px;box-sizing:border-box;border-right:1px solid #E3E8ED">
+          <div style="font-size:24px;font-weight:700">16:00</div>
+          <div style="font-size:14px;color:#566270">to 17:00</div>
+        </div>
+        <div style="flex:1 1 320px;padding:20px;display:flex;flex-direction:column;gap:10px;min-width:0">
+          <h2 style="margin:0;font-size:20px;font-weight:700">Discovery: Orion Freight</h2>
+          <div style="font-size:15px;color:#3D4955">Leah Ortiz (orionfreight.test), Priya S. Zoom.</div>
+          <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+            <label for="client-3" style="font-size:14px;color:#566270">Client</label>
+            <select id="client-3" style="height:36px;border:1px dashed #8A97A4;border-radius:7px;padding:0 10px;background:#F6F8FA;color:#17222D;min-width:200px"><option>Choose a client</option><option>New client: Orion Freight</option></select>
+            <span style="font-size:14px;color:#566270">Link a client for a fuller brief.</span>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <section aria-labelledby="upcoming" style="display:flex;flex-direction:column;gap:10px">
+      <h2 id="upcoming" style="margin:0;font-size:18px;font-weight:700">Upcoming</h2>
+      <div style="background:#FFFFFF;border:1px solid #D5DBE1;border-radius:12px;padding:6px 0">
+        <div style="display:flex;gap:16px;padding:10px 20px;font-size:15px;flex-wrap:wrap"><span style="width:150px;color:#566270">Fri 31 Oct, 10:00</span><span style="flex:1;min-width:180px">Proposal walkthrough: Harbourline Legal</span><span style="color:#566270">Harbourline Legal</span></div>
+        <div style="height:1px;background:#E3E8ED;margin:0 20px"></div>
+        <div style="display:flex;gap:16px;padding:10px 20px;font-size:15px;flex-wrap:wrap"><span style="width:150px;color:#566270">Mon 3 Nov, 15:00</span><span style="flex:1;min-width:180px">Intro call: Kestrel Insurance</span><span style="color:#566270">No client</span></div>
+      </div>
+    </section>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

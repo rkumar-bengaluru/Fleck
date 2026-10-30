@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Fleck: Library</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#EDF0F3}
+a{color:#0B6B63}a:hover{color:#084F49}
+button,input,select{font:inherit}
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid #0B6B63;outline-offset:2px}
+</style>
+</helmet>
+<div style="min-height:900px;background:#EDF0F3;font-family:'Atkinson Hyperlegible Next',system-ui,sans-serif;font-variant-numeric:tabular-nums;color:#17222D;display:flex;flex-wrap:wrap">
+
+  <nav aria-label="Main" style="flex:1 1 200px;max-width:240px;box-sizing:border-box;padding:24px 16px;display:flex;flex-direction:column;gap:4px;background:#17222D;color:#E3E9EF">
+    <div style="font-size:22px;font-weight:700;padding:0 10px 20px;display:flex;align-items:center;gap:8px"><span style="width:12px;height:12px;border-radius:50%;background:#2FB8A8"></span>Fleck</div>
+    <a href="WebToday.dc.html" style="padding:9px 10px;border-radius:7px;color:#C9D3DC;text-decoration:none">Today</a>
+    <a href="#" style="padding:9px 10px;border-radius:7px;color:#C9D3DC;text-decoration:none">Meetings</a>
+    <a href="#" aria-current="page" style="padding:9px 10px;border-radius:7px;background:#263442;color:#FFFFFF;text-decoration:none;font-weight:700">Library</a>
+    <a href="#" style="padding:9px 10px;border-radius:7px;color:#C9D3DC;text-decoration:none">Ask across meetings</a>
+    <a href="#" style="padding:9px 10px;border-radius:7px;color:#C9D3DC;text-decoration:none">Settings</a>
+  </nav>
+
+  <main style="flex:999 1 560px;min-width:0;box-sizing:border-box;padding:32px clamp(16px,4vw,48px);display:flex;flex-direction:column;gap:20px;max-width:1040px">
+    <header style="display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap">
+      <div>
+        <h1 style="margin:0;font-size:34px;line-height:1.15">Library</h1>
+        <p style="margin:6px 0 0;color:#566270;font-size:16px">What Fleck answers from. Shared with everyone on your team.</p>
+      </div>
+      <button style="height:40px;padding:0 18px;border-radius:7px;border:none;background:#0B6B63;color:#FFFFFF;font-weight:700;cursor:pointer">Add documents</button>
+    </header>
+
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+      <label for="q" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Search the library</label>
+      <input id="q" placeholder="Search the library" style="flex:1 1 260px;height:40px;border:1px solid #B8C2CC;border-radius:7px;padding:0 12px;background:#FFFFFF">
+      <label for="kind" style="font-size:14px;color:#566270">Kind</label>
+      <select id="kind" style="height:40px;border:1px solid #B8C2CC;border-radius:7px;padding:0 10px;background:#FFFFFF"><option>All kinds</option><option>Our past work</option><option>Firm</option><option>Reference</option></select>
+    </div>
+
+    <div style="background:#FFFFFF;border:1px solid #D5DBE1;border-radius:12px;overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:15px;min-width:640px">
+        <thead>
+          <tr style="text-align:left;color:#566270;font-size:14px">
+            <th scope="col" style="padding:12px 20px;font-weight:500;border-bottom:1px solid #D5DBE1">Document</th>
+            <th scope="col" style="padding:12px 12px;font-weight:500;border-bottom:1px solid #D5DBE1">Client</th>
+            <th scope="col" style="padding:12px 12px;font-weight:500;border-bottom:1px solid #D5DBE1">Kind</th>
+            <th scope="col" style="padding:12px 12px;font-weight:500;border-bottom:1px solid #D5DBE1">Used in answers</th>
+            <th scope="col" style="padding:12px 20px;font-weight:500;border-bottom:1px solid #D5DBE1">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td style="padding:12px 20px;border-bottom:1px solid #E3E8ED"><a href="#">Rate card FY2026</a><div style="font-size:13px;color:#566270">rate-card.md</div></td><td style="padding:12px;border-bottom:1px solid #E3E8ED;color:#566270">None</td><td style="padding:12px;border-bottom:1px solid #E3E8ED"><span style="background:#E8EDF2;color:#2A3540;font-size:12px;font-weight:700;padding:2px 7px;border-radius:5px">Firm</span></td><td style="padding:12px;border-bottom:1px solid #E3E8ED">14</td><td style="padding:12px 20px;border-bottom:1px solid #E3E8ED;color:#1F6B47">Indexed</td></tr>
+          <tr><td style="padding:12px 20px;border-bottom:1px solid #E3E8ED"><a href="#">Delivery FAQ</a><div style="font-size:13px;color:#566270">delivery-faq.md</div></td><td style="padding:12px;border-bottom:1px solid #E3E8ED;color:#566270">None</td><td style="padding:12px;border-bottom:1px solid #E3E8ED"><span style="background:#E8EDF2;color:#2A3540;font-size:12px;font-weight:700;padding:2px 7px;border-radius:5px">Firm</span></td><td style="padding:12px;border-bottom:1px solid #E3E8ED">11</td><td style="padding:12px 20px;border-bottom:1px solid #E3E8ED;color:#1F6B47">Indexed</td></tr>
+          <tr><td style="padding:12px 20px;border-bottom:1px solid #E3E8ED"><a href="#">Case study: redline assistant</a><div style="font-size:13px;color:#566270">case-study.md</div></td><td style="padding:12px;border-bottom:1px solid #E3E8ED">Calloway &amp; Marsh</td><td style="padding:12px;border-bottom:1px solid #E3E8ED"><span style="background:#DDF1EE;color:#0B5A53;font-size:12px;font-weight:700;padding:2px 7px;border-radius:5px">Our past work</span></td><td style="padding:12px;border-bottom:1px solid #E3E8ED">6</td><td style="padding:12px 20px;border-bottom:1px solid #E3E8ED;color:#1F6B47">Indexed</td></tr>
+          <tr><td style="padding:12px 20px;border-bottom:1px solid #E3E8ED"><a href="#">SOW No. 2: order management</a><div style="font-size:13px;color:#566270">sow-2025.md</div></td><td style="padding:12px;border-bottom:1px solid #E3E8ED">Larkspur Retail Group</td><td style="padding:12px;border-bottom:1px solid #E3E8ED"><span style="background:#DDF1EE;color:#0B5A53;font-size:12px;font-weight:700;padding:2px 7px;border-radius:5px">Our past work</span></td><td style="padding:12px;border-bottom:1px solid #E3E8ED">3</td><td style="padding:12px 20px;border-bottom:1px solid #E3E8ED;color:#1F6B47">Indexed</td></tr>
+          <tr><td style="padding:12px 20px;border-bottom:1px solid #E3E8ED"><a href="#">Master services agreement, part 1</a><div style="font-size:13px;color:#566270">msa-part1.pdf</div></td><td style="padding:12px;border-bottom:1px solid #E3E8ED;color:#566270">Kubient (not our client)</td><td style="padding:12px;border-bottom:1px solid #E3E8ED"><span style="background:#ECE7F8;color:#4A3290;font-size:12px;font-weight:700;padding:2px 7px;border-radius:5px">Reference</span></td><td style="padding:12px;border-bottom:1px solid #E3E8ED">2</td><td style="padding:12px 20px;border-bottom:1px solid #E3E8ED;color:#1F6B47">Indexed</td></tr>
+          <tr><td style="padding:12px 20px"><a href="#">Capabilities deck 2026</a><div style="font-size:13px;color:#566270">capabilities.pptx</div></td><td style="padding:12px;color:#566270">None</td><td style="padding:12px"><span style="background:#E8EDF2;color:#2A3540;font-size:12px;font-weight:700;padding:2px 7px;border-radius:5px">Firm</span></td><td style="padding:12px;color:#566270">None yet</td><td style="padding:12px 20px;color:#8A4B00">Indexing, 3 of 12 slides</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

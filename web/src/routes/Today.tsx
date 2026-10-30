@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, browserZone, type CalendarEvent, type ClientRef, type Device, type Me } from "../api";
+import { api, browserZone, domain, type CalendarEvent, type ClientRef, type Device, type Me } from "../api";
 import ClientSelect from "../components/ClientSelect";
 
 const CONNECTED_MS = 60_000;
 const time = (iso: string) => new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-const domain = (email: string | null) => email?.split("@")[1]?.toLowerCase() ?? "";
 
 function linkKind(url: string | null): string {
   if (!url) return "No meeting link.";
@@ -29,8 +28,6 @@ export function whoLine(e: CalendarEvent, myDomain: string): string {
   return parts.length ? `${parts.join(", ")}. ${linkKind(e.meeting_link)}` : linkKind(e.meeting_link);
 }
 
-const isExternal = (e: CalendarEvent, myDomain: string) => e.attendees.some(a => !a.self && domain(a.email) !== myDomain);
-
 export function MeetingCard({ event, clients, me, next, now, onChange }: {
   event: CalendarEvent; clients: ClientRef[]; me: Me; next: boolean; now: number;
   onChange: (e: CalendarEvent, created?: ClientRef) => void;
@@ -38,6 +35,7 @@ export function MeetingCard({ event, clients, me, next, now, onChange }: {
   const navigate = useNavigate();
   const myDomain = domain(me.email);
   const mins = Math.ceil((new Date(event.start_at).getTime() - now) / 60_000);
+  const open = !event.cancelled && new Date(event.end_at).getTime() > now;
   return (
     <article className="meeting" aria-label={event.title}>
       <div className="when">
@@ -46,13 +44,14 @@ export function MeetingCard({ event, clients, me, next, now, onChange }: {
       </div>
       <div className="what">
         <div className="what-head">
-          <h2>{event.title}</h2>
+          <h2>{event.cancelled ? <s>{event.title}</s> : event.title}</h2>
+          {event.cancelled && <span className="starts">Cancelled in Google Calendar</span>}
           {next && mins > 0 && mins <= 60 && <span className="starts">Starts in {mins} min</span>}
         </div>
         <div className="who">{whoLine(event, myDomain)}</div>
         <div className="actions">
-          <ClientSelect event={event} clients={clients} external={isExternal(event, myDomain)} onChange={onChange} />
-          {next && <>
+          <ClientSelect event={event} clients={clients} myDomain={myDomain} onChange={onChange} />
+          {open && <>
             <span className="spacer" />
             <Link className="btn-primary" to={`/events/${event.id}/brief`}>Open brief</Link>
             {/* Task 16 wires Record to POST /api/meetings; until then it opens the event. */}
@@ -89,7 +88,7 @@ export default function Today({ me }: { me: Me }) {
   }, []);
 
   const connected = devices.some(d => d.last_seen && now - new Date(d.last_seen).getTime() < CONNECTED_MS);
-  const nextId = today?.find(e => new Date(e.end_at).getTime() > now)?.id;
+  const nextId = today?.find(e => !e.cancelled && new Date(e.end_at).getTime() > now)?.id;
   const n = today?.length ?? 0;
   const replace = (e: CalendarEvent, created?: ClientRef) => {
     addClient(created);
@@ -122,7 +121,10 @@ export default function Today({ me }: { me: Me }) {
             {upcoming.map(e => (
               <div key={e.id} className="upcoming-row">
                 <span className="upcoming-when">{day(e.start_at)}, {time(e.start_at)}</span>
-                <span className="upcoming-title">{e.title}</span>
+                <span className="upcoming-title">
+                  {e.cancelled ? <><s>{e.title}</s> <span className="upcoming-note">Cancelled in Google Calendar</span></> : e.title}
+                  {e.repeats && <span className="upcoming-note"> · {e.repeats}</span>}
+                </span>
                 <span className="upcoming-client">{e.client?.name ?? "No client"}</span>
               </div>
             ))}

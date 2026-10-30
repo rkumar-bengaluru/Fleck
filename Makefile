@@ -1,8 +1,9 @@
 .PHONY: up down test gen-types ensure-ollama seed-library helper-app
+COMPOSE = docker compose -f deploy/docker-compose.yml $(if $(wildcard .env),--env-file .env)  # .env sets TZ for compose
 up:
-	docker compose -f deploy/docker-compose.yml up -d --build --wait
+	$(COMPOSE) up -d --build --wait
 down:
-	docker compose -f deploy/docker-compose.yml down
+	$(COMPOSE) down
 test:
 	uv run --all-packages pytest core api gsim helper/tests/unit
 ensure-ollama:

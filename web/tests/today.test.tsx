@@ -2,13 +2,14 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { CalendarEvent } from "../src/api";
+import { suggestedClient } from "../src/components/ClientSelect";
 import Today, { whoLine } from "../src/routes/Today";
 
 const me = { id: 1, email: "rupak@northbeam.test", name: "Rupak K" };
 const at = (minutes: number) => new Date(Date.now() + minutes * 60_000).toISOString();
 const demo: CalendarEvent = {
   id: 7, title: "Presales: demo prospect", description: null, start_at: at(26), end_at: at(71),
-  meeting_link: "https://meet.google.com/abc-defg-hij", client: null,
+  meeting_link: "https://meet.google.com/abc-defg-hij", client: null, cancelled: false,
   attendees: [
     { email: "rupak@northbeam.test", name: "Rupak K", self: true },
     { email: "dana.whitfield@harbourline.test", name: "Dana Whitfield", self: false },
@@ -18,8 +19,12 @@ const demo: CalendarEvent = {
 };
 const pricing: CalendarEvent = {
   id: 8, title: "Pricing review (internal)", description: null, start_at: at(200), end_at: at(230), meeting_link: null,
-  client: null, attendees: [{ email: "priya@northbeam.test", name: "Priya S", self: false }],
+  client: null, cancelled: false, attendees: [{ email: "priya@northbeam.test", name: "Priya S", self: false }],
 };
+const ended: CalendarEvent = { ...pricing, id: 10, title: "Earlier sync", start_at: at(-90), end_at: at(-60) };
+const dropped: CalendarEvent = { ...pricing, id: 11, title: "Dropped call", start_at: at(300), end_at: at(330), cancelled: true,
+  client: { id: 3, name: "Harbourline Legal" } };
+const standup: CalendarEvent = { ...pricing, id: 12, title: "Standup", start_at: at(1400), end_at: at(1415), repeats: "daily" };
 const orion: CalendarEvent = { ...demo, id: 9, title: "Discovery: Orion Freight", start_at: at(1500), end_at: at(1545),
   client: { id: 3, name: "Harbourline Legal" } };
 
@@ -30,8 +35,8 @@ beforeEach(() => {
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
     calls.push({ method: init?.method ?? "GET", url, body: init?.body as string | undefined });
     const json = (b: unknown) => new Response(JSON.stringify(b), { status: 200 });
-    if (url.startsWith("/api/events?range=today")) return json([demo, pricing]);
-    if (url.startsWith("/api/events?range=upcoming")) return json([orion]);
+    if (url.startsWith("/api/events?range=today")) return json([ended, demo, pricing, dropped]);
+    if (url.startsWith("/api/events?range=upcoming")) return json([standup, orion]);
     if (url === "/api/clients") return json([{ id: 3, name: "Harbourline Legal", slug: "harbourline-legal" }]);
     if (url === "/api/devices") return json([{ id: 1, name: "Mac", last_seen: new Date().toISOString() }]);
     if (url === "/api/events/7/client") return json({ ...demo, client: { id: 3, name: "Harbourline Legal" } });
@@ -44,12 +49,17 @@ test("renders today's events from /api/events", async () => {
   render(<MemoryRouter><Today me={me} /></MemoryRouter>);
   expect(await screen.findByRole("heading", { name: "Presales: demo prospect" })).toBeTruthy();
   expect(screen.getByRole("heading", { name: "Pricing review (internal)" })).toBeTruthy();
-  expect(screen.getByText(/2 meetings from your Google Calendar\./)).toBeTruthy();
+  expect(screen.getByText(/4 meetings from your Google Calendar\./)).toBeTruthy();
   expect(screen.getByText("Dana Whitfield, Marcus Lee (harbourline.test), Priya S. Google Meet.")).toBeTruthy();
-  expect(screen.getByText("Priya S. No meeting link.")).toBeTruthy();
+  expect(screen.getAllByText("Priya S. No meeting link.")).toHaveLength(3);
+  expect(screen.getAllByText(/Starts in \d+ min/)).toHaveLength(1);  // the next meeting only
   expect(screen.getByText(/Starts in 2[56] min/)).toBeTruthy();
-  expect(screen.getAllByRole("link", { name: "Open brief" })).toHaveLength(1);  // the next meeting only, as in the mockup
-  expect(screen.getAllByRole("button", { name: "Record" })).toHaveLength(1);
+  // every meeting that hasn't ended and isn't cancelled: demo and pricing, not the earlier one or the dropped one
+  expect(screen.getAllByRole("link", { name: "Open brief" }).map(a => a.getAttribute("href"))).toEqual(["/events/7/brief", "/events/8/brief"]);
+  expect(screen.getAllByRole("button", { name: "Record" })).toHaveLength(2);
+  expect(screen.getByText("Cancelled in Google Calendar")).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Dropped call" }).querySelector("s")).toBeTruthy();  // struck through
+  expect(screen.getByText("· daily", { exact: false })).toBeTruthy();  // Upcoming: the series once, with how often
   expect(await screen.findByText("Desktop app connected")).toBeTruthy();
   expect(screen.getByText("Discovery: Orion Freight")).toBeTruthy();  // Upcoming
   const tz = encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone);
@@ -58,8 +68,9 @@ test("renders today's events from /api/events", async () => {
 
 test("client select calls PUT /api/events/{id}/client", async () => {
   render(<MemoryRouter><Today me={me} /></MemoryRouter>);
-  const select = (await screen.findAllByLabelText("Client"))[0] as HTMLSelectElement;
-  await waitFor(() => expect(select.querySelectorAll("option").length).toBe(3));  // Choose a client, New client: demo prospect, Harbourline Legal
+  const select = (await screen.findAllByLabelText("Client"))[1] as HTMLSelectElement;
+  await waitFor(() => expect(select.querySelectorAll("option").length).toBe(3));
+  expect([...select.querySelectorAll("option")].map(o => o.textContent)).toEqual(["Choose a client", "New client: Harbourline", "Harbourline Legal"]);
   expect(screen.getByText("Link a client for a fuller brief.")).toBeTruthy();
   fireEvent.change(select, { target: { value: "3" } });
   await waitFor(() => expect(calls.some(c => c.method === "PUT")).toBe(true));
@@ -72,7 +83,17 @@ test("client select calls PUT /api/events/{id}/client", async () => {
 
 test("internal meeting without a client shows No client", async () => {
   render(<MemoryRouter><Today me={me} /></MemoryRouter>);
-  const select = (await screen.findAllByLabelText("Client"))[1] as HTMLSelectElement;
+  const select = (await screen.findAllByLabelText("Client"))[2] as HTMLSelectElement;
   expect(select.selectedOptions[0].textContent).toBe("No client");
   expect(whoLine({ ...pricing, attendees: [], meeting_link: "https://zoom.us/j/1" }, "northbeam.test")).toBe("Zoom.");
+});
+
+test("new-client suggestion comes from the guests' email domain, else the title", () => {
+  const guest = (email: string) => ({ ...pricing, title: "Discovery: Orion Freight",
+    attendees: [{ email: "rupak@northbeam.test", name: null, self: true }, { email, name: null, self: false }] });
+  expect(suggestedClient(demo, "northbeam.test")).toBe("Harbourline");
+  expect(suggestedClient(guest("sam@orion-freight.co.uk"), "northbeam.test")).toBe("Orion Freight");
+  expect(suggestedClient(guest("sam@eu.acme.com"), "northbeam.test")).toBe("Acme");
+  expect(suggestedClient(guest("sam@gmail.com"), "northbeam.test")).toBe("Orion Freight");  // personal mail: use the title
+  expect(suggestedClient(pricing, "northbeam.test")).toBeNull();
 });

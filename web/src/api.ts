@@ -9,6 +9,8 @@ export interface CalendarEvent {
   attendees: Attendee[];
   meeting_link: string | null;
   client: ClientRef | null;
+  cancelled: boolean;  // gone from Google but kept: it had a client link, brief or meeting
+  repeats?: "daily" | "weekly" | null;  // Upcoming only
 }
 export interface Device { id: number; name: string | null; last_seen: string | null }
 export interface Me { id: number; email: string; name: string | null }
@@ -28,3 +30,5 @@ export async function api<T>(path: string, init?: { method?: string; body?: unkn
 }
 
 export const browserZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+export const domain = (email: string | null) => email?.split("@")[1]?.toLowerCase() ?? "";

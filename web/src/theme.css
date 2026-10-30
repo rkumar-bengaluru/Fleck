@@ -57,6 +57,7 @@ h1 { margin: 0; font-size: 34px; line-height: 1.15; font-weight: 700; }
 .upcoming-when { width: 150px; color: var(--muted); }
 .upcoming-title { flex: 1; min-width: 180px; }
 .upcoming-client { color: var(--muted); }
+.upcoming-note { color: var(--muted); }
 
 .signin { min-height: 100vh; display: flex; align-items: center; justify-content: center; }
 .signin-card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 32px; display: flex;

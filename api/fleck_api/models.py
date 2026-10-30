@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (BigInteger, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text,
-                        UniqueConstraint, func)
+                        UniqueConstraint, false, func)
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -104,6 +104,8 @@ class CalendarEvent(Base):
     attendees: Mapped[list[Any]] = mapped_column(JSONB, default=list)
     meeting_link: Mapped[str | None]
     client_id: Mapped[int | None] = _fk("clients", True)
+    recurring_event_id: Mapped[str | None]  # Google's series id for instances of a recurring event
+    cancelled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())  # gone from Google but kept
 
 
 class Meeting(Base):

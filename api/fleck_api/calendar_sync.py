@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from cryptography.fernet import InvalidToken
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import delete, exists, select
+from sqlalchemy import delete, exists, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -18,7 +18,7 @@ from fleck_api.auth import current_user
 from fleck_api.config import setting
 from fleck_api.db import get_session
 from fleck_api.jobs import enqueue, job
-from fleck_api.models import CalendarEvent, Client, Device, GoogleToken, Job, User
+from fleck_api.models import Brief, CalendarEvent, Client, Device, GoogleToken, Job, Meeting, User
 
 log = logging.getLogger("fleck.calendar")
 LINK = re.compile(r"https://[\w.-]*(?:zoom\.us|teams\.microsoft\.com|teams\.live\.com|webex\.com|meet\.google\.com)/[^\s\"'<>]*")
@@ -100,6 +100,7 @@ def sync_user(s: Session, user_id: int) -> None:
     rows = [{"user_id": user_id, "google_event_id": ev["id"], "title": ev.get("summary") or "(no title)",
              "description": ev.get("description"), "start_at": datetime.fromisoformat(ev["start"]["dateTime"]),
              "end_at": datetime.fromisoformat(ev["end"]["dateTime"]), "meeting_link": meeting_link(ev),
+             "recurring_event_id": ev.get("recurringEventId"), "cancelled": False,
              "attendees": [{"email": a.get("email"), "name": a.get("displayName"), "self": bool(a.get("self"))}
                            for a in ev.get("attendees", [])]}
             for ev in _fetch(token, lo, hi) if _keep(ev)]
@@ -107,11 +108,17 @@ def sync_user(s: Session, user_id: int) -> None:
         stmt = insert(CalendarEvent).values(rows)
         s.execute(stmt.on_conflict_do_update(  # client_id is the user's, never overwritten
             index_elements=["user_id", "google_event_id"],
-            set_={k: stmt.excluded[k] for k in ("title", "description", "start_at", "end_at", "meeting_link", "attendees")}))
-    # Gone from Google (deleted, declined since): drop it. Only rows that start inside the window we just read.
-    s.execute(delete(CalendarEvent).where(CalendarEvent.user_id == user_id, CalendarEvent.start_at >= lo,
-                                          CalendarEvent.start_at < hi,
-                                          CalendarEvent.google_event_id.not_in([r["google_event_id"] for r in rows])))
+            set_={k: stmt.excluded[k] for k in ("title", "description", "start_at", "end_at", "meeting_link", "attendees",
+                                                 "recurring_event_id", "cancelled")}))
+    # Gone from Google (deleted, declined since), judged only inside the window just read: an event someone built on
+    # (client link, brief, meeting) is kept and marked cancelled; a bare one is deleted.
+    gone = select(CalendarEvent.id).where(
+        CalendarEvent.user_id == user_id, CalendarEvent.start_at >= lo, CalendarEvent.start_at < hi,
+        CalendarEvent.google_event_id.not_in([r["google_event_id"] for r in rows]))
+    used = (CalendarEvent.client_id.is_not(None) | exists().where(Brief.event_id == CalendarEvent.id)
+            | exists().where(Meeting.event_id == CalendarEvent.id))
+    s.execute(update(CalendarEvent).where(CalendarEvent.id.in_(gone), used).values(cancelled=True))
+    s.execute(delete(CalendarEvent).where(CalendarEvent.id.in_(gone), ~used))
     s.commit()
 
 
@@ -141,8 +148,17 @@ router = APIRouter(prefix="/api", dependencies=[Depends(current_user)])
 def _row(s: Session, e: CalendarEvent) -> dict:
     c = s.get(Client, e.client_id) if e.client_id else None
     return {"id": e.id, "title": e.title, "description": e.description, "start_at": e.start_at, "end_at": e.end_at,
-            "attendees": e.attendees, "meeting_link": e.meeting_link,
+            "attendees": e.attendees, "meeting_link": e.meeting_link, "cancelled": e.cancelled,
             "client": {"id": c.id, "name": c.name} if c else None}
+
+
+def _repeats(s: Session, e: CalendarEvent) -> str | None:
+    """'daily' or 'weekly' from the gap between the series' first two stored occurrences."""
+    starts = s.scalars(select(CalendarEvent.start_at).where(
+        CalendarEvent.user_id == e.user_id, CalendarEvent.recurring_event_id == e.recurring_event_id)
+        .order_by(CalendarEvent.start_at).limit(2)).all()
+    gap = starts[1] - starts[0] if len(starts) == 2 else None
+    return {timedelta(days=1): "daily", timedelta(days=7): "weekly"}.get(gap)
 
 
 @router.get("/events")
@@ -157,7 +173,17 @@ def list_events(range: Literal["today", "upcoming"] = "today", tz: str | None = 
     q = select(CalendarEvent).where(CalendarEvent.user_id == u.id, CalendarEvent.start_at >= lo)
     if hi:
         q = q.where(CalendarEvent.start_at < hi)
-    return [_row(s, e) for e in s.scalars(q.order_by(CalendarEvent.start_at))]
+    events = s.scalars(q.order_by(CalendarEvent.start_at)).all()
+    if range == "today":
+        return [_row(s, e) for e in events]
+    out, seen = [], set()
+    for e in events:  # Upcoming: each recurring series once, at its next occurrence
+        if e.recurring_event_id:
+            if e.recurring_event_id in seen:
+                continue
+            seen.add(e.recurring_event_id)
+        out.append(_row(s, e) | {"repeats": _repeats(s, e) if e.recurring_event_id else None})
+    return out
 
 
 def _event(s: Session, u: User, event_id: int) -> CalendarEvent:

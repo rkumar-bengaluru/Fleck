@@ -54,6 +54,7 @@ def test_gsim_events_relative_to_now():
     assert ev["Vendor sync"]["attendees"][0]["responseStatus"] == "declined"
     standups = [e for e in ev.values() if e["summary"] == "Standup"]
     assert len(standups) == 2 and "zoom.us" in standups[0]["location"]
+    assert {e["start"]["dateTime"][11:] for e in standups} == {"09:30:00+05:30"}  # 09:30 local, clear of the demo
     # the clock moves the fixtures
     later = _events(_client(NOW + timedelta(days=1, hours=2)), midnight + timedelta(days=1), midnight + timedelta(days=2))
     assert later["Presales: demo prospect"]["start"]["dateTime"] == "2026-10-31T13:00:00+05:30"

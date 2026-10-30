@@ -4,12 +4,12 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 
 from fleck_api import auth, calendar_sync
 from fleck_api.calendar_sync import meeting_link, schedule_syncs, sync_user
 from fleck_api.jobs import enqueue, run_once
-from fleck_api.models import CalendarEvent, Client, Device, GoogleToken, Job, User
+from fleck_api.models import Brief, CalendarEvent, Client, Device, GoogleToken, Job, Meeting, User
 from fleck_gsim.app import create_app as gsim_app
 from test_auth import _sign_in, env  # noqa: F401  (env is a fixture)
 
@@ -72,16 +72,41 @@ def test_sync_is_idempotent(env):
         s.add(c)
         s.flush()
         s.execute(update(CalendarEvent).where(CalendarEvent.google_event_id == "evt-demo").values(client_id=c.id))
-        now = datetime.now(timezone.utc)  # an event deleted from Google since the last sync
-        s.add(CalendarEvent(user_id=uid, google_event_id="evt-gone", title="Gone", start_at=now + timedelta(hours=2),
-                            end_at=now + timedelta(hours=3), attendees=[]))
         s.commit()
-    first = {k: (e.title, e.start_at) for k, e in _events(make).items() if k != "evt-gone"}
+    first = {k: (e.title, e.start_at) for k, e in _events(make).items()}
     with make() as s:
         sync_user(s, uid)
     after = _events(make)
     assert {k: (e.title, e.start_at) for k, e in after.items()} == first
     assert after["evt-demo"].client_id is not None  # a sync never drops the client link
+    assert not any(e.cancelled for e in after.values())
+
+
+def test_sync_keeps_used_events_gone_from_google_as_cancelled(env):
+    uid = _signed_in(env)
+    make = env[2]
+    now = datetime.now(timezone.utc)
+    with make() as s:
+        c = Client(name="Harbourline Legal", slug="harbourline-legal")
+        s.add(c)
+        s.flush()
+        ev = {g: CalendarEvent(user_id=uid, google_event_id=g, title=g, start_at=now + timedelta(hours=2),
+                               end_at=now + timedelta(hours=3), attendees=[], client_id=c.id if g == "linked" else None)
+              for g in ("bare", "linked", "briefed", "recorded")}
+        s.add_all(ev.values())
+        s.flush()
+        s.add_all([Brief(event_id=ev["briefed"].id), Meeting(event_id=ev["recorded"].id, title="recorded")])
+        s.commit()
+        sync_user(s, uid)
+    after = _events(make)
+    assert "bare" not in after
+    assert all(after[g].cancelled for g in ("linked", "briefed", "recorded"))
+    assert not after["evt-demo"].cancelled
+    with make() as s:  # it comes back in Google: no longer cancelled
+        s.execute(update(CalendarEvent).where(CalendarEvent.google_event_id == "evt-demo").values(cancelled=True))
+        s.commit()
+        sync_user(s, uid)
+    assert not _events(make)["evt-demo"].cancelled
 
 
 def _client_api(env):
@@ -118,8 +143,13 @@ def test_set_event_client(env):
 def test_events_today_is_the_users_local_day(env, monkeypatch):
     client, make = _client_api(env)
     upcoming = client.get("/api/events", params={"range": "upcoming"}).json()
-    assert any(e["title"] == "Discovery: Orion Freight" for e in upcoming)
+    assert any(e["title"] == "Discovery: Orion Freight" and e["repeats"] is None for e in upcoming)
     assert all(e["title"] != "Presales: demo prospect" for e in upcoming)
+    [standup] = [e for e in upcoming if e["title"] == "Standup"]  # the series once, at its next occurrence
+    with make() as s:
+        first = s.scalar(select(func.min(CalendarEvent.start_at)).where(
+            CalendarEvent.title == "Standup", CalendarEvent.start_at >= datetime.fromisoformat(upcoming[0]["start_at"])))
+    assert standup["repeats"] == "daily" and datetime.fromisoformat(standup["start_at"]) == first
     with make() as s:
         uid = s.scalar(select(User.id))
         s.add_all([CalendarEvent(user_id=uid, google_event_id=g, title=g, start_at=at, end_at=at + timedelta(minutes=30), attendees=[])

@@ -5,6 +5,7 @@ x-api-env: &api-env
   FLECK_WEAVIATE_URL: http://weaviate:8080
   FLECK_OLLAMA_URL: http://host.docker.internal:11434
   FLECK_GSIM_URL: http://gsim:8090
+  TZ: ${TZ:-UTC}  # the host's zone (from ../.env via make up): "today" and gsim's fixture times are local
 services:
   postgres:
     restart: unless-stopped
@@ -35,6 +36,7 @@ services:
   gsim:
     restart: unless-stopped
     build: {context: .., dockerfile: gsim/Dockerfile}
+    environment: {TZ: "${TZ:-UTC}"}
     ports: ["127.0.0.1:8090:8090"]
   api:
     restart: unless-stopped
@@ -60,7 +62,7 @@ services:
   web:
     restart: unless-stopped
     build: {context: ../web}
-    environment: {FLECK_API_PROXY: "http://api:8000"}  # the proxy keeps the browser's Origin for the api's origin guard
+    environment: {FLECK_API_PROXY: "http://api:8000", TZ: "${TZ:-UTC}"}  # the proxy keeps the browser's Origin for the api's origin guard
     ports: ["127.0.0.1:5173:5173"]
     depends_on:
       api: {condition: service_healthy}

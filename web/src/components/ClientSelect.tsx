@@ -1,22 +1,35 @@
 import { useState } from "react";
-import { api, type CalendarEvent, type ClientRef } from "../api";
+import { api, domain, type CalendarEvent, type ClientRef } from "../api";
 
 const NONE = "none", NEW = "new";
 
-/** "Discovery: Orion Freight" -> "Orion Freight": the name offered as a new client for an unlinked external meeting. */
-export function suggestedClient(title: string): string | null {
-  const i = title.lastIndexOf(":");
-  return i >= 0 && title.slice(i + 1).trim() ? title.slice(i + 1).trim() : null;
+const PERSONAL = new Set(["gmail", "googlemail", "outlook", "hotmail", "live", "yahoo", "icloud", "me", "proton", "protonmail"]);
+const GENERIC = new Set(["co", "com", "org", "net", "ac", "gov", "edu"]);
+
+/** Name offered as a new client: the guests' company from their email domain (harbourline.test -> "Harbourline"),
+ *  else the title after its colon ("Discovery: Orion Freight" -> "Orion Freight"). */
+export function suggestedClient(event: CalendarEvent, myDomain: string): string | null {
+  for (const a of event.attendees) {
+    const labels = domain(a.email).split(".").slice(0, -1);  // drop the TLD
+    if (labels.length > 1 && GENERIC.has(labels[labels.length - 1])) labels.pop();  // acme.co.uk
+    const name = labels.pop();
+    if (a.self || !name || domain(a.email) === myDomain || PERSONAL.has(name)) continue;
+    return name.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+  }
+  const i = event.title.lastIndexOf(":");
+  return i >= 0 && event.title.slice(i + 1).trim() ? event.title.slice(i + 1).trim() : null;
 }
 
-export default function ClientSelect({ event, clients, external, onChange }: {
-  event: CalendarEvent; clients: ClientRef[]; external: boolean;
+export const isExternal = (e: CalendarEvent, myDomain: string) => e.attendees.some(a => !a.self && domain(a.email) !== myDomain);
+
+export default function ClientSelect({ event, clients, myDomain, onChange }: {
+  event: CalendarEvent; clients: ClientRef[]; myDomain: string;
   onChange: (e: CalendarEvent, created?: ClientRef) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const id = `client-${event.id}`;
-  const unset = !event.client && external;
-  const suggestion = suggestedClient(event.title);
+  const unset = !event.client && isExternal(event, myDomain);
+  const suggestion = suggestedClient(event, myDomain);
   const offerNew = unset && suggestion && !clients.some(c => c.name.toLowerCase() === suggestion.toLowerCase());
 
   async function choose(value: string) {

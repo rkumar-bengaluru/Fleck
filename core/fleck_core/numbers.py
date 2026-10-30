@@ -63,10 +63,30 @@ def _dozens(m: re.Match) -> str:
         return m[0]
 
 
+_SMALL = {"one": "1", "two": "2", "a": "1", "an": "1"}
+_ADJ = r"(?:(?:business|working|full|calendar|whole|additional|extra|more|further)\s+)?"
+_SMALL_NOUN = (r"(?:days?|weeks?|months?|years?|hours?|hrs?|minutes?|mins?|quarters?|engineers?|developers?|people|consultants?|"
+               r"members?|designers?|architects?|testers?|analysts?|specialists?|ftes?|resources|dollars?|rupees?|euros?|"
+               r"pounds|million|billion|thousand|hundred|lakhs?|crores?|percent|per ?cent)\b")
+_A_NOUN = r"(?:days?|weeks?|months?|years?|hours?|hrs?|minutes?|mins?|quarters?|dollars?|rupees?|euros?|pounds|million|billion|thousand|hundred|lakhs?|crores?|percent)\b"
+# "a"/"an" before a person ("an engineer") is an article, not a count
+_SMALL_RX = re.compile(rf"\b(?:(one|two)(?=\s+{_ADJ}{_SMALL_NOUN})|(an?)(?=\s+{_ADJ}{_A_NOUN}))", re.I)
+# "a"/"an" is a number only after these words; elsewhere it is a rate ("$5,200 a month", "once a week")
+_A_AFTER = re.compile(r"(?:^|[.!?]\s|\b(?:within|in|for|after|over|under|than|about|around|approximately|takes?|taking|of|by|before|inside|least|most)\s)$", re.I)
+
+
+def _small(m: re.Match, text: str) -> str:
+    w = (m[1] or m[2]).lower()
+    if w in ("a", "an") and not _A_AFTER.search(text[: m.start()]):
+        return m[0]
+    return _SMALL[w]
+
+
 def normalize_numbers(text: str) -> str:
     t = re.sub(r"(?<=\d),(?=\d{3}\b|\d{2},\d)", "", text)  # 6,900 and lakh grouping 5,00,000
     t = _scale(t)
     t = alpha2digit(t, "en")
+    t = _SMALL_RX.sub(lambda m: _small(m, t), t)
     t = _scale(t)
     t = re.sub(r"\ba dozen\b", "12", t, flags=re.I)
     t = re.sub(r"\b(\w+) dozen\b", _dozens, t, flags=re.I)

@@ -39,6 +39,64 @@ _NOT_HEADING = "|".join([*_TIME, "million", "billion", "thousand", "hundred", "l
 _HEADING_NUM = re.compile(rf"(?m)^\d{{1,2}}(?:\.\d+)*\.?\s+(?!(?i:{_NOT_HEADING})\b)(?=[A-Z])")
 
 
+def _table_cells(text: str):
+    """Yield (row_label, column_label, cell_text) for the data cells of markdown tables."""
+    header = None
+    for line in text.splitlines():
+        if not line.strip().startswith("|"):
+            header = None
+            continue
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if all(re.fullmatch(r":?-+:?", c) for c in cells if c):
+            continue
+        if header is None:
+            header = [re.split(r"[(/]", c)[0].strip().lower() for c in cells]
+            continue
+        for i, c in enumerate(cells[1:], 1):
+            if i < len(header):
+                yield cells[0].lower(), header[i], c
+
+
+def _labels_ok(sentence: str, figs: set[str], known: list[Passage], cur: set[str]) -> bool:
+    """A table row or column label in the sentence binds its figures to that row and column of the passage table."""
+    low = sentence.lower()
+
+    def hit(label: str) -> bool:
+        return bool(label) and re.search(rf"\b{re.escape(label)}s?\b", low) is not None
+
+    for p in known:
+        cells = list(_table_cells(p.text))
+        rows = {r for r, _, _ in cells if hit(r)}
+        cols = {c for _, c, _ in cells if hit(c)}
+        rows = {r for r in rows if not any(r != o and r in o for o in rows)}  # "senior engineer" beats "engineer"
+        if not rows and not cols:
+            continue
+        table = set().union(*(extract_figures(c) for _, _, c in cells)) if cells else set()
+        bound = set().union(*(extract_figures(c) for r, k, c in cells if (not rows or r in rows) and (not cols or k in cols)))
+        if any(_matches(f, table, cur) and not _matches(f, bound, cur) for f in figs):
+            return False
+    return True
+
+
+_PAST_WORK = re.compile(
+    r"\bwe(?:'ve|\s+have)?\s+(?:did|done|delivered|built|helped|worked|cut|reduced|saved|launched|migrated|implemented|completed)\b"
+    r"|\bcut\b.{0,40}\bin half\b|\bour (?:clients?|customers?|past|previous)\b|\b(?:for|with) (?:a|one of our) (?:client|customer)s?\b", re.I)
+_FIRST_PERSON = re.compile(r"\b(?:we|our|ours|us|northbeam)\b", re.I)
+
+
+def _past_work(text: str) -> bool:
+    return bool(_PAST_WORK.search(text))
+
+
+def _client_hits(text: str, client_names: list[str]) -> list[str]:
+    hits = []
+    for c in client_names:
+        tokens = [w for w in re.findall(r"[^\W\d_]+", c) if len(w) >= 4 and w.lower() not in _NAME_STOP]
+        if any(re.search(rf"\b{re.escape(w)}(?:['’]s)?\b", text, re.I) for w in tokens + [c]):
+            hits.append(c)
+    return hits
+
+
 def _periods(norm: str) -> set[str]:
     known = {_PERIODS[(a or b).lower()] for a, b in _PERIOD_WORD.findall(norm)}
     # any other "per <noun>" ("per seat", "per sprint") is a rate period too and must be stated by the passage
@@ -95,7 +153,7 @@ class FallbackCheck:
     reasons: list[str]
 
 
-def check_library_answer(answer: str, passages: list[Passage]) -> LibraryCheck:
+def check_library_answer(answer: str, passages: list[Passage], client_names: list[str] | None = None) -> LibraryCheck:
     if re.fullmatch(r"\W*NONE\W*", answer.strip(), re.I):
         return LibraryCheck(False, [], [], "not_in_material", ["none"])
     by_n = {p.n: p for p in passages}
@@ -109,6 +167,8 @@ def check_library_answer(answer: str, passages: list[Passage]) -> LibraryCheck:
             reason = "citation_out_of_range"
         elif figs and not cited:
             reason = "figure_without_citation"
+        elif not figs and not cited and (_past_work(bare) or _client_hits(bare, client_names or [])):
+            reason = "uncited_claim"  # an uncited sentence still may not name a client or claim past work
         elif figs:
             known = [by_n[n] for n in cited]
             texts = [_HEADING_NUM.sub("", p.text) for p in known]
@@ -117,7 +177,8 @@ def check_library_answer(answer: str, passages: list[Passage]) -> LibraryCheck:
             cur = set(_CODES.findall(norm))  # also headings like "(USD)"
             per = _periods(norm)
             # any rate period in the sentence ("billed per year", "Per year, ...") must be one the passage states
-            if not all(_matches(f, pfigs, cur) for f in figs) or (per and (aper := _periods(normalize_numbers(bare))) and not aper <= per):
+            if (not all(_matches(f, pfigs, cur) for f in figs) or not _labels_ok(bare, figs, known, cur)
+                    or (per and (aper := _periods(normalize_numbers(bare))) and not aper <= per)):
                 reason = "figure_not_in_cited_passage"
         sentences.append(SentenceCheck(s, NOT_IN_MATERIAL if reason else bare, cited, figs, reason is None, reason))
     reasons = [s.reason for s in sentences if s.reason]
@@ -127,10 +188,14 @@ def check_library_answer(answer: str, passages: list[Passage]) -> LibraryCheck:
     if not ok and not reasons:
         reasons = ["no_valid_citation"]
     kind = "not_in_material" if not ok else "reference" if all(c.kind == "reference" for c in cits) else "library"
-    return LibraryCheck(ok, sentences, cits if ok else [], kind, reasons)
+    if not ok:  # the panel links "the closest document": the best-ranked cited passage, else passage 1
+        in_range = sorted(n for s in sentences for n in s.cited if n in by_n)
+        best = by_n[in_range[0]] if in_range else passages[0] if passages else None
+        cits = [Citation(**best.model_dump(include=set(Citation.model_fields)))] if best else []
+    return LibraryCheck(ok, sentences, cits, kind, reasons)
 
 
-_DUR = r"\d+(?:\.\d+)?\s?(?:%|(?:h|hrs?|hours?|mins?|minutes?|days?|weeks?|months?|years?)\b)"
+_DUR = r"\d+(?:\.\d+)?\s?(?:%|(?:(?:business|working|calendar)\s+)?(?:h|hrs?|hours?|mins?|minutes?|days?|weeks?|months?|years?)\b)"
 _PEOPLE = r"engineers?|developers?|people|consultants?|members?|designers?|architects?|testers?|analysts?|staff|ftes?|resources|specialists?|heads"
 _BLOCK = [
     ("currency", re.compile(rf"\d+(?:\.\d+)? (?:{CODES})\b|[$€£¥₹]|\bRs\b\.?")),
@@ -151,8 +216,7 @@ _NAME_STOP = {"group", "retail", "inc", "llc", "ltd", "corp", "company", "partne
 def check_fallback(answer: str, client_names: list[str]) -> FallbackCheck:
     t = normalize_numbers(answer)
     reasons = [name for name, rx in _BLOCK if rx.search(t) or rx.search(answer)]
-    for c in client_names:
-        tokens = [w for w in re.findall(r"[^\W\d_]+", c) if len(w) >= 4 and w.lower() not in _NAME_STOP]
-        if any(re.search(rf"\b{re.escape(w)}(?:['’]s)?\b", answer, re.I) for w in tokens + [c]):
-            reasons.append(f"client_name:{c}")
+    reasons += [f"client_name:{c}" for c in _client_hits(answer, client_names)]
+    if _FIRST_PERSON.search(answer) or _past_work(answer):  # general knowledge may not speak for the firm
+        reasons.append("firm_claim")
     return FallbackCheck(not reasons, reasons)

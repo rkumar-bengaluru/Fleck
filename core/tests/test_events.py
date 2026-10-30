@@ -22,3 +22,11 @@ def test_round_trip_each_event(ev):
 def test_unknown_type_rejected():
     with pytest.raises(ValidationError):  # pydantic's, a ValueError subclass
         parse_event({"type": "nope", "meeting_id": "m"})
+
+
+def test_replacement_sequence_parses_in_order():
+    base = dict(type="assist", meeting_id="m", assist_id="a", segment_id="s", question="q")
+    seq = [dict(base, phase="delta", text="It is five"), dict(base, phase="sentence", sentence_index=0, text="Not in our material"),
+           dict(base, phase="done", kind="not_in_material")]
+    evs = [parse_event(d) for d in seq]
+    assert [e.phase for e in evs] == ["delta", "sentence", "done"] and evs[1].text == "Not in our material" and evs[2].kind == "not_in_material"

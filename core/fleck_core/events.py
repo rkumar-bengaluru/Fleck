@@ -23,6 +23,9 @@ class SegmentEvent(_Event):
 
 
 class AssistEvent(_Event):
+    """Replacement rule: a later `sentence` event with the same `sentence_index`, or a `done` whose kind is
+    `not_in_material`, replaces text already shown (a streamed sentence that failed its checks)."""
+
     type: Literal["assist"]
     meeting_id: str
     assist_id: str

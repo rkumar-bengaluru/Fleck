@@ -214,3 +214,67 @@ def test_fallback_availability_no_overblock(answer):
 @pytest.mark.parametrize("answer", ["Ninety nine point nine uptime.", "Cost is mid five figures.", "Six figures budget.", "Uptime of 99.9."])
 def test_fallback_spoken_decimals_and_figures(answer):
     assert not check_fallback(answer, []).ok
+
+
+# --- milestone B follow-up
+@pytest.mark.parametrize("answer", [
+    "A team can start within two weeks of signature. [2]",
+    "Restore within one business day. [2]",
+])
+def test_spoken_small_numbers_rejected_when_wrong(answer):
+    ps = _mk("A pod of up to 6 people can start within 4 weeks of signing. Restore within 4 h.", n=2)
+    assert not check_library_answer(answer, ps).ok
+
+
+def test_spoken_small_numbers_normalised():
+    from fleck_core.numbers import extract_figures
+    assert extract_figures("two weeks") == {"14 days"} and extract_figures("one business day") == {"1 days"}
+    assert extract_figures("two engineers") == {"2"} and extract_figures("an hour") == {"60 min"} == extract_figures("within an hour")
+    assert extract_figures("one of the options, a few days, a one-off, an MSA") == set()
+    assert extract_figures("$5,200 a month") == {"5200 USD/month"}
+
+
+def test_spoken_small_number_accepts_match():
+    assert check_library_answer("A team can start within two weeks. [1]", _mk("We start within 2 weeks of signing.")).ok
+
+
+@pytest.mark.parametrize("answer", ["Our SLA response time is two hours.", "We respond within one business day under the SLA."])
+def test_fallback_blocks_spoken_small_sla(answer):
+    assert not check_fallback(answer, []).ok
+
+
+def test_uncited_claim_replaced():
+    r = check_library_answer("A senior engineer is $5,200 a month. [1] We did the same for Sayari and cut review time in half.", P, ["Sayari Analytics"])
+    assert r.ok and [s.ok for s in r.sentences] == [True, False] and r.sentences[1].display_text == "Not in our material"
+    r = check_library_answer("A senior engineer is $5,200 a month. [1] Sayari liked it.", P, ["Sayari Analytics"])
+    assert r.sentences[1].reason == "uncited_claim"
+    assert check_library_answer("A senior engineer is $5,200 a month. [1] Ask about the scope.", P, ["Sayari"]).sentences[1].ok
+
+
+@pytest.mark.parametrize("answer", ["Northbeam has done this before for many banks.", "We have done this before.", "Our team can help."])
+def test_fallback_blocks_firm_claims(answer):
+    assert not check_fallback(answer, []).ok
+
+
+def test_fallback_allows_third_person_advice():
+    assert check_fallback("Ask your vendor how they test.", []).ok
+
+
+def test_closest_passage_on_failure():
+    r = check_library_answer("A senior engineer is $5,500 a month. [2]", P)
+    assert not r.ok and [c.doc_id for c in r.citations] == ["firm-delivery-faq"]
+    r = check_library_answer("Rates start at $5,200.", P)
+    assert not r.ok and [c.doc_id for c in r.citations] == ["firm-rate-card"]
+    assert check_library_answer("NONE", P).citations == []
+
+
+TABLE = "| Role | Offshore (Bengaluru) | Onsite (US/UK) |\n|---|---|---|\n| Senior engineer | 5,200 | 13,500 |\n| Engineer | 3,900 | 11,000 |"
+
+
+@pytest.mark.parametrize("answer,ok", [
+    ("A senior engineer is $13,500 offshore. [1]", False), ("A senior engineer is $13,500 onsite. [1]", True),
+    ("A senior engineer is $5,200 offshore. [1]", True), ("A senior engineer is $3,900. [1]", False),
+    ("An engineer is $3,900 offshore. [1]", True), ("An engineer is $11,000 offshore. [1]", False),
+])
+def test_table_labels_bind_figures(answer, ok):
+    assert check_library_answer(answer, _mk(TABLE)).ok is ok

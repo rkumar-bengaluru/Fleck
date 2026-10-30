@@ -34,3 +34,6 @@ Columns: **What** was decided · **Options** considered · **Why** · **Critic**
 | 26 | 2026-10-30 | Meeting-logistics questions added to the negative set | Short acknowledgements only | "Can you see my screen?" is the likeliest false trigger | — |
 | 27 | 2026-10-30 | Speculative work on partials allowed, display only on final | Drop "start early" | Keeps the latency gain without repeated triggers | — |
 | 28 | 2026-10-30 | "Used it" computed after the meeting, max over single **You** segments | Live; whole reply joined | No GPU contention during the call; long replies don't dilute the match | — |
+| 29 | 2026-10-30 | Citations as numbered markers mapped to `doc_id` + `chunk_id` by the api; source label rendered from Weaviate metadata (rule: rupak.k) | Model writes `doc_id`s | Cheaper, streamable, model can't invent a source name | — |
+| 30 | 2026-10-30 | Number check: every figure must appear in a cited passage; only figure-bearing sentences are held | Validate whole answer at the end; trust citations | A valid citation can still carry a wrong number; holding only those sentences protects first-word latency | — |
+| 31 | 2026-10-30 | Blocked fallback not retried live; client-name block list from the library | Retry once; regex for names | Retry breaks the latency target; names can't be matched by regex | — |

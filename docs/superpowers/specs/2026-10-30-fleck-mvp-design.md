@@ -155,6 +155,24 @@ Each answer Fleck showed is marked **Used** or **Not used** in the notes.
 - **Testable.** The test conversation's script marks, for each answered question, whether the salesperson uses the answer. It includes at least one answer that is ignored, and one where the reply is on-topic but doesn't use the answer. The automatic marker must agree with the script on every one of them.
 - **Known limit.** Similarity measures topic, not correctness: a reply on the same subject with a different number can still be marked **Used**. The override covers this.
 
+### 7.4 Citations and anti-goal enforcement (rupak.k's rules, with Claude's adjustments marked)
+
+The model never decides what a source is called. Rules enforced in code, not only in prompts:
+
+**Library answers (`qwen3:8b`)**
+1. The prompt gives at most 3 passages, numbered `[1]`–`[3]`, each with its document kind (client / firm / reference). Each claim must end with the number of the passage it comes from. If the passages don't answer the question, the model replies `NONE`, which hands over to the fallback.
+2. The api maps each `[n]` to the Weaviate result's `doc_id` + `chunk_id`. **An answer with no valid citation, or citing a number it wasn't given, is rejected.** The source line on screen (document title, client, kind) is rendered from Weaviate metadata, never from the model's text. **(Numbered markers instead of the model writing `doc_id`s: Claude's adjustment, cheaper and streamable.)**
+3. **Number check.** Every figure in a sentence (amounts, currencies, %, durations, team sizes, dates) must appear, after normalising ("6,900" = "6900" = "six thousand nine hundred"), in a passage that sentence cites. Sentences without figures stream to the screen token by token. Sentences with a figure are held until complete and checked. A sentence that fails is replaced by **Not in our material** with a link to the cited source. **(Claude's addition: a valid citation alone doesn't stop a wrong number.)**
+4. An answer citing only **reference** documents is labelled **Reference contract, not our work**.
+
+**Fallback answers (Claude Haiku)**
+5. The system prompt states: no prices, rates, percentages, SLA figures, team sizes, client names or claims about the firm's past work; such output is blocked.
+6. Code blocks any fallback answer matching: currency symbols or codes with a number, a number followed by `%`, rates ("per hour/day/month"), SLA or response-time figures, or the name of any client in the library. **A blocked answer is not retried live**; **Not in our material** is shown instead. **(No live retry, and client names taken from the library: Claude's adjustments.)**
+
+**Every rejection or block** is kept in the trace with its reason and shown nowhere else.
+
+**Tests.** Unit tests feed the validators crafted bad answers: no citation, out-of-range citation, a correct citation with a wrong number, a fallback with a price, a fallback naming a library client. Each must be rejected. The test conversation's pricing question with no backing document must end in **Not in our material**.
+
 ## 8. The test conversation
 
 A 6–8 minute presales call between rupak.k as salesperson (left channel) and a prospect (right channel), voiced by two different `say` voices. The prospect is a fictional firm wanting AI automation of an existing document workflow. **(Claude's call.)** The script includes, in order:

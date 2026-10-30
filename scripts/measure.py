@@ -28,8 +28,9 @@ def _matches(trigger, turn) -> bool:
     return not turn["question_id"] or len(q & _words(trigger.question)) >= MIN_WORD_OVERLAP * len(q)
 
 
-def replay(wav: Path, transcriber=None) -> list:
-    return list(Pipeline("measure", transcriber).run(ReplaySource(wav, realtime=False)))
+def replay(wav: Path, transcriber=None, embed=None) -> list:
+    """`embed` defaults to the live 150 ms path, where a slow embed hands the decision to the rules."""
+    return list(Pipeline("measure", transcriber, embed=embed).run(ReplaySource(wav, realtime=False)))
 
 
 def counts(events: list, ref: dict) -> dict:
@@ -57,7 +58,10 @@ def main():
     a = ap.parse_args()
     ref = json.loads(a.reference.read_text())
     t = time.monotonic()
-    c = counts(replay(a.wav), ref)
+    events = replay(a.wav)
+    c = counts(events, ref)
+    trig = [e for e in events if isinstance(e, Trigger)]
+    print(f"triggers decided by the rules fallback (embedder failed or over 150 ms): {sum(e.embedding is None for e in trig)}/{len(trig)}")
     hit, total = c["conversation_recall"]
     print(f"{a.wav.name}: {ref['duration_ms'] / 1000:.1f} s audio, replayed in {time.monotonic() - t:.1f} s")
     for name in ("negative_set_short", "negative_set_medium"):

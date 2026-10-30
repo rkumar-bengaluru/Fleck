@@ -6,14 +6,15 @@ import logging
 import threading
 from collections import deque
 from concurrent.futures import Future
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Iterator
 
 import numpy as np
 
 from fleck_core.events import SegmentEvent
 from fleck_helper.audio import Frame, Gap, Unavailable
-from fleck_helper.classify import FLECK_TRIGGER_MIN_CONFIDENCE, triggers
+from fleck_helper import question_rules
+from fleck_helper.classify import Embed, classify, live_embed, trigger_threshold
 from fleck_helper.gate import drop_bleed_duplicates, gate, noise_floor
 from fleck_helper.vad import MAX_MS, PREROLL_MS, SILENCE_MS, Discard, Final, Open, Segmenter
 
@@ -25,8 +26,10 @@ log = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class Trigger:
     segment_id: str  # the turn's last segment
-    question: str  # the whole turn's text
+    question: str  # the turn from its first question-shaped sentence on
     end_ms: int
+    # Embedder.embed_query(question), for search and brief matching (Tasks 13, 14); None if the rules decided
+    embedding: list[float] | None = field(default=None, repr=False, compare=False)
 
 
 class _Seg:
@@ -65,13 +68,20 @@ def _spawn(fn, *args) -> Future:
 
 
 class Pipeline:
-    def __init__(self, meeting_id: str, transcriber=None, min_confidence: float = FLECK_TRIGGER_MIN_CONFIDENCE):
+    def __init__(self, meeting_id: str, transcriber=None, min_confidence: float | None = None, embed: Embed | None = None):
+        """`embed` defaults to the live embedder with the 150 ms budget (over it, the rules decide)."""
         if transcriber is None:
             from fleck_helper.transcribe import StreamTranscriber
             transcriber = StreamTranscriber()
-        self.meeting_id, self.tr, self.min_confidence = meeting_id, transcriber, min_confidence
+        self.meeting_id, self.tr, self.embed = meeting_id, transcriber, embed
+        self.min_confidence = trigger_threshold() if min_confidence is None else min_confidence
 
     def run(self, source) -> Iterator[SegmentEvent | Trigger | Gap | Unavailable]:
+        if self.embed is None:
+            try:  # load the embedding model before the first question, not during it
+                live_embed("warm up", timeout=30)
+            except Exception as e:
+                log.warning("embedder warm-up failed: %r", e)
         segs = {"you": Segmenter("you"), "client": Segmenter("client")}
         # (t_ms, you, client) per frame: the longest segment plus the silence that ends it
         self._rms = deque(maxlen=(MAX_MS + SILENCE_MS + PREROLL_MS) // 20 + 10)
@@ -143,12 +153,13 @@ class Pipeline:
                 # only client-gated segments supply text, so the question sentence is always clean client speech;
                 # an overlapped segment elsewhere in the turn is left out, it doesn't veto the turn
                 texts = [t for s in head if s.gate == "client" and (t := s.text().strip())]
-                text = " ".join(texts)
-                # judged as Whisper wrote it ("How quickly could you" + "start?") and with a full stop after a segment
-                # it left unpunctuated, so "…just before that" doesn't glue onto the next segment's "Who owns…?"
-                stopped = " ".join(t if t[-1] in ".?!" else t + "." for t in texts)
-                if texts and any(triggers(j, "client", self.min_confidence) for j in (text, stopped)):
-                    yield Trigger(head[-1].final.segment_id, text, head[-1].final.end_ms)
+                # a full stop after a segment Whisper left unpunctuated, so "…just before that" doesn't glue onto the
+                # next segment's "Who owns…?"; none after a cut-off one, so "How quickly could you" + "start?" stays whole
+                text = " ".join(t if t[-1] in ".?!" or question_rules.is_fragment(question_rules._norm(t)) else t + "."
+                                for t in texts)
+                v = classify(text, "client", self.embed) if texts else None
+                if v and v.is_question and v.confidence >= self.min_confidence:
+                    yield Trigger(head[-1].final.segment_id, v.question, head[-1].final.end_ms, v.embedding)
             else:
                 yield head
 

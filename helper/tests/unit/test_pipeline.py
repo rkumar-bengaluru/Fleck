@@ -4,6 +4,7 @@ import wave
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from fleck_core.events import SegmentEvent
 from fleck_helper.audio import FRAME, Frame, Gap, Unavailable
@@ -51,9 +52,18 @@ def _frames(client, you=None, t0=0):
             for i in range(len(client) // FRAME)]
 
 
+EMBED = None
+
+
+@pytest.fixture(autouse=True)
+def _cached(cached_embed):
+    global EMBED
+    EMBED = cached_embed  # the committed CI embedding cache, so no Ollama
+
+
 def _run(items, texts):
     tr = FakeTranscriber(texts)
-    return list(Pipeline("m1", tr).run(Src(items))), tr
+    return list(Pipeline("m1", tr, embed=EMBED).run(Src(items))), tr
 
 
 def test_paused_question_triggers_once_on_the_whole_turn():
@@ -79,8 +89,9 @@ def test_unpunctuated_segment_does_not_hide_the_question():
     a = _clip(1)
     audio = np.concatenate([_silence(500), a, _silence(700), a, _silence(1500)])
     out, _ = _run(_frames(audio), {"client": ["we close our budget cycle just before that", "Who owns the code you write for us?"]})
-    assert [e.question for e in out if isinstance(e, Trigger)] == [
-        "we close our budget cycle just before that Who owns the code you write for us?"]
+    trig = [e for e in out if isinstance(e, Trigger)]
+    assert [e.question for e in trig] == ["Who owns the code you write for us?"]  # the question part, for search
+    assert len(trig[0].embedding) == 1024  # the classifier's vector, reused by search (decision 94)
 
 
 def test_gap_mid_question_never_triggers():

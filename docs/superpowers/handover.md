@@ -11,6 +11,8 @@ On the live path, the 4b call runs in parallel with the qwen3-embedding:0.6b `Em
 
 **Two embedding models are loaded while recording.** The 4b model at `num_ctx` 512 takes about 2.9 GB, and the 0.6b model about 0.5–1 GB, both with `keep_alive: -1`. `scripts/ensure_ollama.sh` pulls and pins both.
 
+**The answer model's prompt cache (start-early, decisions 72 and 98).** `fleck_core.answer.prefill(passages, question_hint, ollama)` sends the live prompt for qwen3:4b with `num_predict` 1. Ollama treats `num_predict` 0 as unlimited. The answer that follows then reads only the end of the question: TTFT drops from about 0.4–2 s to about 0.09 s. This assumes Ollama's default `OLLAMA_NUM_PARALLEL=1`, so the answer reuses the prefilled slot. With more parallel slots, an answer may land on a cold slot. The service's setting was not changed.
+
 The model file is `helper/fleck_helper/question_model.json`. It stores:
 - the weights and the threshold;
 - the L2 strength;

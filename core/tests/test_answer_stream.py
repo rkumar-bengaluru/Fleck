@@ -37,9 +37,17 @@ class FakeOllama:
             self.closed.set()
 
 
-def run(tokens, passages=(RATE, FAQ), **kw):
+def run(tokens, passages=(RATE, FAQ), question="q?", **kw):
     now = time.time()
-    return list(stream_library_answer("q?", list(passages), [], FakeOllama(tokens, **kw), now, now))
+    return list(stream_library_answer(question, list(passages), [], FakeOllama(tokens, **kw), now, now))
+
+
+def sents(ev):
+    return [(e.index, e.text, e.ok, e.reason) for e in ev if isinstance(e, Sentence)]
+
+
+def shown(ev):
+    return "".join(e.text for e in ev if isinstance(e, Delta))
 
 
 def test_streams_figureless_sentence_token_by_token():
@@ -47,8 +55,8 @@ def test_streams_figureless_sentence_token_by_token():
     deltas = [e for e in ev if isinstance(e, Delta)]
     assert len(deltas) >= 4 and all(d.index == 0 for d in deltas)
     assert "".join(d.text for d in deltas).strip() == "Mixed teams are common."
-    s = [e for e in ev if isinstance(e, Sentence)]
-    assert s == [Sentence(0, "Mixed teams are common.", True, None)]
+    assert sents(ev) == [(0, "Mixed teams are common.", True, None)]
+    assert [c.title for c in ev[-2].citations] == ["Delivery FAQ"]
     done = ev[-1]
     assert isinstance(done, Done) and done.check.ok and done.check.kind == "library"
     assert done.first_words_ms is not None and done.full_ms >= done.first_words_ms
@@ -59,9 +67,9 @@ def test_holds_and_replaces_sentence_with_wrong_figure():
               " Senior", " engineer", " offshore", " is", " USD", " 5,200", " a", " month", " [1]", "."])
     shown = "".join(e.text for e in ev if isinstance(e, Delta))
     assert "9" not in shown and "5,200" not in shown  # figures are held until the sentence is checked
-    s = [e for e in ev if isinstance(e, Sentence)]
-    assert s[0] == Sentence(0, NOT_IN_MATERIAL, False, "figure_not_in_cited_passage")
-    assert s[1] == Sentence(1, "Senior engineer offshore is USD 5,200 a month.", True, None)
+    assert sents(ev) == [(0, NOT_IN_MATERIAL, False, "figure_not_in_cited_passage"),
+                         (1, "Senior engineer offshore is USD 5,200 a month.", True, None)]
+    assert [c.title for c in [e for e in ev if isinstance(e, Sentence)][0].citations] == ["Rate card FY2026"]  # the link
     assert ev[-1].check.ok  # the good sentence carries the answer
 
 
@@ -104,10 +112,69 @@ def test_consumer_stopping_closes_the_stream():
     assert fake.closed.wait(1.0)
 
 
-def test_client_name_in_uncited_sentence_rejected():
+def test_uncited_sentence_is_removed_not_replaced():
+    ev = run(["Yes", ".", " Mixed", " teams", " are", " common", " [2]", "."])
+    assert sents(ev) == [(0, "", False, "uncited"), (1, "Mixed teams are common.", True, None)]
+    assert ev[-1].check.ok
+
+
+def test_stops_after_three_cited_sentences():
+    fake = FakeOllama([" Mixed", " teams", " are", " common", " [2]", "."], forever=True)
+    now = time.time()
+    ev = list(stream_library_answer("q?", [FAQ], [], fake, now, now))
+    assert [s[0] for s in sents(ev)] == [0, 1, 2] and isinstance(ev[-1], Done) and ev[-1].check.ok
+    assert fake.closed.wait(1.0)
+
+
+@pytest.mark.parametrize("tokens", [["You", " need", " one", " engineer", " [1]", "."],
+                                    ["Teams", " start", " within", " two", " weeks", " [1]", "."],
+                                    ["Teams", " start", " within", " a", " week", " [1]", "."],
+                                    ["We", " have", " a", " dozen", " people", " [1]", "."],
+                                    ["It", " costs", " 1", "2,000", " a", " month", " [1]", "."],
+                                    ["Response", " is", " thirty", " minutes", " [1]", "."],
+                                    ["A", " discount", " of", " five", " percent", " [1]", "."],
+                                    ["It", " is", " $", "5,200", " [1]", "."],
+                                    ["Yes", " [1]", ".", " It", " is", " 5", ".", "200", " USD", " [1]", "."]])
+def test_number_words_and_split_figures_never_stream(tokens):
+    ev = run(tokens, passages=[RATE])
+    assert not re.search(r"\d|\b(?:one|two|thirty|five|dozen)\b|\ban?\s*$", shown(ev), re.I), shown(ev)
+
+
+@pytest.mark.parametrize("tokens", [["None", " of", " the", " passages", " say", "."],
+                                    ["The", " passages", " do", " not", " cover", " this", "."],
+                                    ["No", " passage", " answers", " it", "."], ["None", "."]])
+def test_none_forms_hand_over(tokens):
+    ev = run(tokens)
+    assert len(ev) == 1 and ev[0].check.reasons == ["none"]
+
+
+@pytest.mark.parametrize("mark", [" [1, 2]", " [1][2]", " (1)", " 【1】"])
+def test_marker_forms(mark):
+    ev = run(["Senior", " engineer", " offshore", " is", " USD", " 5,200", " a", " month", mark, "."])
+    assert sents(ev) == [(0, "Senior engineer offshore is USD 5,200 a month.", True, None)] and ev[-1].check.ok
+
+
+def test_client_name_in_uncited_sentence_dropped():
     now = time.time()
     ev = list(stream_library_answer("q?", [FAQ], ["Larkspur Retail Group"], FakeOllama(["Larkspur", " liked", " it", "."]), now, now))
-    assert [e for e in ev if isinstance(e, Sentence)][0].reason == "uncited_claim"
+    assert sents(ev) == [(0, "", False, "uncited")] and not ev[-1].check.ok
+
+
+class Boom:
+    def __init__(self, after):
+        self.after = after
+
+    def stream(self, messages, model, options=None, **kw):
+        yield from self.after
+        raise RuntimeError("ollama: boom")
+
+
+@pytest.mark.parametrize("before", [[], ["Mixed", " teams"]])
+def test_ollama_error_degrades(before):
+    now = time.time()
+    ev = list(stream_library_answer("q?", [FAQ], [], Boom(before), now, now))
+    assert ev[-1].check.kind == "not_in_material" and ev[-1].check.reasons == ["ollama_error"]
+    assert any(isinstance(e, Delta) for e in ev) == bool(before)
 
 
 def test_prefill_sends_the_answer_prefix():
@@ -123,6 +190,7 @@ def test_prefill_sends_the_answer_prefix():
 
 # ---------- live models (Ollama on 11434, the seeded library in Weaviate on 8080) ----------
 
+PREFILL = os.environ.get("FLECK_TEST_NO_PREFILL") is None  # set it once to see the test fail (control)
 CLIENTS = ["Larkspur Retail Group", "Calloway & Marsh", "Brightwater Insurance", "Meridian Intelligence"]
 
 
@@ -165,14 +233,17 @@ def _ttft(ollama, passages, question):
 def test_prefill_halves_first_token_time():
     ol = OllamaClient()
     base = [RATE, FAQ]
+    big = Passage(n=3, doc_id="x", chunk_id="x-0", title="Capabilities", client=None, kind="firm",
+                  text="Capabilities\n" + "We build data platforms. " * 60)
     cold, warm = [], []
     for _ in range(3):
-        # a fresh passage each round, so nothing is cached
-        ps = [*base, Passage(n=3, doc_id="x", chunk_id=f"x-{os.urandom(4).hex()}", title="Capabilities", client=None,
-                             kind="firm", text=f"Capabilities {time.time_ns()}\n" + "We build data platforms. " * 60)]
-        cold.append(_ttft(ol, ps, "What does a senior engineer cost per month, offshore?"))
-        ps[2] = ps[2].model_copy(update={"text": ps[2].text + " v2"})
-        prefill(ps, "What does a senior", ol)
+        # a nonce at the start of passage 1, new for the warm run too: only prefill can have cached the prompt
+        def fresh():
+            return [base[0].model_copy(update={"text": f"{os.urandom(4).hex()} {base[0].text}"}), base[1], big]
+        cold.append(_ttft(ol, fresh(), "What does a senior engineer cost per month, offshore?"))
+        ps = fresh()
+        if PREFILL:
+            prefill(ps, "What does a senior", ol)
         warm.append(_ttft(ol, ps, "What does a senior engineer cost per month, offshore?"))
     print(f"ttft cold {cold} prefilled {warm}")
     assert statistics.median(warm) <= 0.5 * statistics.median(cold)

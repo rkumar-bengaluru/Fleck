@@ -148,27 +148,3 @@ def test_firm_ranks_first_and_one_reference_kept(stub):
     assert [(p.n, p.doc_id) for p in got] == [(1, "3"), (2, "5"), (3, "1")]
     state["hits"] = [_hit(1, "reference"), _hit(2, "reference"), _hit(4, "reference")]  # no firm/client passage: references are all there is
     assert len(Retriever(url, Embedder(url), "Passage").search("q", limit=3)) == 3
-
-
-def _mock_retriever(hybrid: list[tuple[str, str]], bm25_top: str):
-    """Retriever over a fake Weaviate: hybrid returns (chunk_id, kind) rows in order, bm25 its one top chunk."""
-    def handler(req):
-        q = json.loads(req.content)["query"]
-        rows = [(c, k) for c, k in hybrid if c == bm25_top] if "bm25:" in q else hybrid
-        hits = [{"text": c, "doc_id": c, "chunk_id": c, "title": c, "client": None, "kind": k, "_additional": {"score": "0.5"}} for c, k in rows]
-        return httpx.Response(200, json={"data": {"Get": {"Passage": hits}}})
-
-    class Emb:
-        def embed_query(self, q):
-            return [0.0]
-
-    r = Retriever("http://w", Emb())
-    r.client = httpx.Client(base_url="http://w", transport=httpx.MockTransport(handler))
-    return r
-
-
-def test_reference_with_the_top_keyword_hit_takes_the_last_slot():
-    hybrid = [("rate", "firm"), ("cardlytics", "reference"), ("sow", "client"), ("photronics", "reference"), ("faq", "firm")]
-    assert [p.chunk_id for p in _mock_retriever(hybrid, "photronics").search("cap liability?")] == ["rate", "sow", "photronics"]
-    assert [p.chunk_id for p in _mock_retriever(hybrid, "faq").search("cap liability?")] == ["rate", "sow", "faq"]
-    assert [p.chunk_id for p in _mock_retriever(hybrid[:2], "cardlytics").search("q")] == ["rate", "cardlytics"]

@@ -1,5 +1,6 @@
 import dataclasses
 import json
+import logging
 import queue
 import re
 import threading
@@ -11,11 +12,13 @@ import httpx
 
 from .numbers import extract_figures
 from .prompts import build_messages
-from .types import Passage
+from .types import Citation, Passage
 from .validate import NOT_IN_MATERIAL, LibraryCheck, check_library_answer, split_sentences
 
 MODEL = "qwen3:4b-q4_K_M"  # decision 72
 OPTIONS = {"temperature": 0, "num_predict": 160}  # 3 short sentences fit in ~100 tokens
+MAX_SENTENCES = 3  # spec 7.4 rule 1: at most 3 short cited sentences; the stream is closed after the third
+log = logging.getLogger("fleck.answer")
 FIRST_TOKEN_S, DONE_S = 4.0, 8.0  # from started_wall; past either the answer is "Not in our material" (timeout)
 
 
@@ -54,11 +57,13 @@ class Delta:
 
 @dataclass
 class Sentence:
-    """Sentence `index` is complete and checked: its text replaces every Delta shown for that index."""
+    """Sentence `index` is complete and checked: its text replaces every Delta shown for that index. Empty text
+    (reason "uncited") removes the index. `citations` are the passages it cites, for the failed-sentence link."""
     index: int
     text: str
     ok: bool
     reason: str | None
+    citations: list[Citation] = dataclasses.field(default_factory=list)
 
 
 @dataclass
@@ -75,16 +80,39 @@ class Superseded:
 
 AssistUpdate = Delta | Sentence | Done | Superseded
 _EOS = object()
-_PARTIAL_MARK = re.compile(r"\s*\[\d*$")
+_PARTIAL_MARK = re.compile(r"\s*[\[(【][\d,\s]*$")
+_NUMBER_WORD_TAIL = re.compile(r"\s*\b(?:one|two|an?)\s*$", re.I)  # "need one" becomes a figure once "engineer" comes
+# replies that mean NONE: handed to the fallback like NONE itself
+_NONE_FORMS = ("none of the passages", "the passages do not", "the passages don't", "the passages does not",
+               "the provided passages do not", "no passage", "not in the passages")
+
+
+def _norm_marks(t: str) -> str:
+    """[1, 2] -> [1][2]; (1) before a sentence end, and 【1】 -> [1]."""
+    t = re.sub(r"【\s*(\d+)\s*】", r"[\1]", t)
+    t = re.sub(r"\[(\d+(?:\s*,\s*\d+)+)\]", lambda m: "".join(f"[{n}]" for n in re.findall(r"\d+", m[1])), t)
+    return re.sub(r"\(([1-9])\)(?=\s*(?:[.!?]|$|\[))", r"[\1]", t)
 
 
 def _display(raw: str) -> str:
     return _PARTIAL_MARK.sub("", re.sub(r"\s*\[\d+\]", "", raw)).lstrip()
 
 
+def _none_state(text: str, final: bool) -> str:
+    """'none', 'wait' (could still become a NONE form) or 'no'."""
+    s = text.lstrip()
+    low = s.lower()
+    if re.match(r"NONE\b", s) or any(low.startswith(f) for f in _NONE_FORMS) or (final and re.fullmatch(r"none\W*", low)):
+        return "none"
+    if not final and ((s.startswith("N") and len(s) < 6) or any(f.startswith(low) for f in _NONE_FORMS)):
+        return "wait"
+    return "no"
+
+
 def _pump(ollama, messages: list[dict], q: queue.Queue, stop: threading.Event) -> None:
-    tokens = ollama.stream(messages, MODEL, options=OPTIONS)
+    tokens = None
     try:
+        tokens = ollama.stream(messages, MODEL, options=OPTIONS)
         for t in tokens:
             if stop.is_set():
                 return
@@ -93,7 +121,8 @@ def _pump(ollama, messages: list[dict], q: queue.Queue, stop: threading.Event) -
     except Exception as e:  # handed to the consumer's thread
         q.put(e)
     finally:
-        tokens.close()  # closes the HTTP stream, so Ollama stops generating
+        if tokens is not None:
+            tokens.close()  # closes the HTTP stream, so Ollama stops generating
 
 
 def stream_library_answer(question: str, passages: list[Passage], client_names: list[str], ollama: OllamaClient,
@@ -101,73 +130,95 @@ def stream_library_answer(question: str, passages: list[Passage], client_names: 
     """Stream a cited answer from `passages` through qwen3:4b, checking each sentence (spec 7.4 rules 1-3).
 
     Event contract for a consumer: show each Delta's text appended to sentence `index` (sentences are joined with
-    one space). When Sentence(index, ...) arrives, replace everything shown for that index with Sentence.text,
-    which is "Not in our material" when the sentence failed its check. A sentence gets Deltas only until a figure
-    appears in it; the rest is held until the Sentence. Done ends the stream; if Done.check is not ok, replace the
-    whole answer with "Not in our material" (kind not_in_material: NONE, no valid citation, or reason timeout).
-    Times are wall clock (time.time()); first_words_ms and full_ms are measured from question_end_wall, the
-    timeouts (FIRST_TOKEN_S to the first token, DONE_S to the end) from started_wall. Stopping iteration
-    (generator close) cancels the Ollama request. An Ollama error is raised to the consumer."""
+    one space). When Sentence(index, ...) arrives, replace everything shown for that index with Sentence.text:
+    "Not in our material" when the sentence failed its check (link it to Sentence.citations), or "" (reason
+    "uncited") to remove the index. A sentence gets Deltas only until a figure appears in it; the rest is held, and
+    a trailing "one", "two", "a" or "an" waits for the next word. After MAX_SENTENCES cited sentences the stream
+    is closed. Done ends the stream; if Done.check is not ok, replace the whole answer with "Not in our material"
+    (kind not_in_material; reasons ["none"] for NONE, which hands over to the fallback, ["timeout"],
+    ["ollama_error"], or the check's own). Times are wall clock (time.time()); first_words_ms and full_ms are
+    measured from question_end_wall, the timeouts (FIRST_TOKEN_S to the first token, DONE_S to the end) from
+    started_wall. Stopping iteration (generator close) cancels the Ollama request."""
     q: queue.Queue = queue.Queue()
     stop = threading.Event()
     threading.Thread(target=_pump, args=(ollama, build_messages(question, passages), q, stop), daemon=True).start()
-    text, pos, index, shown, held, got, decided = "", 0, 0, "", False, False, False
+    by_n = {p.n: p for p in passages}
+    text, pos, index, shown, held, got, decided, cited_n = "", 0, 0, "", False, False, False, 0
     first_words: int | None = None
 
     def ms() -> int:
         return round((time.time() - question_end_wall) * 1000)
 
+    def degraded(reason: str) -> Done:
+        return Done(dataclasses.replace(check_library_answer("", passages), reasons=[reason]), first_words, ms())
+
     def emit(final: bool) -> Iterator[AssistUpdate]:
-        nonlocal pos, index, shown, held, first_words
+        nonlocal pos, index, shown, held, first_words, cited_n
         pieces = split_sentences(text[pos:])
         n = len(pieces) if final else len(pieces) - 1
         if not final and n > 0 and pieces[-1].startswith("["):
             n -= 1  # "... end. [" : the citation marker is still arriving
         for piece in pieces[:n]:
             pos = text.index(piece, pos) + len(piece)
-            checked = check_library_answer(piece, passages, client_names).sentences
+            checked = check_library_answer(piece, passages, client_names, question).sentences
             sc = checked[0] if checked else None
             first_words = first_words if first_words is not None else ms()
-            yield Sentence(index, sc.display_text if sc else NOT_IN_MATERIAL, bool(sc and sc.ok), sc.reason if sc else "none")
+            if not sc or not sc.cited:
+                yield Sentence(index, "", False, "uncited")
+            else:
+                cits = [Citation(**by_n[c].model_dump(include=set(Citation.model_fields))) for c in dict.fromkeys(sc.cited) if c in by_n]
+                yield Sentence(index, sc.display_text, sc.ok, sc.reason, cits)
+                cited_n += 1
             index, shown, held = index + 1, "", False
+            if cited_n >= MAX_SENTENCES:
+                return
         disp = _display(text[pos:])
         if held or final:
             return
         if extract_figures(disp):
             held = True
-        elif len(disp) > len(shown) and disp.startswith(shown):
+            return
+        disp = _NUMBER_WORD_TAIL.sub("", disp)
+        if len(disp) > len(shown) and disp.startswith(shown):
             first_words = first_words if first_words is not None else ms()
             yield Delta(index, disp[len(shown):])
             shown = disp
 
-    def none_reply() -> bool:
-        return re.match(r"NONE\b", text.lstrip()) is not None
+    def done() -> Done:
+        return Done(check_library_answer(text[:pos], passages, client_names, question), first_words, ms())
 
     try:
         while True:
             wait = started_wall + (DONE_S if got else min(FIRST_TOKEN_S, DONE_S)) - time.time()
             try:
-                tok = q.get(timeout=max(wait, 0)) if wait > 0 else q.get_nowait()
+                if wait <= 0:  # past the deadline even if tokens keep coming
+                    raise queue.Empty
+                tok = q.get(timeout=wait)
             except queue.Empty:
-                yield Done(dataclasses.replace(check_library_answer("", passages), reasons=["timeout"]), first_words, ms())
+                yield degraded("timeout")
                 return
             if isinstance(tok, Exception):
-                raise tok
+                log.warning("ollama failed during a live answer: %s", tok)
+                yield degraded("ollama_error")
+                return
             if tok is _EOS:
-                if none_reply():
+                if _none_state(text, final=True) == "none":
                     break
                 yield from emit(final=True)
-                yield Done(check_library_answer(text, passages, client_names), first_words, ms())
+                yield done()
                 return
-            got, text = True, text + tok
+            got, text = True, _norm_marks(text + tok)
             if not decided:
-                s = text.lstrip()
-                if s.startswith("N") and len(s) < 6:
-                    continue  # might still be NONE
+                state = _none_state(text, final=False)
+                if state == "wait":
+                    continue
                 decided = True
-                if none_reply():
+                if state == "none":
                     break
             yield from emit(final=False)
+            if cited_n >= MAX_SENTENCES:
+                yield done()
+                return
         yield Done(check_library_answer("NONE", passages), None, ms())
     finally:
         stop.set()

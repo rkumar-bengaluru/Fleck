@@ -280,12 +280,26 @@ def test_table_labels_bind_figures(answer, ok):
     assert check_library_answer(answer, _mk(TABLE)).ok is ok
 
 
-def test_past_client_price_is_never_a_quote():
-    # clients/larkspur-retail/proposal-2025.md, Commercials (a past client's price; Task 13 ruling 1)
-    prop = Passage(n=4, doc_id="larkspur-proposal", chunk_id="c4", title="Proposal: Order management modernisation for Larkspur Retail Group",
-                   client="Larkspur Retail Group", kind="client",
-                   text="## Commercials\n\nDiscovery fixed at USD 38,000. Build and cutover on fixed price USD 1.42M, milestone billing. Hypercare: 8 weeks included.")
-    r = check_library_answer("Discovery is fixed at USD 38,000 [4]. Hypercare is 8 weeks [4].", [*P, prop])
-    assert [s.reason for s in r.sentences] == ["client_price", None]
-    assert not check_library_answer("Build and cutover is USD 1.42M [4][1].", [*P, prop]).sentences[0].ok  # a firm cite doesn't launder it
-    assert check_library_answer("A senior engineer offshore is USD 5,200 a month [1][4].", [*P, prop]).ok
+
+LARK_PROP = Passage(n=4, doc_id="larkspur-proposal", chunk_id="c4", title="Proposal: Order management modernisation for Larkspur Retail Group",
+                    client="Larkspur Retail Group", kind="client",
+                    text="## Commercials\n\nDiscovery fixed at USD 38,000. Build and cutover on fixed price USD 1.42M, milestone billing. Hypercare: 8 weeks included.")
+LARK_CASE = Passage(n=5, doc_id="larkspur-case", chunk_id="c5", title="Case study: Larkspur Retail Group", client="Larkspur Retail Group", kind="client",
+                    text="A 2009 on-premise order management system failed during Black Friday 2024, costing an estimated USD 2.1M in lost sales.")
+
+
+@pytest.mark.parametrize("answer", ["Discovery is fixed at 38,000 [4].", "Build and cutover is a fixed 1.42M [4].",
+                                    "Build is fixed at 1.42 million [4].", "Discovery is USD 38,000 [4][1].", "Hypercare is 8 weeks [4]."])
+def test_past_client_figure_is_never_a_quote(answer):
+    r = check_library_answer(answer, [*P, LARK_PROP], ["Larkspur Retail Group"], "Ballpark, what would the whole project cost us?")
+    assert r.sentences[0].reason == "client_figure" and not r.ok
+
+
+def test_client_figure_allowed_only_when_attributed_and_not_a_price_question():
+    s = "Larkspur saw USD 2.1M less lost sales [5]."
+    ps = [*P, LARK_CASE]
+    assert check_library_answer(s, ps, ["Larkspur Retail Group"], "Have you modernised order management for a retailer?").ok
+    assert check_library_answer(s, ps, ["Larkspur Retail Group"], "what would this cost us ballpark").sentences[0].reason == "client_figure"
+    unnamed = "The old system lost USD 2.1M in sales [5]."
+    assert check_library_answer(unnamed, ps, [], "Have you modernised order management for a retailer?").sentences[0].reason == "client_figure"
+    assert check_library_answer("A senior engineer offshore is USD 5,200 a month [1][4].", [*P, LARK_PROP]).ok  # firm figure

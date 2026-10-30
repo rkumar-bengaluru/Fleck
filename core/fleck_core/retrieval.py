@@ -190,23 +190,16 @@ class Retriever:
 
     def search(self, question: str, limit: int = 3, client_slug: str | None = None) -> list[Passage]:
         """Hybrid search gated by vector distance. Firm and client passages rank ahead of reference contracts, and
-        at most one reference passage is kept when any firm or client passage passed the gate. When ours fill every
-        slot, the top keyword (BM25) hit takes the last one if it is a reference that passed the gate: a contract
-        holding the question's exact words ("cap liability at twelve months") beats our third-best passage."""
+        at most one reference passage is kept when any firm or client passage passed the gate."""
         try:
             vec = json.dumps(self.embedder.embed_query(question))
             where = f'where:{{path:["client_slug"],operator:Equal,valueText:{json.dumps(client_slug)}}},' if client_slug else ""
             max_d = float(os.environ.get("FLECK_RETRIEVAL_MAX_DISTANCE", "0.60"))
             hits = self._get(f"{where}hybrid:{{query:{json.dumps(question)},vector:{vec},alpha:0.5,maxVectorDistance:{max_d},properties:[\"text\",\"title\"]}},limit:{max(limit, 6)}", "score")
-            own = [h for h in hits if h["kind"] != "reference"]
-            refs = [h for h in hits if h["kind"] == "reference"]
-            picked = own + refs[: 1 if own else limit]
-            if len(own) >= limit and refs:
-                kw = self._get(f"{where}bm25:{{query:{json.dumps(question)},properties:[\"text\",\"title\"]}},limit:1", "score")
-                if ref := next((h for h in refs if kw and h["chunk_id"] == kw[0]["chunk_id"]), None):
-                    picked = own[: limit - 1] + [ref]
         except httpx.TimeoutException as e:
             raise RetrievalTimeout(f"search timed out: {type(e).__name__}") from e
         except (httpx.HTTPError, RuntimeError) as e:
             raise RetrievalError(f"search failed: {e}") from e
+        own = [h for h in hits if h["kind"] != "reference"]
+        picked = own + [h for h in hits if h["kind"] == "reference"][: 1 if own else limit]
         return [Passage(n=i, **{k: h[k] for k in ("doc_id", "chunk_id", "text", "title", "client", "kind")}) for i, h in enumerate(picked[:limit], 1)]

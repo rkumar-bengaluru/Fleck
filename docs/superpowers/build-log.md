@@ -372,3 +372,19 @@ Live §8 questions (title, kind, nearest-vector distance):
   - The fixes: the direct "reply NONE" price rule, the `client_price` code check, and the BM25 reference slot.
   - Photronics art. 9 is now passage [3]. qwen3:4b still replies NONE while the rate card's "Other terms" passage is present.
 - Suites: `uv run pytest -m "not ollama" -q` 359 passed, EXIT 0; helper 98 passed, EXIT 0; `-m ollama` 11 passed, EXIT 0.
+- Fix round 1 (review: Needs fixes; controller rulings):
+  - Streaming:
+    - A trailing "one/two/a/an" is held until the next word.
+    - Ollama errors end in `Done` with reason `ollama_error`.
+    - Past the deadline the answer times out even while tokens keep arriving. This was a real hang: the old `get_nowait` drained an endless stream.
+    - NONE forms ("None of the passages…", "The passages do not…", "No passage…") count as NONE.
+    - `[1, 2]`, `(1)` and `【1】` are normalised to `[n]`.
+    - An uncited sentence gives `Sentence(i, "", False, "uncited")`, which removes it.
+    - The stream closes after 3 cited sentences. `Sentence` carries `citations`.
+  - validate: `client_price` is replaced by `client_figure`, which matches values of any kind and takes `question` (decision 100 amended).
+  - Retrieval: the BM25 slot is dropped (decision 99), and retrieval.py is back at e2a0c88.
+  - q_liability is recorded as a known limit (decision 101).
+  - The prefill test now puts a fresh nonce at the start of passage 1. Control with `FLECK_TEST_NO_PREFILL=1`: cold 0.45–0.49 s vs "warm" 0.49–0.76 s, FAILED as intended.
+  - measure_answers.py, first run after the fix: PASS 5, PASS → fallback 2 (q_general, q_price), FALLBACK (known limit, decision 101) 1 (q_liability), exit 0.
+    - Cite rate 5/8, NONE 3/8, rejection 0/9, uncited dropped 2/9. The dropped sentences were q_ip's "The client owns…" and q_case's "Yes, we have…"; the model cited only the later sentence in each.
+    - first_words p50/p95: 247/467 ms without prefill, 118/242 ms with prefill.

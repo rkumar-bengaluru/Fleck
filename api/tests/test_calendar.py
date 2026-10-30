@@ -10,7 +10,7 @@ from sqlalchemy import func, select, update
 from fleck_api import auth, calendar_sync
 from fleck_api.calendar_sync import meeting_link, schedule_syncs, sync_user
 from fleck_api.jobs import enqueue, run_once
-from fleck_api.models import Brief, CalendarEvent, Client, Device, GoogleToken, Job, Meeting, User
+from fleck_api.models import Brief, CalendarEvent, Client, Device, Document, GoogleToken, Job, Meeting, User
 from fleck_gsim.app import create_app as gsim_app
 from test_auth import _sign_in, env  # noqa: F401  (env is a fixture)
 
@@ -211,7 +211,49 @@ def test_refused_refresh_removes_tokens_without_retry(env, caplog):
         assert s.scalar(select(GoogleToken)) is None  # the scheduler stops until the next sign-in
         assert schedule_syncs(s) == 0
     assert "Google refused the tokens" in caplog.text and "revoked" not in caplog.text
-    assert _events(make) == {}
+
+
+def test_unreadable_tokens_are_removed(env):
+    client, gs, make = env
+    uid = _signed_in(env)
+    with make() as s:
+        s.execute(update(GoogleToken).values(token_enc="garbage"))
+        s.commit()
+        sync_user(s, uid)
+        assert s.scalar(select(GoogleToken)) is None
+    assert client.get("/api/calendar/status").json() == {"connected": False, "syncing": False}
+
+
+def test_first_sign_in_syncs_inline_and_falls_back_to_the_job(env, monkeypatch):
+    client, gs, make = env
+    _sign_in(client, gs, "rupak@northbeam.test")
+    assert any(e["title"] == "Presales: demo prospect" for e in client.get("/api/events", params={"range": "today"}).json())
+    assert client.get("/api/calendar/status").json() == {"connected": True, "syncing": False}
+    _sign_in(client, gs, "rupak@northbeam.test")  # later sign-ins queue the sync
+    assert client.get("/api/calendar/status").json() == {"connected": True, "syncing": True}
+
+    def slow(*a, **k):
+        raise TimeoutError("calendar too slow")
+    monkeypatch.setattr(calendar_sync, "_fetch", slow)
+    _sign_in(client, gs, "priya@northbeam.test")  # first sign-in, inline sync fails: the job takes over
+    with make() as s:
+        pid = s.scalar(select(User.id).where(User.email == "priya@northbeam.test"))
+        assert s.scalar(select(Job.id).where(Job.payload == {"user_id": pid}, Job.status == "queued")) is not None
+        assert s.scalar(select(GoogleToken).where(GoogleToken.user_id == pid)) is not None
+
+
+def test_clients_say_when_they_are_reference_only(env):
+    client, gs, make = env
+    _signed_in(env)
+    with make() as s:
+        for name, kinds in (("Kubient", ["reference"]), ("Larkspur", ["client", "reference"]), ("Harbourline Legal", [])):
+            c = Client(name=name, slug=name.lower().replace(" ", "-"))
+            s.add(c)
+            s.flush()
+            s.add_all([Document(client_id=c.id, kind=k, title=k, filename=f"{k}.md", blob_key=k) for k in kinds])
+        s.commit()
+    got = {c["name"]: c["reference_only"] for c in client.get("/api/clients").json()}
+    assert got == {"Kubient": True, "Larkspur": False, "Harbourline Legal": False}
 
 
 def test_calendar_401_removes_tokens_without_retry(env):
@@ -244,8 +286,8 @@ def test_transient_refresh_failure_keeps_tokens(env, monkeypatch, caplog):
 
 def test_sign_in_does_not_double_enqueue(env):
     client, gs, make = env
-    _sign_in(client, gs, "rupak@northbeam.test")
-    _sign_in(client, gs, "rupak@northbeam.test")
+    for _ in range(3):  # the first syncs inline, the second queues, the third finds it queued
+        _sign_in(client, gs, "rupak@northbeam.test")
     with make() as s:
         assert s.scalar(select(func.count()).select_from(Job).where(Job.kind == "sync_calendar")) == 1
         assert schedule_syncs(s) == 0

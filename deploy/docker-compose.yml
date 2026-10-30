@@ -36,7 +36,7 @@ services:
   gsim:
     restart: unless-stopped
     build: {context: .., dockerfile: gsim/Dockerfile}
-    environment: {TZ: "${TZ:-UTC}"}
+    environment: {TZ: "${TZ:-UTC}", GSIM_DEMO_START: "${GSIM_DEMO_START:-}"}
     ports: ["127.0.0.1:8090:8090"]
   api:
     restart: unless-stopped

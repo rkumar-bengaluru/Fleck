@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { safeNext, session, type CalendarEvent } from "../src/api";
-import { suggestedClient } from "../src/components/ClientSelect";
+import { domainStem, newClientName } from "../src/components/ClientSelect";
 import Settings from "../src/routes/Settings";
 import SignIn from "../src/routes/SignIn";
 import Today, { whoLine } from "../src/routes/Today";
@@ -44,7 +44,10 @@ beforeEach(() => {
     const json = (b: unknown) => new Response(JSON.stringify(b), { status: 200 });
     if (url.startsWith("/api/events?range=today")) return json([ended, demo, pricing, dropped]);
     if (url.startsWith("/api/events?range=upcoming")) return json([standup, orion]);
-    if (url === "/api/clients") return json([{ id: 3, name: "Harbourline Legal", slug: "harbourline-legal" }]);
+    if (url === "/api/clients") return json([{ id: 3, name: "Harbourline Legal", slug: "harbourline-legal", reference_only: false },
+                                             { id: 5, name: "Kubient", slug: "kubient", reference_only: true },
+                                             { id: 6, name: "Larkspur Retail Group", slug: "larkspur", reference_only: false }]);
+    if (url === "/api/calendar/status") return json({ connected: true, syncing: false });
     if (url === "/api/devices") return json([{ id: 1, name: "Mac", last_seen: new Date().toISOString() }]);
     if (url === "/api/events/7/client") return json({ ...demo, client: { id: 3, name: "Harbourline Legal" } });
     return new Response("{}", { status: 404 });
@@ -76,8 +79,11 @@ test("renders today's events from /api/events", async () => {
 test("client select calls PUT /api/events/{id}/client", async () => {
   render(<MemoryRouter><Today me={me} /></MemoryRouter>);
   const select = (await screen.findAllByLabelText("Client"))[1] as HTMLSelectElement;
-  await waitFor(() => expect(select.querySelectorAll("option").length).toBe(3));
-  expect([...select.querySelectorAll("option")].map(o => o.textContent)).toEqual(["Choose a client", "New client: Harbourline", "Harbourline Legal"]);
+  await waitFor(() => expect(select.querySelectorAll("option").length).toBe(4));
+  // suggestion first (never auto-linked), reference-only clients hidden, New client last from the title
+  expect([...select.querySelectorAll("option")].map(o => o.textContent))
+    .toEqual(["Choose a client", "Suggested: Harbourline Legal", "Larkspur Retail Group", "New client: demo prospect"]);
+  expect(select.value).toBe("");
   expect(screen.getByText("Link a client for a fuller brief.")).toBeTruthy();
   fireEvent.change(select, { target: { value: "3" } });
   await waitFor(() => expect(calls.some(c => c.method === "PUT")).toBe(true));
@@ -95,14 +101,46 @@ test("internal meeting without a client shows No client", async () => {
   expect(whoLine({ ...pricing, attendees: [], meeting_link: "https://zoom.us/j/1" }, "northbeam.test")).toBe("Zoom.");
 });
 
-test("new-client suggestion comes from the guests' email domain, else the title", () => {
-  const guest = (email: string) => ({ ...pricing, title: "Discovery: Orion Freight",
+test("domain stem and the New client name", () => {
+  const guest = (email: string, title = "Discovery: Orion Freight") => ({ ...pricing, title,
     attendees: [{ email: "rupak@northbeam.test", name: null, self: true }, { email, name: null, self: false }] });
-  expect(suggestedClient(demo, "northbeam.test")).toBe("Harbourline");
-  expect(suggestedClient(guest("sam@orion-freight.co.uk"), "northbeam.test")).toBe("Orion Freight");
-  expect(suggestedClient(guest("sam@eu.acme.com"), "northbeam.test")).toBe("Acme");
-  expect(suggestedClient(guest("sam@gmail.com"), "northbeam.test")).toBe("Orion Freight");  // personal mail: use the title
-  expect(suggestedClient(pricing, "northbeam.test")).toBeNull();
+  expect(domainStem(demo, "northbeam.test")).toBe("Harbourline");
+  expect(domainStem(guest("sam@orion-freight.co.uk"), "northbeam.test")).toBe("Orion Freight");
+  expect(domainStem(guest("sam@eu.acme.com"), "northbeam.test")).toBe("Acme");
+  expect(domainStem(guest("sam@gmail.com"), "northbeam.test")).toBeNull();  // personal mail
+  expect(domainStem(pricing, "northbeam.test")).toBeNull();  // colleagues only
+  expect(newClientName(guest("sam@orionfreight.test"), "northbeam.test")).toBe("Orion Freight");  // the title wins
+  expect(newClientName(guest("sam@orionfreight.test", "Weekly catch-up"), "northbeam.test")).toBe("Orionfreight");
+  expect(newClientName(guest("sam@gmail.com", "Catch-up"), "northbeam.test")).toBeNull();
+});
+
+test("calendar status lines, Upcoming links", async () => {
+  override["/api/calendar/status"] = () => new Response(JSON.stringify({ connected: true, syncing: true }), { status: 200 });
+  render(<MemoryRouter><Today me={me} /></MemoryRouter>);
+  expect((await screen.findByRole("status")).textContent).toBe("Syncing your calendar…");
+  const reads = calls.filter(c => c.url.startsWith("/api/events?range=today")).length;
+  override["/api/calendar/status"] = () => new Response(JSON.stringify({ connected: true, syncing: false }), { status: 200 });
+  await waitFor(() => expect(screen.queryByRole("status")).toBeNull(), { timeout: 3_000 });  // re-checked within 2 s
+  await waitFor(() => expect(calls.filter(c => c.url.startsWith("/api/events?range=today")).length).toBe(reads + 1));
+  expect(screen.getByRole("link", { name: /Discovery: Orion Freight/ }).getAttribute("href")).toBe("/events/9");
+  cleanup();
+  override["/api/calendar/status"] = () => new Response(JSON.stringify({ connected: false, syncing: false }), { status: 200 });
+  render(<MemoryRouter><Today me={me} /></MemoryRouter>);
+  expect((await screen.findByRole("alert")).textContent).toBe("Calendar not synced. Sign in again");
+  expect(screen.getByRole("link", { name: "Sign in again" }).getAttribute("href")).toBe("/api/auth/login");
+});
+
+test("Today polls events every 30 s", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    render(<MemoryRouter><Today me={me} /></MemoryRouter>);
+    await screen.findByRole("heading", { name: "Presales: demo prospect" });
+    const before = calls.filter(c => c.url.startsWith("/api/events?range=today")).length;
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(calls.filter(c => c.url.startsWith("/api/events?range=today")).length).toBe(before + 1);
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 test("a 401 anywhere sends the browser to sign-in with a return path, never the empty day", async () => {
@@ -133,7 +171,7 @@ test("a failed client save shows an error and keeps focus on the select", async 
   override["/api/events/7/client"] = () => new Response("{}", { status: 500 });
   render(<MemoryRouter><Today me={me} /></MemoryRouter>);
   const select = (await screen.findAllByLabelText("Client"))[1] as HTMLSelectElement;
-  await waitFor(() => expect(select.querySelectorAll("option").length).toBe(3));
+  await waitFor(() => expect(select.querySelectorAll("option").length).toBe(4));
   select.focus();
   fireEvent.change(select, { target: { value: "3" } });
   expect(select.getAttribute("aria-busy")).toBe("true");
@@ -149,8 +187,9 @@ test("New client is offered only once clients have loaded; a failed client load 
   render(<MemoryRouter><Today me={me} /></MemoryRouter>);
   const select = (await screen.findAllByLabelText("Client"))[1] as HTMLSelectElement;
   expect([...select.querySelectorAll("option")].map(o => o.textContent)).toEqual(["Choose a client"]);
-  release(new Response(JSON.stringify([{ id: 4, name: "Harbourline", slug: "harbourline" }]), { status: 200 }));
-  await waitFor(() => expect([...select.querySelectorAll("option")].map(o => o.textContent)).toEqual(["Choose a client", "Harbourline"]));
+  release(new Response(JSON.stringify([{ id: 4, name: "Demo Prospect", slug: "demo-prospect" }]), { status: 200 }));
+  // "demo prospect" exists already, so no New client is offered for it
+  await waitFor(() => expect([...select.querySelectorAll("option")].map(o => o.textContent)).toEqual(["Choose a client", "Demo Prospect"]));
   cleanup();
   override["/api/clients"] = () => new Response("{}", { status: 500 });
   render(<MemoryRouter><Today me={me} /></MemoryRouter>);

@@ -1,5 +1,6 @@
 export interface Attendee { email: string | null; name: string | null; self: boolean }
-export interface ClientRef { id: number; name: string }
+export interface ClientRef { id: number; name: string; reference_only?: boolean }
+export interface CalendarStatus { connected: boolean; syncing: boolean }
 export interface CalendarEvent {
   id: number;
   title: string;

@@ -26,6 +26,7 @@ def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app):
         auth.check_secret_key()
+        auth.check_google_config()
         try:
             library.ensure_index()
         except Exception:  # weaviate may still be starting; /api/health reports it and the indexer retries

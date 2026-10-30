@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, browserZone, domain, setTitle, Unauthorized, type CalendarEvent, type ClientRef, type Device, type Me } from "../api";
+import { api, browserZone, domain, setTitle, Unauthorized, type CalendarEvent, type CalendarStatus, type ClientRef, type Device, type Me } from "../api";
 import ClientSelect from "../components/ClientSelect";
 
 const CONNECTED_MS = 60_000;
@@ -73,7 +73,7 @@ function useClients() {
   const [failed, setFailed] = useState(false);
   const load = () => {
     setFailed(false);
-    api<ClientRef[]>("/api/clients").then(setClients).catch(e => { if (!(e instanceof Unauthorized)) setFailed(true); });
+    api<ClientRef[]>("/api/clients").then(cs => setClients(cs.filter(c => !c.reference_only))).catch(e => { if (!(e instanceof Unauthorized)) setFailed(true); });
   };
   useEffect(load, []);
   const add = (c?: ClientRef) => c && setClients(cs => [...(cs ?? []), c].sort((a, b) => a.name.localeCompare(b.name)));
@@ -84,6 +84,7 @@ function useClients() {
 export default function Today({ me }: { me: Me }) {
   const [today, setToday] = useState<CalendarEvent[] | null>(null);
   const [failed, setFailed] = useState(false);
+  const [status, setStatus] = useState<CalendarStatus | null>(null);
   const [upcoming, setUpcoming] = useState<CalendarEvent[]>([]);
   const [devices, setDevices] = useState<Device[]>([]);
   const [clients, addClient, clientsError] = useClients();
@@ -98,12 +99,24 @@ export default function Today({ me }: { me: Me }) {
   };
   useEffect(() => {
     setTitle("Today");
+    const poll = () => {
+      api<Device[]>("/api/devices").then(setDevices).catch(() => {});
+      api<CalendarStatus>("/api/calendar/status").then(setStatus).catch(() => {});
+    };
     load();
-    const poll = () => api<Device[]>("/api/devices").then(setDevices).catch(() => {});
     poll();
-    const t = setInterval(() => { setNow(Date.now()); poll(); }, 30_000);
+    const t = setInterval(() => { setNow(Date.now()); load(); poll(); }, 30_000);  // picks up the worker's syncs
     return () => clearInterval(t);
   }, []);
+
+  useEffect(() => {  // while a sync runs, check every 2 s and reload the day when it finishes
+    if (!status?.syncing) return;
+    const t = setTimeout(() => api<CalendarStatus>("/api/calendar/status").then(s => {
+      setStatus(s);
+      if (!s.syncing) load();
+    }).catch(() => {}), 2_000);
+    return () => clearTimeout(t);
+  }, [status]);
 
   const connected = devices.some(d => d.last_seen && now - new Date(d.last_seen).getTime() < CONNECTED_MS);
   const nextId = today?.find(e => !e.cancelled && new Date(e.end_at).getTime() > now)?.id;
@@ -123,11 +136,13 @@ export default function Today({ me }: { me: Me }) {
             {new Date(now).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}.{" "}
             {today === null || failed ? "" : n ? `${n} meeting${n === 1 ? "" : "s"} from your Google Calendar.` : "No meetings from your Google Calendar."}
           </p>
+          {status?.connected && status.syncing && <p className="subtitle" role="status">Syncing your calendar…</p>}
         </div>
         <div className="pill"><span className={connected ? "pill-dot on" : "pill-dot"} />
           {connected ? "Desktop app connected" : "Desktop app not connected"}</div>
       </header>
 
+      {status && !status.connected && <p className="error" role="alert">Calendar not synced. <a href="/api/auth/login">Sign in again</a></p>}
       {failed && <Failed what="meetings" retry={load} />}
       {clientsError}
       <section aria-label="Today's meetings" className="meetings">
@@ -139,14 +154,14 @@ export default function Today({ me }: { me: Me }) {
           <h2 id="upcoming">Upcoming</h2>
           <div className="upcoming-list">
             {upcoming.map(e => (
-              <div key={e.id} className="upcoming-row">
+              <Link key={e.id} className="upcoming-row" to={`/events/${e.id}`}>
                 <span className="upcoming-when">{day(e.start_at)}, {time(e.start_at)}</span>
                 <span className="upcoming-title">
                   {e.cancelled ? <><s>{e.title}</s> <span className="upcoming-note">Cancelled in Google Calendar</span></> : e.title}
                   {e.repeats && <span className="upcoming-note"> · {e.repeats}</span>}
                 </span>
                 <span className="upcoming-client">{e.client?.name ?? "No client"}</span>
-              </div>
+              </Link>
             ))}
           </div>
         </section>

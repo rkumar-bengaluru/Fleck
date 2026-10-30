@@ -1,7 +1,8 @@
 """Google simulator: just enough OAuth + Calendar for sign-in, tests and the demo. Not secure by design."""
 import html
 from collections.abc import Callable
-from datetime import datetime, timedelta
+import os
+from datetime import datetime, time, timedelta
 from urllib.parse import parse_qs, urlencode
 
 from fastapi import FastAPI, HTTPException, Request
@@ -20,8 +21,17 @@ def _attendee(email: str, name: str, status: str = "accepted", **extra) -> dict:
     return {"email": email, "displayName": name, "responseStatus": status, **extra}
 
 
-def fixture_events(now: datetime, lo: datetime, hi: datetime) -> list[dict]:
-    """Calendar for the local day of `now`; recurring Standup is expanded per day inside [lo, hi)."""
+def demo_time(now: datetime) -> time:
+    """When the demo meeting starts: GSIM_DEMO_START=HH:MM, else the next whole hour after `now` (gsim's start),
+    never past 23:00 so it stays on the day. Fixed for the process so a demo isn't moved under the presenter."""
+    if v := os.environ.get("GSIM_DEMO_START"):
+        return time.fromisoformat(v)
+    return time(min(now.hour + 1, 23))
+
+
+def fixture_events(now: datetime, lo: datetime, hi: datetime, demo_at: time | None = None) -> list[dict]:
+    """Calendar for the local day of `now`, built around the demo meeting at `demo_at` (default: demo_time(now));
+    recurring Standup is expanded per day inside [lo, hi)."""
     def dt(d: datetime) -> dict:
         return {"dateTime": d.isoformat()}
 
@@ -30,8 +40,8 @@ def fixture_events(now: datetime, lo: datetime, hi: datetime) -> list[dict]:
                 "end": dt(start + timedelta(minutes=minutes)), **kw}
 
     midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    demo = min(now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1),
-               midnight + timedelta(hours=23))  # next whole hour, but never past 23:00 so it stays today
+    demo_at = demo_at or demo_time(now)
+    demo = midnight.replace(hour=demo_at.hour, minute=demo_at.minute)
     me = _attendee("rupak@northbeam.test", "Rupak K", organizer=True, self=True)
     events = [
         timed("evt-demo", "Presales: demo prospect", demo, 45,
@@ -73,6 +83,7 @@ def _page(body: str) -> HTMLResponse:
 
 def create_app(clock: Callable[[], datetime] = lambda: datetime.now().astimezone()) -> FastAPI:
     app = FastAPI(title="gsim")
+    demo_at = demo_time(clock())  # once per process, never per request
 
     @app.get("/health")
     def health():
@@ -130,7 +141,7 @@ def create_app(clock: Callable[[], datetime] = lambda: datetime.now().astimezone
         now = clock()
         lo = datetime.fromisoformat(timeMin.replace("Z", "+00:00")) if timeMin else now.replace(hour=0, minute=0, second=0, microsecond=0)
         hi = datetime.fromisoformat(timeMax.replace("Z", "+00:00")) if timeMax else lo + timedelta(days=7)
-        return {"kind": "calendar#events", "items": fixture_events(now, lo, hi)}
+        return {"kind": "calendar#events", "items": fixture_events(now, lo, hi, demo_at)}
 
     return app
 

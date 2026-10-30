@@ -319,17 +319,22 @@ class NewClient(BaseModel):
     name: str
 
 
+def _client_json(s: Session, c: Client) -> dict:
+    kinds = set(s.scalars(select(Document.kind).where(Document.client_id == c.id).distinct()))
+    # reference_only: every document is someone else's contract, so not a client to link a meeting to
+    return {"id": c.id, "name": c.name, "slug": c.slug, "reference_only": kinds == {"reference"}}
+
+
 @router.get("/clients")
 def list_clients(s: Session = Depends(get_session)):
-    return [{"id": c.id, "name": c.name, "slug": c.slug} for c in s.scalars(select(Client).order_by(Client.name))]
+    return [_client_json(s, c) for c in s.scalars(select(Client).order_by(Client.name))]
 
 
 @router.post("/clients")
 def create_client(body: NewClient, s: Session = Depends(get_session)):
     if not _slug(body.name):
         raise HTTPException(422, "Client name is required")
-    c = get_or_create_client(s, body.name)
-    return {"id": c.id, "name": c.name, "slug": c.slug}
+    return _client_json(s, get_or_create_client(s, body.name))
 
 
 @router.get("/library/documents")

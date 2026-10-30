@@ -53,12 +53,14 @@ h1 { margin: 0; font-size: 34px; line-height: 1.15; font-weight: 700; }
 .upcoming { display: flex; flex-direction: column; gap: 10px; }
 .upcoming h2 { margin: 0; font-size: 18px; font-weight: 700; }
 .upcoming-list { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 6px 0; }
-.upcoming-row { display: flex; gap: 16px; padding: 10px 20px; font-size: 15px; flex-wrap: wrap; }
+.upcoming-row { color: inherit; text-decoration: none; display: flex; gap: 16px; padding: 10px 20px; font-size: 15px; flex-wrap: wrap; }
 .upcoming-row + .upcoming-row { border-top: 1px solid var(--rule); margin: 0 20px; padding: 10px 0; }
 .upcoming-when { width: 150px; color: var(--muted); }
 .upcoming-title { flex: 1; min-width: 180px; }
 .upcoming-client { color: var(--muted); }
 .upcoming-note { color: var(--muted); }
+.upcoming-row:hover { color: inherit; }
+.upcoming-row:hover .upcoming-title { color: var(--teal); text-decoration: underline; }
 
 .signin { min-height: 100vh; display: flex; align-items: center; justify-content: center; }
 .signin-card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 32px; display: flex;

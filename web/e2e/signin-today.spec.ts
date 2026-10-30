@@ -24,13 +24,14 @@ test("sign in through gsim, see Today, link a client and keep it after reload", 
   await page.reload();
 
   const select = card.getByLabel("Client");
-  await expect(select).toHaveValue("");  // "Choose a client"
+  await expect(select).toHaveValue("");  // "Choose a client": a suggestion never links by itself
   const put = page.waitForResponse(r => r.url().endsWith(`/api/events/${demo.id}/client`) && r.request().method() === "PUT");
-  await select.selectOption({ label: "Harbourline Legal" });
+  await select.selectOption({ label: "Suggested: Harbourline Legal" });  // from the guests' domain, harbourline.test
   expect((await put).status()).toBe(200);
 
   await page.reload();
   await expect(card.getByLabel("Client")).toHaveValue(String(client.id));
   await expect(card.getByLabel("Client").locator("option:checked")).toHaveText("Harbourline Legal");
+  await expect(page.getByRole("status")).toHaveCount(0, { timeout: 15_000 });  // "Syncing your calendar…" gone
   await page.screenshot({ path: "../docs/superpowers/screenshots/today.png", fullPage: true });
 });

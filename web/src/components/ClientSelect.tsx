@@ -6,9 +6,8 @@ const NONE = "none", NEW = "new";
 const PERSONAL = new Set(["gmail", "googlemail", "outlook", "hotmail", "live", "yahoo", "icloud", "me", "proton", "protonmail"]);
 const GENERIC = new Set(["co", "com", "org", "net", "ac", "gov", "edu"]);
 
-/** Name offered as a new client: the guests' company from their email domain (harbourline.test -> "Harbourline"),
- *  else the title after its colon ("Discovery: Orion Freight" -> "Orion Freight"). */
-export function suggestedClient(event: CalendarEvent, myDomain: string): string | null {
+/** The guests' company from their email domain: harbourline.test -> "Harbourline", orion-freight.co.uk -> "Orion Freight". */
+export function domainStem(event: CalendarEvent, myDomain: string): string | null {
   for (const a of event.attendees) {
     const labels = domain(a.email).split(".").slice(0, -1);  // drop the TLD
     if (labels.length > 1 && GENERIC.has(labels[labels.length - 1])) labels.pop();  // acme.co.uk
@@ -16,8 +15,20 @@ export function suggestedClient(event: CalendarEvent, myDomain: string): string 
     if (a.self || !name || domain(a.email) === myDomain || PERSONAL.has(name)) continue;
     return name.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
   }
+  return null;
+}
+
+/** Name for "New client: …": the title after its colon ("Discovery: Orion Freight"), else the domain stem. */
+export function newClientName(event: CalendarEvent, myDomain: string): string | null {
   const i = event.title.lastIndexOf(":");
-  return i >= 0 && event.title.slice(i + 1).trim() ? event.title.slice(i + 1).trim() : null;
+  const fromTitle = i >= 0 ? event.title.slice(i + 1).trim() : "";
+  return fromTitle || domainStem(event, myDomain);
+}
+
+/** An existing client whose name starts with the guests' domain stem (harbourline -> Harbourline Legal). */
+export function suggestedExisting(event: CalendarEvent, myDomain: string, clients: ClientRef[]): ClientRef | null {
+  const stem = domainStem(event, myDomain)?.toLowerCase();
+  return (stem && stem.length >= 3 && clients.find(c => c.name.toLowerCase().startsWith(stem))) || null;
 }
 
 export const isExternal = (e: CalendarEvent, myDomain: string) => e.attendees.some(a => !a.self && domain(a.email) !== myDomain);
@@ -30,8 +41,13 @@ export default function ClientSelect({ event, clients, myDomain, onChange }: {
   const [failed, setFailed] = useState(false);
   const id = `client-${event.id}`;
   const unset = !event.client && isExternal(event, myDomain);
-  const suggestion = suggestedClient(event, myDomain);
-  const offerNew = unset && suggestion && clients !== null && !clients.some(c => c.name.toLowerCase() === suggestion.toLowerCase());
+  // the linked client stays listed even if the list hides it (reference-only) or hasn't loaded
+  const list = [...(clients ?? [])];
+  if (event.client && !list.some(c => c.id === event.client!.id)) list.unshift(event.client);
+  // Suggestions only once clients have loaded: never offer "New client" for a name that already exists.
+  const suggested = unset && clients ? suggestedExisting(event, myDomain, clients) : null;
+  const newName = unset && clients ? newClientName(event, myDomain) : null;
+  const offerNew = newName && !list.some(c => c.name.toLowerCase() === newName.toLowerCase());
 
   async function choose(value: string) {
     if (busy) return;
@@ -40,8 +56,8 @@ export default function ClientSelect({ event, clients, myDomain, onChange }: {
     try {
       let created: ClientRef | undefined;
       let clientId: number | null = value === NONE ? null : Number(value);
-      if (value === NEW && suggestion) {
-        created = await api<ClientRef>("/api/clients", { method: "POST", body: { name: suggestion } });
+      if (value === NEW && newName) {
+        created = await api<ClientRef>("/api/clients", { method: "POST", body: { name: newName } });
         clientId = created.id;
       }
       onChange(await api<CalendarEvent>(`/api/events/${event.id}/client`, { method: "PUT", body: { client_id: clientId } }), created);
@@ -52,18 +68,18 @@ export default function ClientSelect({ event, clients, myDomain, onChange }: {
     }
   }
 
-  const list = clients ?? (event.client ? [event.client] : []);
-  const options = list.map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>);
+  const options = list.filter(c => c.id !== suggested?.id).map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>);
   return (
     <>
       <label htmlFor={id}>Client</label>
       <select id={id} className={unset ? "client-select unset" : "client-select"} aria-busy={busy}
         value={event.client ? String(event.client.id) : unset ? "" : NONE} onChange={e => choose(e.target.value)}>
         {unset && <option value="" disabled>Choose a client</option>}
-        {unset && offerNew && <option value={NEW}>New client: {suggestion}</option>}
+        {suggested && <option value={String(suggested.id)}>Suggested: {suggested.name}</option>}
         {!event.client && !unset && <option value={NONE}>No client</option>}
         {options}
         {event.client && <option value={NONE}>No client</option>}
+        {offerNew && <option value={NEW}>New client: {newName}</option>}
       </select>
       {unset && !failed && <span className="hint">Link a client for a fuller brief.</span>}
       {failed && <span className="error" role="alert">Couldn't save the client. Try again.</span>}

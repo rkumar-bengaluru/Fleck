@@ -20,7 +20,7 @@ from fleck_api.auth import current_user
 from fleck_api.config import setting
 from fleck_api.db import get_session
 from fleck_api.jobs import enqueue_once, job
-from fleck_api.models import Brief, CalendarEvent, Client, Device, GoogleToken, Meeting, User
+from fleck_api.models import Brief, CalendarEvent, Client, Device, GoogleToken, Job, Meeting, User
 
 log = logging.getLogger("fleck.calendar")
 _HOST_END = r"(?![\w-]|\.[\w-])"  # zoom.us, not zoom.us.evil.test
@@ -66,20 +66,27 @@ def _status(e: Exception) -> int | None:
     return getattr(getattr(e, "response", None), "status_code", None)
 
 
-def _access_token(s: Session, user_id: int) -> str | None:
+def _client(timeout: float | None):
+    c = auth.http_client()
+    if timeout is not None:
+        c.timeout = timeout
+    return c
+
+
+def _access_token(s: Session, user_id: int, timeout: float | None = None) -> str | None:
     row = s.scalar(select(GoogleToken).where(GoogleToken.user_id == user_id))
     if row is None:
         return None
     try:
         blob = json.loads(auth._fernet().decrypt(row.token_enc.encode()))
-    except InvalidToken:
-        raise RefreshFailed("stored tokens unreadable")
+    except InvalidToken:  # key rotated or row corrupt: as good as revoked
+        raise TokensRevoked("stored tokens unreadable")
     if datetime.fromisoformat(blob["expires_at"]) > _now() + timedelta(minutes=1):
         return blob["access_token"]
     if not blob.get("refresh_token"):
         raise RefreshFailed("no refresh token")
     try:
-        with auth.http_client() as c:
+        with _client(timeout) as c:
             tok = c.post(auth._urls()["token"], data={
                 "grant_type": "refresh_token", "refresh_token": blob["refresh_token"],
                 "client_id": setting("GOOGLE_CLIENT_ID", "gsim-client"),
@@ -95,9 +102,9 @@ def _access_token(s: Session, user_id: int) -> str | None:
     return blob["access_token"]
 
 
-def _fetch(token: str, lo: datetime, hi: datetime) -> list[dict]:
+def _fetch(token: str, lo: datetime, hi: datetime, timeout: float | None = None) -> list[dict]:
     items, page = [], None
-    with auth.http_client() as c:
+    with _client(timeout) as c:
         while True:
             params = {"timeMin": lo.isoformat(), "timeMax": hi.isoformat(), "singleEvents": "true",
                       "orderBy": "startTime", "maxResults": "250", **({"pageToken": page} if page else {})}
@@ -114,9 +121,9 @@ def _keep(ev: dict) -> bool:
     return not any(a.get("self") and a.get("responseStatus") == "declined" for a in ev.get("attendees", []))
 
 
-def sync_user(s: Session, user_id: int) -> None:
+def sync_user(s: Session, user_id: int, timeout: float | None = None) -> None:
     try:
-        _sync(s, user_id)
+        _sync(s, user_id, timeout)
     except TokensRevoked as e:  # forget the dead grant: no retries, the scheduler stops until the next sign-in
         s.rollback()
         s.execute(delete(GoogleToken).where(GoogleToken.user_id == user_id))
@@ -124,9 +131,9 @@ def sync_user(s: Session, user_id: int) -> None:
         log.warning("calendar sync for user %s skipped: Google refused the tokens (%s); they were removed", user_id, e)
 
 
-def _sync(s: Session, user_id: int) -> None:
+def _sync(s: Session, user_id: int, timeout: float | None) -> None:
     try:
-        token = _access_token(s, user_id)
+        token = _access_token(s, user_id, timeout)
     except RefreshFailed as e:  # revoked or broken grant: skip this user until they sign in again
         log.warning("calendar sync for user %s skipped: token refresh failed (%s)", user_id, e)
         return
@@ -134,7 +141,7 @@ def _sync(s: Session, user_id: int) -> None:
         return
     lo, hi = _now() - timedelta(hours=12), _now() + timedelta(days=7)
     try:
-        items = _fetch(token, lo, hi)
+        items = _fetch(token, lo, hi, timeout)
     except Exception as e:
         if _status(e) != 401:
             raise  # transient: the job retries
@@ -249,6 +256,14 @@ def set_event_client(event_id: int, body: EventClient, u: User = Depends(current
     e.client_id = body.client_id
     s.commit()
     return _row(s, e)
+
+
+@router.get("/calendar/status")
+def calendar_status(u: User = Depends(current_user), s: Session = Depends(get_session)):
+    """connected: Google tokens are stored; syncing: a sync for this user is queued or running."""
+    return {"connected": s.scalar(select(GoogleToken.id).where(GoogleToken.user_id == u.id)) is not None,
+            "syncing": s.scalar(select(Job.id).where(Job.kind == "sync_calendar", Job.payload == {"user_id": u.id},
+                                                     Job.status.in_(("queued", "running"))).limit(1)) is not None}
 
 
 # shortcut: list-only devices endpoint for the Today pill; Task 15 (pairing) moves it to devices.py and extends it.

@@ -11,7 +11,7 @@ from fleck_api import auth
 from fleck_api.db import get_session
 from fleck_api.jobs import run_once
 from fleck_api.main import create_app
-from fleck_api.models import GoogleToken, Job, User, UserSession
+from fleck_api.models import CalendarEvent, GoogleToken, Job, User, UserSession
 from fleck_gsim.app import create_app as gsim_app
 
 EXEMPT = {"/api/health", "/api/auth/login", "/api/auth/callback"}
@@ -54,8 +54,8 @@ def test_sign_in_allowed_domain(env):
         assert s.scalar(select(UserSession.token_hash)) != raw  # only the sha256 is stored
         enc = s.scalar(select(GoogleToken.token_enc))
         assert "gsim-at" not in enc and "gsim-rt" not in enc
-        assert s.scalar(select(Job.kind)) == "sync_calendar"
-        assert run_once(s) and s.scalar(select(Job.status)) == "done"  # the real sync, against the in-process gsim
+        # first sign-in syncs inline (no job), so Today has the calendar at once
+        assert s.scalar(select(Job)) is None and s.scalar(select(CalendarEvent.id)) is not None
     assert client.post("/api/auth/logout").status_code == 204
     assert client.get("/api/me").status_code == 401
 
@@ -118,6 +118,23 @@ def test_refuses_to_start_without_a_real_secret_key(monkeypatch):
         with pytest.raises(RuntimeError, match="FLECK_SECRET_KEY"):
             with TestClient(create_app()):
                 pass
+
+
+def test_refuses_to_start_in_google_mode_without_credentials(monkeypatch):
+    monkeypatch.setenv("FLECK_SECRET_KEY", "k" * 40)
+    monkeypatch.setenv("FLECK_GOOGLE_MODE", "google")
+    for cid, secret in (("", ""), ("id", ""), ("", "secret")):
+        monkeypatch.setenv("GOOGLE_CLIENT_ID", cid)
+        monkeypatch.setenv("GOOGLE_CLIENT_SECRET", secret)
+        with pytest.raises(RuntimeError, match="GOOGLE_CLIENT_ID"):
+            with TestClient(create_app()):
+                pass
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "id")
+    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "secret")
+    auth.check_google_config()  # both set: starts
+    monkeypatch.setenv("FLECK_GOOGLE_MODE", "gsim")
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "")
+    auth.check_google_config()  # the simulator needs neither
 
 
 class _Unverified:  # stands in for Google answering with an unverified or missing email

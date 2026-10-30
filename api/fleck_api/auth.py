@@ -56,6 +56,12 @@ def check_secret_key() -> None:
                            'python -c "import secrets;print(secrets.token_urlsafe(32))"')
 
 
+def check_google_config() -> None:
+    if setting("FLECK_GOOGLE_MODE", "gsim") == "google" and not (setting("GOOGLE_CLIENT_ID", "") and setting("GOOGLE_CLIENT_SECRET", "")):
+        raise RuntimeError("FLECK_GOOGLE_MODE=google needs GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env "
+                           "(or set FLECK_GOOGLE_MODE=gsim to use the simulator)")
+
+
 def _secure() -> bool:
     return setting("FLECK_PUBLIC_API_URL", "http://localhost:8000").startswith("https://")
 
@@ -150,6 +156,7 @@ def callback(request: Request, code: str | None = None, state: str | None = None
     blob = {"access_token": tok["access_token"], "refresh_token": tok.get("refresh_token"),
             "expires_at": (datetime.now(timezone.utc) + timedelta(seconds=tok.get("expires_in", 3600))).isoformat()}
     row = s.scalar(select(GoogleToken).where(GoogleToken.user_id == user.id))
+    first = row is None  # new user, or tokens dropped after Google refused them
     if row is None:
         row = GoogleToken(user_id=user.id, token_enc="")
         s.add(row)
@@ -163,11 +170,27 @@ def callback(request: Request, code: str | None = None, state: str | None = None
     s.add(UserSession(user_id=user.id, token_hash=_hash(raw),
                       expires_at=datetime.now(timezone.utc) + timedelta(days=SESSION_DAYS)))
     s.commit()
-    enqueue_once(s, "sync_calendar", {"user_id": user.id})
+    if not (first and _first_sync(s, user.id)):
+        enqueue_once(s, "sync_calendar", {"user_id": user.id})
     r = RedirectResponse(f"{_web()}/", 302)
     r.delete_cookie(STATE_COOKIE)
     r.set_cookie(COOKIE, raw, max_age=SESSION_DAYS * 86400, httponly=True, samesite="lax", secure=_secure())
     return r
+
+
+FIRST_SYNC_TIMEOUT_S = 5.0
+
+
+def _first_sync(s: Session, user_id: int) -> bool:
+    """Sync inline on first sign-in so Today isn't empty; False (caller queues the job) if it fails or is slow."""
+    from fleck_api.calendar_sync import sync_user  # calendar_sync imports this module
+    try:
+        sync_user(s, user_id, timeout=FIRST_SYNC_TIMEOUT_S)
+        return True
+    except Exception as e:
+        s.rollback()
+        log.warning("first calendar sync for user %s failed inline (%s); queued instead", user_id, type(e).__name__)
+        return False
 
 
 @router.post("/auth/logout", status_code=204)

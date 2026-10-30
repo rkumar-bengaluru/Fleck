@@ -196,3 +196,11 @@ Live §8 questions (title, kind, nearest-vector distance):
   - A Google 401 removes the tokens without retrying; one enqueue guard covers sign-in and the scheduler.
   - Day bounds are DST-safe; page titles are set; the dark nav has a light focus ring.
   - Suites: pytest `-m "not ollama"` 247 passed EXIT 0; vitest 9 passed; tsc 0; Playwright 1 passed. Screenshot re-taken.
+- Milestone D follow-up:
+  - The api refuses to start in Google mode without OAuth credentials; unreadable tokens are dropped, and Today shows "Calendar not synced. Sign in again".
+  - gsim fixes the demo time at startup (`GSIM_DEMO_START` overrides it).
+  - The first sign-in syncs inline (5 s, falling back to the job). Today polls events every 30 s and shows "Syncing your calendar…" while a sync runs.
+  - Upcoming rows link to the event.
+  - The client select hides reference-only clients and shows "Suggested: …" first and "New client: …" last.
+  - WebToday mockup updated to match.
+  - Suites: pytest 253 passed EXIT 0; vitest 11; tsc 0; Playwright 1 passed. Screenshot re-taken.

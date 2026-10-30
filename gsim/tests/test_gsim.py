@@ -72,3 +72,21 @@ def test_gsim_late_evening_stays_today():
 def test_gsim_allow_appends_to_existing_query():
     r = _client().get("/o/oauth2/v2/allow", params={"redirect_uri": "http://app/cb?x=1", "state": "s", "email": "rupak@northbeam.test"})
     assert r.headers["location"].startswith("http://app/cb?x=1&code=")
+
+
+def test_gsim_demo_time_fixed_at_start():
+    t = [NOW]
+    c = TestClient(create_app(lambda: t[0]))
+    midnight = NOW.replace(hour=0, minute=0)
+    first = _events(c, midnight, midnight + timedelta(days=1))["Presales: demo prospect"]["start"]["dateTime"]
+    t[0] = NOW + timedelta(hours=1)  # an hour later, same process
+    assert _events(c, midnight, midnight + timedelta(days=1))["Presales: demo prospect"]["start"]["dateTime"] == first \
+        == "2026-10-30T11:00:00+05:30"
+
+
+def test_gsim_demo_start_env(monkeypatch):
+    monkeypatch.setenv("GSIM_DEMO_START", "16:30")
+    midnight = NOW.replace(hour=0, minute=0)
+    ev = _events(_client(), midnight, midnight + timedelta(days=1))
+    assert ev["Presales: demo prospect"]["start"]["dateTime"] == "2026-10-30T16:30:00+05:30"
+    assert ev["Pricing review (internal)"]["start"]["dateTime"] == "2026-10-30T19:30:00+05:30"  # still demo + 3 h

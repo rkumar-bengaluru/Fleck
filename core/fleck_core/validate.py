@@ -30,6 +30,8 @@ def split_sentences(text: str) -> list[str]:
 _FIGURE = re.compile(r"(-?[\d.]+)(?: ([^/\s]+)(?:/(\w+))?)?")
 _CODES = re.compile(rf"\b(?:{CODES})\b")
 _CODE_SET = set(CODES.split("|"))
+_PER_NOUN = re.compile(r"\bper\s+(?:person\s+(?:per\s+)?)?([a-z]+)\b", re.I)
+_NOT_NOUN = {"the", "this", "that", "our", "your", "its", "their", "a", "an", "cent", "annum"}
 _PERIOD_WORD = re.compile(rf"\b(?:per|an?|each|every)\s+(?:person\s+(?:per\s+)?)?({_PERIOD_RX})\b|(?<=/)({_PERIOD_RX})\b", re.I)
 # A clause number at the start of a line or passage ("7. Limitation", "2.17 OF THE") is not a figure, unless a
 # scale, unit or currency word follows ("1.5 Million users").
@@ -38,7 +40,9 @@ _HEADING_NUM = re.compile(rf"(?m)^\d{{1,2}}(?:\.\d+)*\.?\s+(?!(?i:{_NOT_HEADING}
 
 
 def _periods(norm: str) -> set[str]:
-    return {_PERIODS[(a or b).lower()] for a, b in _PERIOD_WORD.findall(norm)}
+    known = {_PERIODS[(a or b).lower()] for a, b in _PERIOD_WORD.findall(norm)}
+    # any other "per <noun>" ("per seat", "per sprint") is a rate period too and must be stated by the passage
+    return known | {_PERIODS.get(n.lower(), n.lower()) for n in _PER_NOUN.findall(norm) if n.lower() not in _NOT_NOUN}
 
 
 def _parse(fig: str) -> tuple[Decimal | str, str | None, str | None]:
@@ -132,7 +136,9 @@ _BLOCK = [
     ("currency", re.compile(rf"\d+(?:\.\d+)? (?:{CODES})\b|[$€£¥₹]|\bRs\b\.?")),
     ("scaled_amount", re.compile(r"\d\s?(?:k|m|bn|mn)\b|\b(?:grand|lakhs?|crores?|millions?|billions?)\b", re.I)),
     ("nines", re.compile(r"\b\w+ nines\b", re.I)),
-    ("availability_figure", re.compile(r"\b(?:availability|uptime|SLA)\b(?:\W+\w+){0,3}?\W+\d", re.I)),
+    ("availability_figure", re.compile(r"\b(?:availability|uptime|SLA)\b(?:\W+\w+){0,3}?\W+(?:\d+\.\d+|9\d\b)", re.I)),
+    ("spoken_decimal", re.compile(r"\b(?:\d|zero|one|two|three|four|five|six|seven|eight|nine|ten|ty|hundred)\s+point\s+(?:\d|zero|one|two|three|four|five|six|seven|eight|nine)\b", re.I)),
+    ("figures", re.compile(r"\b(?:two|three|four|five|six|seven|eight|nine|\d+)[- ]figures?\b", re.I)),
     ("percent", re.compile(r"\d+(?:\.\d+)? %")),
     ("rate", re.compile(r"\bper\s+(?:hour|day|week|month|year|person|seat|head)\b|\b(?:an?|each)\s+(?:hour|day|month)\b|\d\s?/\s?(?:hr|hour|day|month|mo|yr|year|wk|week)\b", re.I)),
     # an SLA word within five words of a duration or percentage ("response within 240 min"); plain "retry 3 times" is fine

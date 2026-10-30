@@ -185,3 +185,32 @@ def test_fallback_allows_standards(answer):
 @pytest.mark.parametrize("answer", ["Costs 5000 bucks.", "Availability of 99.9.", "Aim for three nines.", "Aim for four nines."])
 def test_fallback_more_blocks(answer):
     assert not check_fallback(answer, []).ok
+
+
+@pytest.mark.parametrize("answer,text", [
+    ("It costs $5,200 per quarter. [1]", "Senior: $5,200 per month."),
+    ("It costs $5,200 per seat. [1]", "Senior: $5,200 per month."),
+    ("It costs $5,200 per sprint. [1]", "Senior: $5,200 per month."),
+    ("It costs $5,200 quarterly. [1]", "Senior: $5,200 per month."),
+    ("It costs $5,200 per year. [1]", "Senior 5,200 USD per calendar month."),
+    ("It costs $5,200 per year. [1]", "Senior 5,200 USD per person-month."),
+    ("It costs $5,200 per year. [1]", "Senior: USD 5,200 pm."),
+    ("It costs $5,200 per year. [1]", "Senior: USD 5,200 p.m."),
+])
+def test_round3_period_false_accepts(answer, text):
+    assert not check_library_answer(answer, _mk(text)).ok
+
+
+def test_round3_period_accepts():
+    assert check_library_answer("It costs $5,200 per month. [1]", _mk("Senior 5,200 USD per calendar month.")).ok
+    assert check_library_answer("It costs $5,200 a month. [1]", _mk("Senior: USD 5,200 pm.")).ok
+
+
+@pytest.mark.parametrize("answer", ["Agree an SLA with 3 severity levels.", "Check availability in 2 regions.", "Uptime Kuma 2 is a monitoring tool."])
+def test_fallback_availability_no_overblock(answer):
+    assert check_fallback(answer, []).ok
+
+
+@pytest.mark.parametrize("answer", ["Ninety nine point nine uptime.", "Cost is mid five figures.", "Six figures budget.", "Uptime of 99.9."])
+def test_fallback_spoken_decimals_and_figures(answer):
+    assert not check_fallback(answer, []).ok

@@ -27,8 +27,8 @@ _TIME = {"h": ("min", 60), "hr": ("min", 60), "hrs": ("min", 60), "hour": ("min"
          "mo": ("months", 1), "mos": ("months", 1), "month": ("months", 1), "months": ("months", 1),
          "yr": ("months", 12), "yrs": ("months", 12), "year": ("months", 12), "years": ("months", 12)}
 _PERIODS = {"hour": "hour", "hr": "hour", "day": "day", "week": "week", "wk": "week", "month": "month", "mo": "month",
-            "year": "year", "yr": "year", "annum": "year"}
-_PERIOD_RX = "hour|hr|day|week|wk|month|mo|year|yr|annum"
+            "year": "year", "yr": "year", "annum": "year", "quarter": "quarter", "qtr": "quarter"}
+_PERIOD_RX = "hour|hr|day|week|wk|month|mo|year|yr|annum|quarter|qtr"
 _PER = rf"(?:\s?(?:per|a|an|each|every|/)\s?(?:person\s(?:per\s)?)?({_PERIOD_RX})\b)"
 
 
@@ -71,7 +71,9 @@ def normalize_numbers(text: str) -> str:
     t = re.sub(r"\ba dozen\b", "12", t, flags=re.I)
     t = re.sub(r"\b(\w+) dozen\b", _dozens, t, flags=re.I)
     t = re.sub(r"\bp\.a\b\.?|\bannual(?:ly)?\b|\byearly\b", "per year", t, flags=re.I)
-    t = re.sub(r"\b(month|week|dai|hour)ly\b", lambda m: "per " + {"dai": "day"}.get(m[1].lower(), m[1].lower()), t, flags=re.I)
+    t = re.sub(r"\b(month|week|dai|hour|quarter)ly\b", lambda m: "per " + {"dai": "day"}.get(m[1].lower(), m[1].lower()), t, flags=re.I)
+    t = re.sub(r"\bper\s+person[- ]month\b|\bperson[- ]months?\b", "per month", t, flags=re.I)
+    t = re.sub(r"\b(per|an?|each|every)\s+(?:calendar|billable)\s+", r"\1 ", t, flags=re.I)
     t = re.sub(r"\bminus\s+(?=\d)", "-", t, flags=re.I)
     t = _NUMERIC_DATE.sub(_numeric_date, t)
     t = _DMY.sub(lambda m: _iso(int(m[1]), _MONTHS.index(m[2][:3].lower()) + 1, int(m[3]), m[0]), t)
@@ -80,6 +82,7 @@ def normalize_numbers(text: str) -> str:
     t = re.sub(rf"\bRs\.?\s?({_NUM})", lambda m: f"{m[1]} INR", t)
     t = re.sub(rf"\b({CODES})\s?({_NUM})", lambda m: f"{m[2]} {m[1]}", t)
     t = re.sub(rf"({_NUM})\s?({_WORD_RX})\b", lambda m: f"{m[1]} {_WORDS[m[2].lower()]}", t, flags=re.I)
+    t = re.sub(rf"({_NUM} (?:{CODES}))\s?p\.?m\b\.?", r"\1 per month", t)  # "USD 5,200 pm", never a clock time
     t = re.sub(rf"({_NUM})\s?(?:%|per ?cent|percent|pc)(?!\w)", lambda m: f"{m[1]} %", t, flags=re.I)
     return t
 

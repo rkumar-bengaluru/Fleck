@@ -1,7 +1,8 @@
 """Speaker gate (spec 7.2) and bleed de-duplication.
 
-client = sys_energy > mic_energy x ratio AND mic_energy < silence over most of the segment; "you" mirrors it;
-anything else is overlap.
+Per 200 ms window, client = sys_energy >= mic_energy x ratio OR mic_energy <= silence (a noise floor); "you"
+mirrors it; a stream that holds 75% of the audible windows wins the segment, anything else is overlap.
+Relative, not an absolute mic ceiling, so bleed scales with the client's volume (decision 93).
 Thresholds were tuned on the bleed recording in Task 12 (decision 93).
 """
 import os
@@ -10,7 +11,7 @@ from typing import Literal
 
 import numpy as np
 
-FLECK_GATE_SILENCE = float(os.environ.get("FLECK_GATE_SILENCE", "0.08"))
+FLECK_GATE_SILENCE = float(os.environ.get("FLECK_GATE_SILENCE", "0.01"))
 FLECK_GATE_RATIO = float(os.environ.get("FLECK_GATE_RATIO", "2.0"))
 SMOOTH_FRAMES = 10  # 200 ms of 20 ms frames
 MIN_WORDS, MIN_LENGTH_RATIO = 3, 0.6  # a bleed duplicate repeats most of the client's sentence
@@ -29,7 +30,7 @@ def _smooth(rms: np.ndarray) -> np.ndarray:
 
 def gate(you_rms: np.ndarray, client_rms: np.ndarray, ratio: float = FLECK_GATE_RATIO,
          silence: float = FLECK_GATE_SILENCE, share: float = 0.75) -> Literal["client", "you", "overlap"]:
-    """Per 200 ms window, a stream dominates when it is ratio x louder and the other is under `silence`.
+    """Per 200 ms window, a stream dominates when it is ratio x louder than the other or the other is at the floor.
     A stream wins the segment when it dominates `share` of the windows where anything is audible,
     so one "mm-hm" or cough on the mic doesn't turn a client question into overlap."""
     n = min(len(you_rms), len(client_rms))
@@ -38,10 +39,10 @@ def gate(you_rms: np.ndarray, client_rms: np.ndarray, ratio: float = FLECK_GATE_
     you, client = _smooth(np.asarray(you_rms[:n])), _smooth(np.asarray(client_rms[:n]))
     audible = (you >= silence) | (client >= silence)
     if not audible.any():
-        audible[:] = True
-    if ((client > you * ratio) & (you < silence))[audible].mean() >= share:
+        return "overlap"
+    if ((client >= you * ratio) | (you <= silence))[audible].mean() >= share:
         return "client"
-    if ((you > client * ratio) & (client < silence))[audible].mean() >= share:
+    if ((you >= client * ratio) | (client <= silence))[audible].mean() >= share:
         return "you"
     return "overlap"
 

@@ -269,3 +269,18 @@ Live §8 questions (title, kind, nearest-vector distance):
 
 - Classifier level (reference transcripts): 0 / 0 / 0 / 8 of 8.
 - Seen, not fixed: on the bleed WAV the mic VAD hears the client, so You segments run across both speakers (11 overlap-gated, 5 client-gated) and repeat client text that `drop_bleed_duplicates` can't match (it compares against one client final). It doesn't affect triggers. After a Gap flush, webrtcvad's hangover opens one segment on silence, which is discarded.
+- Fix round 1 (review of d4f6228):
+  - The reviewer's probe run against the first classifier found 31 of 50 "should trigger" phrasings missed and 21 of 50 "should not" phrasings firing.
+  - Classifier changes:
+    - The reject list is now whole phrases: call mechanics, scheduling and small talk.
+    - Any auxiliary opening plus `?` is strong.
+    - Fragments score 0.6.
+    - New patterns: who/which + verb at 0.8, and indirect questions at 0.85.
+    - Tag questions do not trigger.
+  - test_classify.py now has 54 should-trigger and 58 should-not cases; all pass. The 3 tag probes moved to should-not by policy.
+  - Gate is now relative: client ≥ 2.0 × mic, or mic ≤ 0.01. A grid on the bleed WAV gives 31/31 client and 27/27 You for ratios 1.5–3 at every floor from 0.002 to 0.04; ratio 4 fails.
+  - Turn speaker is the client share of the turn (≥ 0.75), and overlap segments add no text.
+  - A client Gap drops the turn; a You Gap leaves it alone.
+  - measure.py needs ≥ 0.5 word overlap to credit recall.
+  - Replay, final code: conversation.wav and conversation-bleed.wav each 0 false triggers and 8/8 recall; negative.wav 0 short, 0 medium, no triggers.
+  - Suites: `uv run --all-packages pytest helper/tests -q` 180 passed, EXIT 0; `uv run pytest -m "not ollama" -q` 430 passed, 5 deselected, EXIT 0.

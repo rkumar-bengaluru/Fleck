@@ -7,10 +7,25 @@ import json
 import time
 from pathlib import Path
 
+import re
+
+from fleck_core.numbers import normalize_numbers
 from fleck_helper.audio import ReplaySource
 from fleck_helper.pipeline import Pipeline, Trigger
 
 MATCH_MS = 1500  # a trigger belongs to the client turn whose end is nearest, if within this
+MIN_WORD_OVERLAP = 0.5  # ...and, for a scripted question, if it holds at least this share of the question's words
+
+
+def _words(text: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9']+", normalize_numbers(text).lower()))
+
+
+def _matches(trigger, turn) -> bool:
+    if abs(turn["end_ms"] - trigger.end_ms) > MATCH_MS:
+        return False
+    q = _words(turn["text"])
+    return not turn["question_id"] or len(q & _words(trigger.question)) >= MIN_WORD_OVERLAP * len(q)
 
 
 def replay(wav: Path, transcriber=None) -> list:
@@ -23,7 +38,7 @@ def counts(events: list, ref: dict) -> dict:
     rows = []
     for e in (e for e in events if isinstance(e, Trigger)):
         turn = min(client, key=lambda t: abs(t["end_ms"] - e.end_ms))
-        rows.append((e, turn if abs(turn["end_ms"] - e.end_ms) <= MATCH_MS else None))
+        rows.append((e, turn if _matches(e, turn) else None))  # unmatched counts as a false trigger
     cats = any("category" in t for t in client)
     hit = {t["question_id"] for _, t in rows if t and t["question_id"]}
     return {

@@ -18,7 +18,14 @@ def test_gate_client_only():
 
 def test_gate_overlap_when_both_loud():
     assert gate(_rms(LOUD), _rms(LOUD, seed=1)) == "overlap"
-    assert gate(_rms(LOUD * 0.5), _rms(LOUD)) == "overlap"  # client louder, but the mic isn't quiet
+    assert gate(_rms(LOUD * 0.7), _rms(LOUD)) == "overlap"  # client louder, but not ratio x louder
+
+
+def test_gate_is_relative_to_the_client_level():
+    """Decision 93: bleed scales with the client's volume, so a fixed mic ceiling would gate a loud client as overlap."""
+    assert gate(np.full(50, 0.45 * 0.2), np.full(50, 0.45)) == "client"  # loud client, bleed at 0.2x
+    assert gate(np.full(50, 0.01), np.full(50, 0.03)) == "client"  # quiet client over a 0.01 mic floor
+    assert gate(np.full(50, 0.15), np.full(50, 0.15)) == "overlap"  # equal-energy talk-over
 
 
 def test_gate_you_only():

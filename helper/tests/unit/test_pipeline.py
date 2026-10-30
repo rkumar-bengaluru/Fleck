@@ -59,11 +59,11 @@ def _run(items, texts):
 def test_paused_question_triggers_once_on_the_whole_turn():
     a = _clip(1)
     audio = np.concatenate([_silence(500), a, _silence(700), a, _silence(1500)])
-    out, tr = _run(_frames(audio), {"client": ["How quickly could you", "have a team working on this?"]})
+    out, tr = _run(_frames(audio), {"client": ["How quickly could you", "start a team on this?"]})
     segs = [e for e in out if isinstance(e, SegmentEvent)]
     trig = [e for e in out if isinstance(e, Trigger)]
     assert len(segs) == 2 and all(s.gate == "client" for s in segs)
-    assert trig == [Trigger(segs[1].segment_id, "How quickly could you have a team working on this?", segs[1].end_ms)]
+    assert trig == [Trigger(segs[1].segment_id, "How quickly could you start a team on this?", segs[1].end_ms)]
     assert tr.active == [True, False, True, False]
 
 
@@ -110,3 +110,51 @@ def test_bleed_duplicate_dropped():
     q = "What does a senior engineer cost per month, offshore?"
     out, _ = _run(_frames(c, you=c * 0.2), {"client": [q], "you": [q]})
     assert [e.stream for e in out if isinstance(e, SegmentEvent)] == ["client"]
+
+
+def _qclip(qid):
+    return _clip(next(i for i, t in enumerate(REF["turns"]) if t["question_id"] == qid))
+
+
+def _two_segments(first_mic=0.0, second_mic=0.0):
+    """A long first segment (two questions, 200 ms apart), a 700 ms pause, a short second one; mic noise at the given level."""
+    a = np.concatenate([_qclip("q_rate"), _silence(200), _qclip("q_sla")])
+    b = _clip(1)[: 16 * 900]
+    rng = np.random.default_rng(0)
+    client = np.concatenate([_silence(500), a, _silence(700), b, _silence(1500)])
+    you = np.zeros_like(client)
+    a0, b0 = 500 * 16, (500 + 900) * 16 + len(a)
+    you[a0:a0 + len(a)] = rng.normal(0, first_mic, len(a)) if first_mic else 0
+    you[b0:b0 + len(b)] = rng.normal(0, second_mic, len(b)) if second_mic else 0
+    return _frames(client.astype(np.float32), you=you.astype(np.float32))
+
+
+def test_turn_speaker_is_its_client_share_not_its_last_segment():
+    q = "What does a senior engineer cost per month?"
+    out, _ = _run(_two_segments(second_mic=0.2), {"client": [q, "offshore"]})  # a talk-over on the short tail
+    gates = [e.gate for e in out if isinstance(e, SegmentEvent)]
+    assert gates == ["client", "overlap"]
+    assert [e.question for e in out if isinstance(e, Trigger)] == [q]  # the overlap tail adds no text
+
+
+def test_overlapped_question_with_a_clean_tail_does_not_trigger():
+    out, _ = _run(_two_segments(first_mic=0.2), {"client": ["What does a senior engineer cost per month?", "Is that right?"]})
+    assert [e.gate for e in out if isinstance(e, SegmentEvent)] == ["overlap", "client"]
+    assert not any(isinstance(e, Trigger) for e in out)
+
+
+def _with_gap_in_pause(stream):
+    a = _clip(1)
+    frames = _frames(np.concatenate([_silence(500), a, _silence(700), a, _silence(1500)]))
+    i = (500 + len(a) // 16 + 300) // 20  # 300 ms into the pause
+    return frames[:i] + [Gap(frames[i].t_ms, frames[i].t_ms, stream)] + frames[i:]
+
+
+def test_you_gap_does_not_split_a_client_turn():
+    out, _ = _run(_with_gap_in_pause("you"), {"client": ["How quickly could you", "have a team working on this?"]})
+    assert [e.question for e in out if isinstance(e, Trigger)] == ["How quickly could you have a team working on this?"]
+
+
+def test_client_gap_drops_the_whole_turn():
+    out, _ = _run(_with_gap_in_pause("client"), {"client": ["Who owns the code you write for us?", "And the IP?"]})
+    assert not any(isinstance(e, Trigger) for e in out)

@@ -18,6 +18,7 @@ from fleck_helper.gate import drop_bleed_duplicates, gate
 from fleck_helper.vad import MAX_MS, PREROLL_MS, SILENCE_MS, Discard, Final, Open, Segmenter
 
 MERGE_MS = 600  # same-speaker finals this close are one turn: a client pausing mid-question triggers once
+TURN_SHARE = 0.75  # the gate's dominance share, applied to a merged turn's segments
 log = logging.getLogger(__name__)
 
 
@@ -86,8 +87,9 @@ class Pipeline:
                     # an Open reaches us up to PREROLL_MS after its start_ms
                     self._close_turn()
             else:
-                if isinstance(item, Gap):  # audio cut off mid-segment is transcribed but never triggers
-                    self._close_turn()
+                if isinstance(item, Gap):  # audio cut off mid-turn is transcribed but never triggers, not even its first half
+                    if item.stream in ("client", "both"):
+                        self._turn = _Turn()
                     for stream in ("client", "you") if item.stream == "both" else (item.stream,):
                         for ev in segs[stream].flush():
                             self._handle(stream, ev, cut=True)
@@ -137,11 +139,16 @@ class Pipeline:
                 if ev.text:
                     yield ev
             elif isinstance(head, _Turn):
-                texts = [t for s in head if (t := s.text().strip())]
-                # a segment Whisper left unpunctuated must not glue onto the next one's question
-                judged = " ".join(t if t[-1] in ".?!" else t + "." for t in texts)
-                if triggers(judged, head[-1].gate, self.min_confidence):
-                    text = " ".join(texts)
+                # overlap-gated segments add no question text; the turn is client only if client holds 75% of it
+                texts = [t for s in head if s.gate == "client" and (t := s.text().strip())]
+                ms = {id(s): s.final.end_ms - s.final.start_ms for s in head}
+                client_ms = sum(ms[id(s)] for s in head if s.gate == "client")
+                speaker = "client" if client_ms >= TURN_SHARE * sum(ms.values()) else "overlap"
+                text = " ".join(texts)
+                # judged as Whisper wrote it ("How quickly could you" + "start?") and with a full stop after a segment
+                # it left unpunctuated, so "…just before that" doesn't glue onto the next segment's "Who owns…?"
+                stopped = " ".join(t if t[-1] in ".?!" else t + "." for t in texts)
+                if texts and any(triggers(j, speaker, self.min_confidence) for j in (text, stopped)):
                     yield Trigger(head[-1].final.segment_id, text, head[-1].final.end_ms)
             else:
                 yield head

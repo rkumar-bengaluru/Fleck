@@ -3,11 +3,133 @@ import json
 import time
 from pathlib import Path
 
+import pytest
+
 from fleck_helper.classify import classify, triggers
 
 FIX = Path(__file__).parents[3] / "fixtures"
 CONV = json.loads((FIX / "conversation/reference.json").read_text())
 NEG = json.loads((FIX / "negative/reference.json").read_text())
+
+# Regression set: the Task 12 reviewer's probes and every example named in its findings (tag questions are
+# confirmations, so they sit in SHOULD_NOT by policy, decision 93).
+SHOULD_TRIGGER = [
+    'I was wondering whether you have worked with insurance companies before.',
+    "I was wondering whether you've done this kind of project before?",
+    "I'm curious how you handle data security for client documents.",
+    "I'm curious how you would staff this.",
+    "I'd love to know how long the pilot would take.",
+    'Could you share some examples of similar work',
+    'What would the timeline look like',
+    "What's your rate for a senior engineer? We have a fairly tight budget this year.",
+    'How do you price this? Because our finance team will want a breakdown.',
+    "Who owns the code? I'm asking because legal will ask me.",
+    'Kindly tell us the pricing for the full project.',
+    'What is the cost of one senior resource per month?',
+    'Can you please share the rate card?',
+    'What all services do you provide?',
+    'How much time will it take to onboard the team?',
+    'You can start from next month itself?',
+    'Is it possible to start in two weeks?',
+    'Do you have a team in Bengaluru?',
+    'Is there any SLA for the critical issues?',
+    'And the uptime, what SLA do you commit to?',
+    'Any idea how much the whole thing will cost?',
+    'Can you do it in under three months?',
+    'Have you done anything similar for a bank?',
+    'Would it be possible to get a fixed price quote?',
+    'Do you guys do fixed bid projects?',
+    'Will your team work in our time zone?',
+    'Is the support available on weekends?',
+    'Are your engineers certified on AWS?',
+    'What about the IP, who owns it?',
+    'And the warranty period?',
+    'Tell me more about the legal document project you did.',
+    'Could you walk us through the onboarding?',
+    'Explain how the extraction pipeline works.',
+    'How does your team handle the screen recording feature in our app?',
+    'Can you share the slide deck with the case studies after the call?',
+    'What audio formats can your transcription pipeline handle?',
+    'Can you see any risk in moving our data to the cloud?',
+    'Which of your case studies is closest to what we need?',
+    'Did you deliver that project on time?',
+    'Should we expect any extra costs for maintenance?',
+    'Shall we expect the team to be onsite?',
+    'Are there any hidden costs?',
+    'Does the price include support?',
+    "Doesn't that include testing as well?",
+    "Isn't IP usually retained by the vendor?",
+    'Where are your developers located?',
+    'Is it fixed price or time and material?',
+    'We were hoping to start in November. Is that feasible for you?',
+    'Who owns the IP, because last time our vendor kept it',
+    'Which team would do this',
+    'Is it possible to get the rate card',
+    'I was wondering whether you have worked with insurance companies before?',
+    "I'm curious how you handle data security for client documents",
+    'How much time will it take',
+]
+
+SHOULD_NOT = [
+    "That's great to hear?",
+    "We've been using that tool for two years now?",
+    'So we are looking at about three months?',
+    'Okay so that sounds good to me?',
+    'I think we can start in January?',
+    'We are fine with that?',
+    'What we need is a faster review process.',
+    'How we do it today is quite manual.',
+    "What I'm trying to say is the budget is fixed.",
+    'Who knows, maybe next quarter.',
+    'When we did this last year it failed.',
+    'How do you do, nice to meet you all.',
+    "Do you know what, let's take this offline.",
+    'Can you give me a second, my other line is ringing.',
+    'Could you send me the invite for Thursday?',
+    'Can you send the deck after the call?',
+    'Would you like to go first?',
+    'Can you repeat that?',
+    'Sorry, could you say that again please?',
+    'Sorry, you broke up there, can you say that again?',
+    'Is everyone here, should we wait for Priya?',
+    'Shall we take ten minutes break?',
+    'Should we get started then?',
+    'Shall we wrap up?',
+    'Are you guys able to hear me properly?',
+    'Is my voice coming clearly?',
+    'Am I audible?',
+    'Did you get my email from yesterday?',
+    'Have you received the NDA I sent?',
+    'Are you joining from the office today?',
+    'How was your weekend?',
+    'How are you doing today?',
+    'How is the weather in Bengaluru?',
+    'Where are you calling in from today?',
+    'Can we start with the agenda?',
+    'What time is it there for you?',
+    'Is it okay if I record this call?',
+    'Do you mind sharing your screen?',
+    'Are you there?',
+    'Hello, can you hear me now?',
+    "You're on mute, Rupak.",
+    'Will you send the minutes after?',
+    'Can you hold on for one minute?',
+    'Do you want to take a quick break?',
+    'Would that be okay with you?',
+    'Have you had lunch?',
+    'Can we move to the next topic?',
+    'Shall I share my screen?',
+    'Can I quickly introduce my colleague?',
+    'Who else is joining from your side?',
+    'So the IP would belong to us, right?',
+    "And you'd sign an NDA before we share data, correct?",
+    'You support on-prem deployment, yes?',
+    'How quickly could you',
+    'Can you tell us',
+    'Does Thursday work for the follow up?',
+    'That works for us. Shall we take ten minutes at the end for next steps?',
+    'Is it all right if I send you our playbook after this call?',
+]
 
 
 def _neg_triggers(categories):
@@ -50,8 +172,8 @@ def test_strong_and_weak_questions():
     assert classify("Ballpark, what would the whole project cost us?", "client").confidence >= 0.85
     assert classify("how quickly could you have a team working on this", "client").confidence >= 0.85  # no "?"
     assert classify("Walk me through your onboarding process.", "client").is_question
-    weak = classify("Does Thursday work for the follow up?", "client")
-    assert weak.is_question and weak.confidence == 0.6 and not triggers("Does Thursday work for the follow up?", "client")
+    weak = classify("I think we can start in January?", "client")
+    assert weak.is_question and weak.confidence == 0.6
     assert not classify("It did, which was the plan.", "client").is_question
     assert not triggers("I did absolutely nothing. Which was the plan?", "client")  # seen from Whisper
     assert triggers("Which team would you put on this?", "client")
@@ -68,3 +190,13 @@ def test_fast():
     for turn in NEG["turns"]:
         classify(turn["text"], "client")
     assert (time.perf_counter() - t) / len(NEG["turns"]) < 0.05
+
+
+@pytest.mark.parametrize("text", SHOULD_TRIGGER)
+def test_should_trigger(text):
+    assert triggers(text, "client"), classify(text, "client")
+
+
+@pytest.mark.parametrize("text", SHOULD_NOT)
+def test_should_not_trigger(text):
+    assert not triggers(text, "client"), classify(text, "client")

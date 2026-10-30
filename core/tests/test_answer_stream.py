@@ -125,6 +125,14 @@ def test_uncited_figure_sentence_is_removed_not_inherited():
     assert sents(ev) == [(0, "", False, "uncited"), (1, "Mixed teams are common.", True, None)]
 
 
+def test_no_inheritance_from_a_failed_sentence():
+    # filler must not turn a failed figure sentence into an ok library answer (re-review 2, R1)
+    ev = run(["It", " works", " well", ".", " A", " senior", " engineer", " costs", " USD", " 9,999", " [1]", "."])
+    s = sents(ev)
+    assert s[0] == (0, "", False, "uncited") and s[1][0] == 1 and s[1][2] is False
+    assert not ev[-1].check.ok
+
+
 def test_two_uncited_then_cited_removes_the_first():
     ev = run(["Yes", ".", " Sure", ".", " Mixed", " teams", " are", " common", " [2]", "."])
     assert sents(ev) == [(0, "", False, "uncited"), (1, "Sure.", True, None), (2, "Mixed teams are common.", True, None)]

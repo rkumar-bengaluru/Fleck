@@ -388,3 +388,18 @@ Live §8 questions (title, kind, nearest-vector distance):
   - measure_answers.py, first run after the fix: PASS 5, PASS → fallback 2 (q_general, q_price), FALLBACK (known limit, decision 101) 1 (q_liability), exit 0.
     - Cite rate 5/8, NONE 3/8, rejection 0/9, uncited dropped 2/9. The dropped sentences were q_ip's "The client owns…" and q_case's "Yes, we have…"; the model cited only the later sentence in each.
     - first_words p50/p95: 247/467 ms without prefill, 118/242 ms with prefill.
+
+## Task 13: streamed library answers (2026-10-30)
+- Commits: b1b9257, then fix rounds 7d28f55, a83a834, 138efcb, and a controller fix for R1 (no citation inherited from a sentence that failed its check).
+- §8 via measure_answers.py:
+  - Answered from the library: q_rate, q_start, q_ip, q_sla, q_case.
+  - NONE, handed to the Task 14 fallback: q_general, q_price.
+  - q_liability goes to the fallback as a known model limit (decision 101): qwen3:4b replies NONE whenever another passage sits beside the Photronics clause.
+- The past-client figure rule (decision 100) blocks Larkspur's 38,000 and 1.42M, with or without a currency code.
+- Prefill: first token 0.088 s against 0.48–0.52 s cold. The test fails when prefill is disabled.
+- Tests: 397 passed (not ollama); 11 passed (ollama).
+- Known limits carried forward:
+  - vague quantities ("Q3", "a couple of weeks") are not treated as figures;
+  - one long sentence is not capped;
+  - a "(n)" count equal to a passage index reads as a citation (R2, rare);
+  - figure-free sentences are not content-checked against their cited passage.

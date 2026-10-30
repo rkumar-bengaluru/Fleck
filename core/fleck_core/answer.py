@@ -195,6 +195,9 @@ def stream_library_answer(question: str, passages: list[Passage], client_names: 
                 else:  # a figure, a client name or past work never inherits a citation
                     yield remove(index, "uncited")
             else:
+                if pending and not sc.ok:  # never inherit from a sentence that failed its own check
+                    yield remove(pending[0], "uncited")
+                    pending = None
                 if pending:  # it inherits this sentence's citations and is checked against them
                     yield verdict(pending[0], f"{pending[1]} " + "".join(f"[{c}]" for c in dict.fromkeys(sc.cited)))
                     pending = None

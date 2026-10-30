@@ -138,3 +138,12 @@ Verdict: Agree with changes. Verified by the controller: "A team can start withi
 Tests: `uv run --all-packages pytest -m "not ollama" -q` 160 passed (EXIT 0); `-m ollama` 3 passed (search finds the rate row; "capital of Peru" returns `[]`; plus the Task 1 Ollama test). API tests index into a throwaway Weaviate collection with a fake embedder; the Ollama tests use a real one.
 
 `make seed-library` (host, against compose ports; 22 s): firm 3 documents / 8 chunks, reference 6 / 349, client 6 / 10, all indexed; a second run queued 0. Live search on the seeded index: "senior engineer offshore monthly cost" returns the Rate card chunks first; "capital of Peru" returns nothing.
+
+### Task 7 fix round 2: Excel scaling, junk chunks, seed guard
+
+Scaled/scientific/suffixed Excel formats render exactly (`#,##0,,"M"` -> 5M, `0.00E+00` -> 5.20E+03, `#,##0 "USD"` -> 5,200 USD; fractions fall back to the raw value). All-blank-header PDF grids are dropped, text chunks under 20 words or 100 letters are dropped, and text chunks now carry their section heading (`Rate card FY2026 · Other terms`); a section under 150 characters merges into the next. Delete removes the row before the passages; a bad Content-Length is 400; the seed refuses to run (and delete nothing) when no files are found. `scripts/seed_library.py --force` re-indexes everything (used once now: the chunking changed, hashes did not). Suites: `-m "not ollama"` 187 passed EXIT 0, `-m ollama` 3 passed EXIT 0. Seed after `--force`: firm 3 documents / 12 chunks, reference 6 / 338, client 6 / 31.
+
+Live queries on the re-seeded library:
+- "what is the capital of Peru" -> `[]`
+- "do you have a case study in insurance" -> 3 Brightwater Insurance case-study passages (top 3)
+- "what are your payment terms" -> 1: Rate card FY2026 · Other terms (firm, "Payment: net 45 days"), 2: a Cardlytics contract passage, 3: Larkspur SOW

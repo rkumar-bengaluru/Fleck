@@ -5,7 +5,7 @@ from pathlib import Path
 import httpx
 import pytest
 from fastapi.testclient import TestClient
-from fleck_core.retrieval import TENANT, chunk_blocks
+from fleck_core.retrieval import TENANT, Table, Text, chunk_blocks
 from fleck_core.types import Passage
 from fleck_core.validate import check_library_answer
 from sqlalchemy import func, select
@@ -17,6 +17,7 @@ from fleck_api.models import Document
 
 ROOT = Path(__file__).parents[2]
 FIX = Path(__file__).parent / "fixtures"
+BODY = " ".join(["The delivery team starts within four weeks of signature and reports progress every single week."] * 2)
 WEAVIATE = "http://localhost:8080"
 
 
@@ -100,7 +101,7 @@ def test_bad_upload_marked_failed(api):
     c, make_session, _ = api
     bad1 = _upload(c, "empty.pdf", b"")
     bad2 = _upload(c, "corrupt.xlsx", b"not a zip")
-    good = _upload(c, "faq.md", b"# Delivery FAQ\n\nWe start within 4 weeks of signature.\n")
+    good = _upload(c, "faq.md", f"# Delivery FAQ\n\n{BODY}\n".encode())
     _drain(make_session)
     docs = {d["id"]: d for d in c.get("/api/library/documents").json()}
     assert docs[bad1["id"]]["status"] == "failed" and docs[bad1["id"]]["error"] == "The file is empty."
@@ -112,7 +113,7 @@ def test_bad_upload_marked_failed(api):
 def test_failed_job_marks_document_failed_with_readable_error(api, monkeypatch):
     c, make_session, _ = api
     monkeypatch.setattr(library.Embedder, "embed", lambda self, texts: (_ for _ in ()).throw(httpx.ConnectError("ollama down")))
-    d = _upload(c, "a.md", b"# A\n\ntext\n")
+    d = _upload(c, "a.md", f"# A\n\n{BODY}\n".encode())
     with make_session() as s:
         for _ in range(3):
             jobs.run_once(s)
@@ -124,19 +125,19 @@ def test_failed_job_marks_document_failed_with_readable_error(api, monkeypatch):
 
 def test_reindex_replaces_passages_and_file_streams(api):
     c, make_session, coll = api
-    d = _upload(c, "a.md", b"# A\n\nsome text\n")
+    d = _upload(c, "a.md", f"# A\n\n{BODY}\n".encode())
     _drain(make_session)
     n = _count(coll)
     with make_session() as s:
         jobs.enqueue(s, "index_document", {"document_id": d["id"]})
     _drain(make_session)
     assert n >= 1 and _count(coll) == n
-    assert c.get(f"/api/library/documents/{d['id']}/file").content == b"# A\n\nsome text\n"
+    assert c.get(f"/api/library/documents/{d['id']}/file").content == f"# A\n\n{BODY}\n".encode()
 
 
 def test_delete_removes_passages(api):
     c, make_session, coll = api
-    d = _upload(c, "a.md", b"# A\n\nsome text\n")
+    d = _upload(c, "a.md", f"# A\n\n{BODY}\n".encode())
     _drain(make_session)
     assert _count(coll) >= 1
     assert c.delete(f"/api/library/documents/{d['id']}").status_code == 204
@@ -154,7 +155,7 @@ def test_seed_skips_jf(api, tmp_path):
     _, make_session, _ = api
     for rel in ("jf/x.md", "_firm/a.md", "acme-co/b.md", "_reference/foo/c.md", "README.md"):
         (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
-        (tmp_path / rel).write_text("# T\n\ntext\n")
+        (tmp_path / rel).write_text(f"# T\n\n{BODY}\n")
     with make_session() as s:
         library.seed_library(s, tmp_path)
         library.seed_library(s, tmp_path)  # idempotent
@@ -163,7 +164,8 @@ def test_seed_skips_jf(api, tmp_path):
 
 
 @pytest.mark.parametrize("fmt,v,want", [
-    ("[$€-407]#,##0", 5200, "€5,200"), ("[$₹-4009] #,##0", 5200, "₹5,200"), ("[$£-809]#,##0.00", 5200, "£5,200.00"),
+    ("[$€-407]#,##0", 5200, "€5,200"), ("[$₹-4009] #,##0", 5200, "₹5,200"), ('#,##0,,"M"', 5200000, "5M"), ('0.0,,"M"', 5200000, "5.2M"), ('#,##0,"k"', 5200, "5k"),
+    ("0.00E+00", 5200, "5.20E+03"), ('#,##0 "USD"', 5200, "5,200 USD"), ("# ?/?", 5200, "5,200"), ("[$£-809]#,##0.00", 5200, "£5,200.00"),
     ('_($* #,##0_);_($* (#,##0);_($* "-"??_);_(@_)', 5200, "$5,200"), ('_($* #,##0_);_($* (#,##0)', -5200, "-$5,200"),
     ('"$"#,##0.00_);[Red]("$"#,##0.00)', 5200, "$5,200.00"), ("0.0%", 0.05, "5.0%"), ('"$"#,##0', 9800, "$9,800"), ("General", 5200.0, "5200"),
 ])
@@ -185,7 +187,7 @@ def test_xlsx_blank_corner_header(tmp_path):
 
 
 def test_caption_keeps_parent_heading_units(tmp_path):
-    (tmp_path / "r.md").write_text("# Rates\n\n## Rates (INR lakh per year)\n\n### Offshore\n\n| Role | Rate |\n|---|---|\n| Tech lead | 52 |\n")
+    (tmp_path / "r.md").write_text("# Rates\n\n## Rates (INR lakh per year)\n\n### Offshore\n\n| Role | Rate |\n|---|---|\n| Tech lead | 52 |\n| Senior engineer | 40 |\n| Solution architect | 61 |\n| Engagement manager | 70 |\n")
     c = _chunks(tmp_path / "r.md")
     assert c[-1].splitlines()[0] == "Rates · Rates (INR lakh per year) · Offshore"
 
@@ -209,7 +211,7 @@ def test_download_non_ascii_name_is_attachment(api):
 
 def test_delete_removes_blob(api):
     c, make_session, _ = api
-    d = _upload(c, "a.md", b"# A\n\ntext\n")
+    d = _upload(c, "a.md", f"# A\n\n{BODY}\n".encode())
     with make_session() as s:
         key = s.get(Document, d["id"]).blob_key
     c.delete(f"/api/library/documents/{d['id']}")
@@ -219,7 +221,7 @@ def test_delete_removes_blob(api):
 
 def test_delete_during_indexing_leaves_no_passages(api, monkeypatch):
     c, make_session, coll = api
-    d = _upload(c, "a.md", b"# A\n\ntext\n")
+    d = _upload(c, "a.md", f"# A\n\n{BODY}\n".encode())
 
     def embed_then_delete(self, texts):
         c.delete(f"/api/library/documents/{d['id']}")  # the user deletes while the worker is embedding
@@ -238,8 +240,8 @@ def test_seed_reindexes_changed_file_and_drops_removed(api, tmp_path):
     _, make_session, coll = api
     (tmp_path / "_firm").mkdir()
     rc, gone = tmp_path / "_firm/rates.md", tmp_path / "_firm/old.md"
-    rc.write_text("# Rates\n\n## T&M (USD per month)\n\n| Role | Offshore |\n|---|---|\n| Senior engineer | 5,200 |\n")
-    gone.write_text("# Old\n\ntext\n")
+    rc.write_text("# Rates\n\n## T&M (USD per month)\n\n| Role | Offshore | Onsite |\n|---|---|---|\n| Senior engineer | 5,200 | 13,500 |\n| Engineer | 3,900 | 11,000 |\n")
+    gone.write_text(f"# Old\n\n{BODY}\n")
     with make_session() as s:
         assert len(library.seed_library(s, tmp_path)) == 2
         _drain(make_session)
@@ -250,4 +252,38 @@ def test_seed_reindexes_changed_file_and_drops_removed(api, tmp_path):
         _drain(make_session)
         assert [d.filename for d in s.scalars(select(Document))] == ["rates.md"]
     t = " ".join(_texts(coll))
-    assert "5,600" in t and "5,200" not in t and "Old" not in t
+    assert "5,600" in t and "5,200" not in t and "Old\n" not in t
+
+
+def test_junk_chunks_dropped(tmp_path):
+    # shapes seen in the Cardlytics PDF: form labels, a blank-header grid, page footers
+    assert chunk_blocks([Text("number:"), Text("Source: CARDLYTICS, INC., S-1, 1/12/2018"),
+                         Text(": Function\nHours: required\nEstimated: Cost\nTarget: date\n: Comments"),
+                         Text("Estimated effort (to be filled in by Systems Analyst) Estimate for CO Request Only")], "Maintenance agreement") == []
+    (tmp_path / "f.md").write_text("# Form\n\n| | | |\n|---|---|---|\n| Approved by: | | |\n| Date: | | |\n")
+    assert not [b for b in library.parse_document(tmp_path / "f.md") if isinstance(b, Table)]
+
+
+def test_bad_content_length_is_400(api):
+    c, *_ = api
+    assert c.post("/api/library/documents", files={"file": ("x.md", b"x")}, data={"kind": "firm"}, headers={"content-length": "abc"}).status_code == 400
+
+
+def test_seed_refuses_empty_folder(api, tmp_path):
+    _, make_session, _ = api
+    (tmp_path / "_firm").mkdir()
+    (tmp_path / "_firm/a.md").write_text(f"# A\n\n{BODY}\n")
+    with make_session() as s:
+        library.seed_library(s, tmp_path)
+        (tmp_path / "_firm/a.md").unlink()
+        with pytest.raises(library.SeedError):
+            library.seed_library(s, tmp_path)
+        with pytest.raises(library.SeedError):
+            library.seed_library(s, tmp_path / "missing")
+        assert s.scalar(select(func.count()).select_from(Document)) == 1
+
+
+def test_text_chunk_carries_its_section_heading(tmp_path):
+    (tmp_path / "t.md").write_text(f"# Rates\n\nIntro line.\n\n## Discounts\n\n{BODY}\n\n## Other terms\n\n{BODY} Payment: net 45 days.\n")
+    heads = [c.splitlines()[0] for c in _chunks(tmp_path / "t.md")]
+    assert "Rates · Other terms" in heads  # the tiny intro merges with Discounts; Other terms is its own block

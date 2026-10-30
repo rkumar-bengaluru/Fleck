@@ -21,6 +21,7 @@ CHUNK_CHARS, OVERLAP_CHARS, TABLE_ROWS = 1400, 200, 8  # ~350 and ~50 tokens at 
 @dataclass
 class Text:
     text: str
+    heading: str | None = None  # heading path at the start of the text, like a table caption
 
 
 @dataclass
@@ -60,16 +61,25 @@ def _text_chunks(text: str) -> list[str]:
     return chunks + ["\n\n".join(cur)] if cur else chunks
 
 
+def _substantial(chunk: str) -> bool:
+    """Form labels and page footers ("number:", "Source: ...") embed close to every query; keep text with real content."""
+    body = chunk.split("\n", 1)[1] if "\n" in chunk else ""
+    return len(body.split()) >= 20 and sum(map(str.isalpha, body)) >= 100
+
+
+def _head(title: str, caption: str | None) -> str:
+    if caption and caption.startswith(f"{title} · "):
+        caption = caption[len(title) + 3:]  # the title already leads line 1
+    return f"{title} · {caption}" if caption and caption != title else title
+
+
 def chunk_blocks(blocks: list[Block], title: str) -> list[str]:
     out: list[str] = []
     for b in blocks:
         if isinstance(b, Text):
-            out += [f"{title}\n{c}" for c in _text_chunks(b.text)]
+            out += [c for c in (f"{_head(title, b.heading)}\n{t}" for t in _text_chunks(b.text)) if _substantial(c)]
             continue
-        cap = b.caption
-        if cap and cap.startswith(f"{title} · "):
-            cap = cap[len(title) + 3:]  # the title already leads line 1
-        head = f"{title} · {cap}" if cap and cap != title else title
+        head = _head(title, b.caption)
         lines, n = [], 0
         for row in b.rows:
             rl = [f"{row[0]} · {h}: {v}" if h and row[0] else f"{row[0] or h}: {v}" for h, v in zip(b.header[1:], row[1:]) if v] or [" · ".join(row)]

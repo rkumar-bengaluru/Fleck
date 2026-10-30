@@ -46,13 +46,15 @@ def _markdown_blocks(md: str) -> list[Block]:
     path: dict[int, str] = {}  # heading level -> text; the caption is the whole path so units in a parent heading survive
     rows: list[list[str]] = []
 
+    start: list[str | None] = [None]  # heading path where the current text buffer began
+
     def flush_text():
         if t := "\n".join(buf).strip():
-            blocks.append(Text(t))
+            blocks.append(Text(t, start[0]))
         buf.clear()
 
     def flush_table():
-        if len(rows) >= 2:  # header + at least one row
+        if len(rows) >= 2 and any(rows[0]):  # header + at least one row; an all-blank header is a PDF form grid
             blocks.append(Table(" · ".join(path[k] for k in sorted(path)) or None, rows[0], rows[1:]))
         rows.clear()
 
@@ -64,12 +66,18 @@ def _markdown_blocks(md: str) -> list[Block]:
             if buf and not rows:
                 flush_text()
             cells = [c.strip() for c in s.strip("|").split("|")]
-            if not all(re.fullmatch(r":?-+:?", c) for c in cells if c):
+            if not (any(cells) and all(re.fullmatch(r":?-+:?", c) for c in cells if c)):
                 rows.append(cells)
             continue
         flush_table()
         if m := re.match(r"(#{1,6})\s+(.*)", s):
             path = {k: v for k, v in path.items() if k < len(m[1])} | {len(m[1]): m[2].strip()}
+            if len("\n".join(buf).strip()) >= 150 and not rows:  # a new section starts a new block unless the last one is tiny
+                flush_text()
+        if not buf and not s:
+            continue
+        if not buf:
+            start[0] = " · ".join(path[k] for k in sorted(path)) or None
         buf.append(line)
     flush_table()
     flush_text()
@@ -81,7 +89,7 @@ _FMT_TOKEN = re.compile(r'"([^"]*)"|\[\$([^\]\-]*)[^\]]*\]|\[[^\]]*\]|_.|\*.|\\(
 
 def _display(cell) -> str:
     """Value as Excel shows it, from the positive section of the format.
-    shortcut: no scientific, fractions, conditions or thousands scaling; '#' decimals count as fixed."""
+    shortcut: no fractions or conditions (raw value shown instead); '#' decimals count as fixed."""
     v, fmt = cell.value, cell.number_format.split(";")[0]
     if v is None:
         return ""
@@ -91,15 +99,21 @@ def _display(cell) -> str:
         return str(v)
     if fmt == "General":
         return str(int(v)) if float(v).is_integer() else f"{v:g}"
+    raw = f"{int(v):,}" if float(v).is_integer() else f"{v:,}"
     fmt = _FMT_TOKEN.sub(lambda m: m[1] or m[2] or m[3] or "", fmt)  # literals and [$€-407] symbols kept; padding and colours dropped
-    m = re.search(r"[#0?][#0?,]*(?:\.([0?#]+))?", fmt)
-    if not m:
-        return str(v)
-    pre, suf = fmt[:m.start()].strip(), fmt[m.end():].strip()
+    m = re.search(r"([#0?][#0?,]*)(?:\.([0?#]+))?(,*)", fmt)
+    if not m or re.search(r"\?\s*/\s*[\d?]", fmt):  # no digits, or a fraction format: show the raw value rather than guess
+        return raw
+    pre, suf = fmt[:m.start()].strip(), fmt[m.end():].rstrip()
+    sci = re.match(r"[eE][+-]0+", suf)
+    if sci:
+        return f"{pre}{v:.{len(m[2] or '')}E}{suf[sci.end():]}".strip()
+    scale = len(m[3]) + len(m[1]) - len(m[1].rstrip(",")) if not m[2] else len(m[3])
+    v /= 1000 ** scale
     if "%" in pre + suf:
         v *= 100
-    n = f"{abs(v):{',' if ',' in m[0] else ''}.{len(m[1] or '')}f}"
-    return f"{'-' if v < 0 else ''}{pre}{n}{suf}"
+    n = f"{abs(v):{',' if ',' in m[1].rstrip(',') else ''}.{len(m[2] or '')}f}"
+    return f"{'-' if v < 0 else ''}{pre}{n}{suf}".strip()
 
 
 def _xlsx_blocks(path: Path) -> list[Block]:
@@ -214,6 +228,9 @@ def index_document(session: Session, payload: dict) -> None:
             return
         title = document_title(path, blocks)
     chunks = chunk_blocks(blocks, title)
+    if not chunks:
+        _fail(doc, "No indexable text found in the file.")
+        return
     client = session.get(Client, doc.client_id) if doc.client_id else None
     vectors = Embedder(setting("FLECK_OLLAMA_URL", "http://localhost:11434")).embed(chunks)
     rows = [{"text": c, "doc_id": str(doc.id), "chunk_id": f"{doc.id}-{i}", "title": title, "client": client.name if client else None,
@@ -317,8 +334,13 @@ def list_documents(kind: str | None = None, q: str | None = None, s: Session = D
 
 async def size_guard(request: Request, call_next):
     """Refuse an oversized upload from its Content-Length before the body is read and spooled."""
-    if request.method == "POST" and request.url.path == "/api/library/documents" and int(request.headers.get("content-length") or 0) > MAX_BYTES + 4096:
-        return Response("File is larger than 50 MB", status_code=413)
+    if request.method == "POST" and request.url.path == "/api/library/documents":
+        try:
+            size = int(request.headers.get("content-length") or 0)
+        except ValueError:
+            return Response("Invalid Content-Length", status_code=400)
+        if size > MAX_BYTES + 4096:
+            return Response("File is larger than 50 MB", status_code=413)
     return await call_next(request)
 
 
@@ -368,16 +390,17 @@ def document_file(doc_id: int, s: Session = Depends(get_session)):
 
 
 def remove_document(s: Session, d: Document) -> None:
-    """Passages, original and row."""
-    with weaviate_client(setting("FLECK_WEAVIATE_URL", "http://localhost:8080")) as w:
-        ensure_schema(w, _collection())
-        delete_document_passages(w, str(d.id), _collection())
-    try:
-        _bucket().remove_object(BUCKET, d.blob_key)
-    except S3Error:
-        log.warning("blob %s already gone", d.blob_key)
+    """Row first, so a worker that is mid-index sees it gone and takes back its own passages; then passages and original."""
+    doc_id, key = str(d.id), d.blob_key
     s.delete(d)
     s.commit()
+    with weaviate_client(setting("FLECK_WEAVIATE_URL", "http://localhost:8080")) as w:
+        ensure_schema(w, _collection())
+        delete_document_passages(w, doc_id, _collection())
+    try:
+        _bucket().remove_object(BUCKET, key)
+    except S3Error:
+        log.warning("blob %s already gone", key)
 
 
 @router.delete("/library/documents/{doc_id}", status_code=204)
@@ -391,6 +414,10 @@ def delete_document(doc_id: int, s: Session = Depends(get_session)):
 # Display names that differ from the folder name; any other folder is title-cased.
 CLIENT_NAMES = {"calloway-marsh": "Calloway & Marsh", "meridian-intel": "Meridian Intelligence", "larkspur-retail": "Larkspur Retail Group",
                 "brightwater-insurance": "Brightwater Insurance", "healthgate": "HealthGate", "sphere3d": "Sphere3D"}
+
+
+class SeedError(Exception):
+    pass
 
 
 def seed_library(session: Session, root: Path) -> list[Document]:
@@ -428,6 +455,8 @@ def seed_library(session: Session, root: Path) -> list[Document]:
                 pass
             enqueue(session, "index_document", {"document_id": doc.id})
             docs.append(doc)
+    if not seen:  # a wrong path or an empty folder must never wipe the library
+        raise SeedError(f"No library files found under {root}; nothing imported and nothing removed.")
     for d in session.scalars(select(Document).where(Document.source_path.is_not(None))).all():
         if d.source_path not in seen:
             remove_document(session, d)

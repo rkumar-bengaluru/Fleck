@@ -1,9 +1,10 @@
 """Import clients/ into the library and index it. Runs from the host against the compose ports; safe to re-run.
-Usage: uv run --package fleck-api python scripts/seed_library.py"""
+Usage: uv run --package fleck-api python scripts/seed_library.py [--force]"""
+import sys
 import time
 from pathlib import Path
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from fleck_api.db import session_factory
 from fleck_api.jobs import run_once
@@ -12,9 +13,15 @@ from fleck_api.models import Document
 ROOT = Path(__file__).parents[1] / "clients"
 
 if __name__ == "__main__":
-    from fleck_api.library import seed_library
+    from fleck_api.library import SeedError, seed_library
     with session_factory()() as s:
-        added = seed_library(s, ROOT)
+        if "--force" in sys.argv:  # re-index everything, e.g. after a chunking change
+            s.execute(update(Document).values(content_hash=None))
+            s.commit()
+        try:
+            added = seed_library(s, ROOT)
+        except SeedError as e:
+            raise SystemExit(f"seed-library: {e}")
         print(f"queued {len(added)} documents")
         deadline = time.time() + 600
         while time.time() < deadline:

@@ -204,3 +204,11 @@ Live §8 questions (title, kind, nearest-vector distance):
   - The client select hides reference-only clients and shows "Suggested: …" first and "New client: …" last.
   - WebToday mockup updated to match.
   - Suites: pytest 253 passed EXIT 0; vitest 11; tsc 0; Playwright 1 passed. Screenshot re-taken.
+
+## 2026-10-30 Task 10: test conversation and negative set
+
+- `make fixtures` (`uv run --script fixtures/build.py`, macOS `say`, numpy + pyyaml as inline script deps) ran three times; two consecutive runs gave identical SHA-1 for every WAV and reference.json.
+- conversation.wav and conversation-bleed.wav: 382.5 s (6.37 min), 24,478,336 bytes each, 58 turns, 8 scripted questions, small talk about 95 s before the agenda ends.
+- negative.wav: 750.0 s (12.50 min), 48,110,652 bytes, 230 segments (120 short, 80 medium, 30 logistics), gaps 1.5-2.4 s.
+- Question end_ms (s): q_rate 155.72, q_start 174.03, q_ip 195.95, q_sla 224.04, q_case 247.53, q_general 292.24, q_liability 323.81, q_price 341.71.
+- q_liability expects `reference`, doc "Photronics outsourcing agreement" (limited-liability clause, twelve-month cap). Found by markitdown text search of clients/_reference/ and confirmed in the seeded Weaviate library.

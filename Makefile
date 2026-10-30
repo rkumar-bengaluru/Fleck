@@ -1,4 +1,4 @@
-.PHONY: up down test gen-types ensure-ollama seed-library helper-app
+.PHONY: up down test gen-types ensure-ollama seed-library helper-app fixtures
 COMPOSE = docker compose -f deploy/docker-compose.yml $(if $(wildcard .env),--env-file .env)  # .env sets TZ for compose
 up:
 	$(COMPOSE) up -d --build --wait
@@ -20,3 +20,6 @@ helper-app:
 
 gen-types:
 	uv run --package fleck-core python scripts/gen_event_types.py
+
+fixtures:  # needs macOS `say`; output is deterministic
+	uv run --script fixtures/build.py

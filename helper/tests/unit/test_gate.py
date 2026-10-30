@@ -31,6 +31,21 @@ def test_gate_smooths_a_click():
     assert gate(you, np.full(100, LOUD)) == "client"
 
 
+def test_gate_client_question_survives_a_mic_blip():
+    import json, wave
+    from pathlib import Path
+    conv = Path(__file__).parents[3] / "fixtures/conversation"
+    turn = next(t for t in json.loads((conv / "reference.json").read_text())["turns"] if t["question_id"] == "q_rate")
+    with wave.open(str(conv / "conversation.wav")) as w:
+        w.setpos(turn["start_ms"] * 16)
+        client = np.frombuffer(w.readframes((turn["end_ms"] - turn["start_ms"]) * 16), np.int16)[1::2] / 32768
+    you = np.random.default_rng(0).normal(0, QUIET, len(client))
+    you[16000:16000 + 4800] = np.random.default_rng(1).normal(0, LOUD, 4800)  # a 300 ms "mm-hm" on the mic
+    assert gate(frame_rms(you), frame_rms(client)) == "client"
+    you[:] = np.random.default_rng(1).normal(0, LOUD, len(you))  # talking over the whole question
+    assert gate(frame_rms(you), frame_rms(client)) == "overlap"
+
+
 def test_bleed_you_duplicates_dropped():
     clients = [S(start_ms=10_000, text="What does a senior engineer cost per month, offshore?"),
                S(start_ms=30_000, text="And who owns the code?")]
@@ -39,3 +54,6 @@ def test_bleed_you_duplicates_dropped():
     assert not drop_bleed_duplicates(S(start_ms=13_000, text="What does a senior engineer cost per month, offshore?"), clients)
     assert not drop_bleed_duplicates(S(start_ms=10_400, text="Around six thousand nine hundred a month."), clients)
     assert not drop_bleed_duplicates(S(start_ms=10_400, text=""), clients)
+    okay = [S(start_ms=10_000, text="Okay, so what does a senior engineer cost?")]
+    assert not drop_bleed_duplicates(S(start_ms=10_500, text="Okay."), okay)  # under 3 words
+    assert not drop_bleed_duplicates(S(start_ms=10_500, text="So what does"), okay)  # under 0.6 of its length

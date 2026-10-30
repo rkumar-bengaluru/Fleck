@@ -221,3 +221,15 @@ Live §8 questions (title, kind, nearest-vector distance):
 - Live: mic capture from a terminal (AVAudioEngine voice processing, 48 kHz tap → 16 kHz) gave 3.00 s of audio in 3 s. System audio could not be checked outside the signed bundle (TCC -3801 for the terminal); added to manual-checks.md.
 - Suites: `uv run --all-packages pytest -m "not ollama" -q` 271 passed, 5 deselected, EXIT 0; `pytest helper/tests -v` 21 passed.
 - Fix: bleed() now uses a unit-energy impulse and calibrates to -14 dB on the left during client-only speech (measured -14.00 dB, asserted within 1 dB); only conversation-bleed.wav changed; temp say dir removed at exit.
+- Fix round 1 (review of e9431f3):
+  - LiveSource runs on the host clock: a 3 s stall of either stream loses none of the other stream and keeps skew under 40 ms (fake clock).
+  - Added `Unavailable` and `Discard` events and `Gap.stream`.
+  - The live audio queue is bounded at 250 buffers.
+  - The mic engine restarts on a route change.
+  - Resampling carries state between buffers: drift under 1 sample over 60 s of 1024-sample buffers at 22.05, 24, 44.1 and 48 kHz.
+  - The gate counts dominant 200 ms windows, so a 300 ms mic blip during q_rate still gives "client".
+  - `ReplaySource(loops=)` keeps t_ms increasing.
+  - The chunk writer closes its open chunk on error.
+  - Live mic from a terminal: mic buffers arrive 0.105–0.115 s after their host timestamp, on the same clock as `now()`. The system-audio start failed (TCC) and the source went on mic-only, emitting `Unavailable`.
+  - Replay of conversation.wav is unchanged: 56 finals, 21.8 s.
+  - Suites: `pytest -m "not ollama" -q` 283 passed, EXIT 0; `pytest helper/tests -v` 33 passed, EXIT 0.

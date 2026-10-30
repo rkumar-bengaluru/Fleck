@@ -1,8 +1,10 @@
 """Audio sources (replay WAV, live mic + system audio) and the on-disk chunk writer (spec 7.0, 7.7).
 
-Every source yields 20 ms `Frame`s of float32 16 kHz mono per stream; live capture may also yield `Gap`s.
-macOS-only imports are lazy so Linux CI can import this module.
+Every source yields 20 ms `Frame`s of float32 16 kHz mono per stream; live capture may also yield
+`Gap`s and `Unavailable`. macOS-only imports are lazy so Linux CI can import this module.
 """
+import itertools
+import logging
 import queue
 import threading
 import time
@@ -16,6 +18,7 @@ import numpy as np
 SR = 16000
 FRAME = SR // 50  # 20 ms
 CHUNK_FRAMES = 500  # 10 s
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -27,93 +30,199 @@ class Frame:
 
 @dataclass(frozen=True)
 class Gap:
-    """Client capture was down from start_ms to end_ms; becomes a transcript marker."""
+    """A stream ("you", "client") had no audio from start_ms to end_ms; becomes a transcript marker."""
     start_ms: int
     end_ms: int
+    stream: str = "client"
 
 
-def to_16k(x: np.ndarray, rate: int) -> np.ndarray:
-    if rate == SR:
-        return x
-    if rate % SR == 0:  # 48 kHz and 32 kHz: box-filter decimation doubles as a crude anti-alias filter
-        k = rate // SR
-        return x[: len(x) // k * k].reshape(-1, k).mean(axis=1)
-    # shortcut: linear interpolation without anti-aliasing; upgrade to a polyphase filter if odd rates show up live
-    n = round(len(x) * SR / rate)
-    return np.interp(np.arange(n) * rate / SR, np.arange(len(x)), x).astype(np.float32)
+@dataclass(frozen=True)
+class Unavailable:
+    """A stream could not be started at t_ms (the pipeline shows "System audio unavailable"); a Gap follows if it returns."""
+    stream: str
+    t_ms: int
+    reason: str
+
+
+class Resampler:
+    """Streaming conversion to 16 kHz that carries leftover input between buffers, so buffer sizes never drift."""
+
+    def __init__(self, rate: int):
+        self.rate, self._buf, self._pos = rate, np.zeros(0, np.float32), 0.0
+
+    def __call__(self, x: np.ndarray) -> tuple[np.ndarray, float]:
+        """Returns the 16 kHz samples and the time of the first one relative to the start of x, in seconds."""
+        back = len(self._buf)
+        buf = np.concatenate([self._buf, np.asarray(x, np.float32)])
+        if self.rate % SR == 0:  # 16/32/48 kHz: box-filter decimation doubles as a crude anti-alias filter
+            k = self.rate // SR
+            n = len(buf) // k
+            self._buf = buf[n * k:]
+            return buf[: n * k].reshape(-1, k).mean(axis=1), -back / self.rate
+        # shortcut: linear interpolation without anti-aliasing; upgrade to a polyphase filter if odd rates show up live
+        step = self.rate / SR
+        n = int((len(buf) - 1 - self._pos) // step) + 1 if len(buf) - 1 >= self._pos else 0
+        y = np.interp(self._pos + np.arange(n) * step, np.arange(len(buf)), buf).astype(np.float32)
+        start = (self._pos - back) / self.rate
+        nxt = self._pos + n * step  # input index of the next output sample; may lie past this buffer
+        keep = min(int(nxt), len(buf))
+        self._buf, self._pos = buf[keep:], nxt - keep
+        return y, start
 
 
 class ReplaySource:
-    """Stereo 16-bit WAV, left = You, right = Client, streamed from disk."""
+    """Stereo 16-bit WAV, left = You, right = Client, streamed from disk. `loops` replays it with t_ms
+    still increasing (the soak run), so segment ids never repeat."""
 
-    def __init__(self, path: Path, realtime: bool = True):
-        self.path, self.realtime = Path(path), realtime
+    def __init__(self, path: Path, realtime: bool = True, loops: int = 1):
+        self.path, self.realtime, self.loops = Path(path), realtime, loops
 
     def frames(self) -> Iterator[Frame]:
-        with wave.open(str(self.path)) as w:
-            if w.getnchannels() != 2 or w.getsampwidth() != 2:
-                raise ValueError(f"{self.path}: need stereo 16-bit PCM, got {w.getnchannels()} ch x {w.getsampwidth() * 8} bit")
-            rate = w.getframerate()
-            block = rate // 50  # source samples per 20 ms
-            t0, i = time.monotonic(), 0
-            while len(raw := w.readframes(block)) == block * 4:  # a trailing partial frame is dropped
-                x = np.frombuffer(raw, np.int16).reshape(-1, 2).astype(np.float32) / 32768
-                you, client = to_16k(x[:, 0], rate)[:FRAME], to_16k(x[:, 1], rate)[:FRAME]
-                if self.realtime and (wait := t0 + i * 0.02 - time.monotonic()) > 0:
-                    time.sleep(wait)
-                yield Frame(i * 20, you, client)
-                i += 1
+        t0, i = time.monotonic(), 0
+        for _ in range(self.loops):
+            with wave.open(str(self.path)) as w:
+                if w.getnchannels() != 2 or w.getsampwidth() != 2:
+                    raise ValueError(f"{self.path}: need stereo 16-bit PCM, got {w.getnchannels()} ch x {w.getsampwidth() * 8} bit")
+                rs_you, rs_client = Resampler(w.getframerate()), Resampler(w.getframerate())
+                you = client = np.zeros(0, np.float32)
+                while raw := w.readframes(w.getframerate() // 50):
+                    x = np.frombuffer(raw, np.int16).reshape(-1, 2).astype(np.float32) / 32768
+                    you, client = np.concatenate([you, rs_you(x[:, 0])[0]]), np.concatenate([client, rs_client(x[:, 1])[0]])
+                    while len(you) >= FRAME and len(client) >= FRAME:  # a trailing partial frame is dropped
+                        if self.realtime and (wait := t0 + i * 0.02 - time.monotonic()) > 0:
+                            time.sleep(wait)
+                        yield Frame(i * 20, you[:FRAME], client[:FRAME])
+                        you, client, i = you[FRAME:], client[FRAME:], i + 1
+
+
+class _Stream:
+    """One stream's audio laid on the shared timeline (sample index from the source's t0)."""
+
+    def __init__(self):
+        self.buf, self.start = np.zeros(0, np.float32), 0  # buf[0] is sample `start` = the next slot to emit
+        self.last_end = 0  # end of the last real audio; a later start means a hole
+        self.force_gap = False  # report the next hole whatever its size (stream stopped, buffers dropped)
+
+    def place(self, x: np.ndarray, idx: int) -> tuple[int, int] | None:
+        """Adds audio starting at sample idx; returns the hole (start, end) it closes, if any."""
+        hole = None
+        if idx - self.last_end > LiveSource.GAP_S * SR or (self.force_gap and idx - self.last_end > 2):  # 2: timestamp rounding
+            hole = (self.last_end, idx)
+            self.force_gap = False
+        self.last_end = max(self.last_end, idx + len(x))
+        end = self.start + len(self.buf)
+        if idx > end:  # missing audio becomes silence
+            self.buf = np.concatenate([self.buf, np.zeros(idx - end, np.float32)])
+        self.buf = np.concatenate([self.buf, x[max(0, end - idx):]])  # audio already emitted or present is dropped
+        return hole
+
+    def take(self) -> np.ndarray:
+        out = self.buf[:FRAME] if len(self.buf) >= FRAME else np.pad(self.buf, (0, FRAME - len(self.buf)))
+        self.buf, self.start = self.buf[FRAME:], self.start + FRAME
+        return out
 
 
 class LiveSource:
-    """Mic (You, Apple voice processing) + system audio (Client, ScreenCaptureKit), paced by the mic clock.
+    """Mic (You, Apple voice processing) + system audio (Client, ScreenCaptureKit) on one host clock.
 
-    `capture_factory(push)` returns an object with start_mic(), start_system(), stop(); it calls
-    push("you"|"client", float32 16 kHz samples) and push("stopped") when the system stream ends.
-    The source restarts the system stream and yields a Gap once client audio flows again."""
+    `capture_factory(push)` returns an object with now() (host-clock seconds), start_mic(), start_system(),
+    stop(). It calls push(stream, samples, host_s) with float32 16 kHz audio stamped with the host time of
+    its first sample, push("stopped") when the system stream ends, and push("interrupted", stream) after
+    it restarted a stream itself (mic route change). Frames are 20 ms wall-clock slots: a slot is emitted
+    once both streams cover it, or STALL_S after its end with silence for a stream that has nothing.
+    A hole over GAP_S, a stop, an interruption or dropped buffers yields a Gap when audio returns."""
 
-    MAX_LAG = SR // 2  # mic runs 0.5 s ahead of client audio before client is padded with silence
-    RETRY_S = 1.0
+    STALL_S = 0.3
+    GAP_S = 1.0
+    QUEUE_MAX = 250  # capture buffers: >= 5 s at the smallest (20 ms) buffers
+    BACKOFF_S = (1, 2, 4, 8, 15, 30)
 
     def __init__(self, capture_factory=None):
         self._factory = capture_factory or _MacCapture
 
-    def frames(self) -> Iterator[Frame | Gap]:
-        q: queue.Queue = queue.Queue()
-        cap = self._factory(lambda kind, x=None: q.put((kind, x)))
-        you, cli = np.zeros(0, np.float32), np.zeros(0, np.float32)
-        n, gap_start = 0, None
-        try:
-            cap.start_mic()
-            cap.start_system()
+    def frames(self) -> Iterator[Frame | Gap | Unavailable]:
+        q: queue.Queue = queue.Queue(maxsize=self.QUEUE_MAX)
+        warned, closed, restarting = [], threading.Event(), threading.Event()
+        dropped: set = set()  # streams that lost buffers to a full queue
+
+        def push(kind, x=None, host_s=None):
             while True:
-                kind, x = q.get()
-                if kind == "stopped":
-                    if gap_start is None:
-                        gap_start = n * 20
+                try:
+                    return q.put_nowait((kind, x, host_s))
+                except queue.Full:  # consumer is behind: drop the oldest audio, keep the newest
+                    try:
+                        old = q.get_nowait()
+                    except queue.Empty:
+                        continue
+                    if old[0] in ("you", "client"):
+                        dropped.add(old[0])
+                        if not warned:
+                            warned.append(1)
+                            log.warning("live audio queue full: dropping the oldest buffers")
+
+        cap = self._factory(push)
+
+        lock, asked, served = threading.Lock(), [0], [0]
+
+        def bring_up_system():  # own thread: a slow or failing start never blocks frames
+            while True:
+                with lock:
+                    if served[0] == asked[0]:  # a stop that arrived during a start is served by another round
+                        restarting.clear()
+                        return
+                    served[0] = asked[0]
+                for i in itertools.count():
                     try:
                         cap.start_system()
-                    except Exception:  # retry until it comes back; the gap stays open meanwhile
-                        threading.Timer(self.RETRY_S, q.put, args=(("stopped", None),)).start()
-                    continue
-                if kind == "you":
-                    you = np.concatenate([you, x])
-                else:
-                    if gap_start is not None:
-                        yield Gap(gap_start, n * 20)
-                        gap_start = None
-                    cli = np.concatenate([cli, x])
-                while len(you) >= FRAME and (len(cli) >= FRAME or len(you) > self.MAX_LAG):
-                    if len(cli) >= FRAME:
-                        c, cli = cli[:FRAME], cli[FRAME:]
-                    else:  # client stalled or down: silence keeps both streams on the mic clock
-                        # shortcut: alignment is by sample count, so after a stall Client can sit up to MAX_LAG
-                        # behind You; upgrade to the capture timestamps if the live check shows skew
-                        c = np.zeros(FRAME, np.float32)
-                    yield Frame(n * 20, you[:FRAME], c)
-                    you, n = you[FRAME:], n + 1
-                cli = cli[-self.MAX_LAG:]  # bounded if the system clock runs ahead of the mic
+                        break
+                    except Exception as e:
+                        if i == 0:
+                            push("unavailable", str(e))
+                        if closed.wait(self.BACKOFF_S[min(i, len(self.BACKOFF_S) - 1)]):
+                            return
+
+        def restart_system():
+            with lock:
+                asked[0] += 1
+                if restarting.is_set():
+                    return
+                restarting.set()
+            threading.Thread(target=bring_up_system, daemon=True).start()
+
+        streams = {"you": _Stream(), "client": _Stream()}
+        try:
+            t0 = cap.now()
+            cap.start_mic()
+            restart_system()
+            while True:
+                items = []
+                try:
+                    items.append(q.get(timeout=0.02))
+                    while True:
+                        items.append(q.get_nowait())
+                except queue.Empty:
+                    pass
+                for s in list(dropped):
+                    dropped.discard(s)
+                    streams[s].force_gap = True
+                for kind, x, host_s in items:
+                    if kind in streams:
+                        if hole := streams[kind].place(x, round((host_s - t0) * SR)):
+                            yield Gap(hole[0] // 16, hole[1] // 16, kind)
+                    elif kind == "stopped":
+                        streams["client"].force_gap = True
+                        restart_system()
+                    elif kind == "interrupted":
+                        streams[x].force_gap = True
+                    elif kind == "unavailable":
+                        yield Unavailable("client", streams["client"].start // 16, x)
+                deadline = cap.now() - t0 - self.STALL_S  # slots ending before this are emitted regardless
+                you, client = streams["you"], streams["client"]
+                while (len(you.buf) >= FRAME and len(client.buf) >= FRAME) or (you.start + FRAME) / SR <= deadline:
+                    t_ms = you.start // 16
+                    yield Frame(t_ms, you.take(), client.take())
         finally:
+            closed.set()
             cap.stop()
 
 
@@ -149,12 +258,16 @@ class AudioChunkWriter:
         return done
 
     def write(self, frames) -> Iterator[tuple[int, Path]]:
-        """Writes Frames (Gaps are skipped) and yields each finished chunk."""
-        for f in frames:
-            if isinstance(f, Frame) and (done := self.push(f)):
-                yield done
-        if done := self.close():
-            yield done
+        """Writes Frames (other items are skipped) and yields each finished chunk. The open chunk is closed
+        even if the frames raise or the caller stops iterating."""
+        try:
+            for f in frames:
+                if isinstance(f, Frame) and (done := self.push(f)):
+                    yield done
+        finally:
+            last = self.close()
+        if last:
+            yield last
 
 
 # --- macOS capture (patterns proven by probe.py under the signed bundle) ---
@@ -182,38 +295,82 @@ def _sc_classes():
 
 
 class _MacCapture:
+    MIC_RETRY_S = (0.2, 0.5, 1, 2, 5)
+
     def __init__(self, push):
-        self.push, self.engine, self.stream = push, None, None
+        self.push, self.engine, self.stream, self._observer = push, None, None, None
+        self._closed = False
+
+    def now(self) -> float:
+        import CoreMedia as CM
+
+        return CM.CMTimeGetSeconds(CM.CMClockGetTime(CM.CMClockGetHostTimeClock()))
 
     def start_mic(self):
         import AVFoundation as AV
+        from Foundation import NSNotificationCenter
 
-        self.engine = AV.AVAudioEngine.alloc().init()
-        inp = self.engine.inputNode()
+        self._stop_mic()
+        engine = AV.AVAudioEngine.alloc().init()
+        inp = engine.inputNode()
         ok, err = inp.setVoiceProcessingEnabled_error_(True, None)
         if not ok:
             raise RuntimeError(f"voice processing: {err}")
-        rate = int(inp.outputFormatForBus_(0).sampleRate())
+        rs = Resampler(int(inp.outputFormatForBus_(0).sampleRate()))  # re-read on every (re)start: routes change it
 
         def tap(buf, when):
             n = buf.frameLength()
             ch = buf.floatChannelData()
             if ch and n:
-                x = np.frombuffer(ch[0].as_buffer(n), np.float32).copy()
-                self.push("you", to_16k(x, rate).astype(np.float32))
+                y, lead = rs(np.frombuffer(ch[0].as_buffer(n), np.float32))
+                self.push("you", y, AV.AVAudioTime.secondsForHostTime_(when.hostTime()) + lead)
 
         inp.installTapOnBus_bufferSize_format_block_(0, 1024, None, tap)
-        ok, err = self.engine.startAndReturnError_(None)
+        # AirPods connecting etc. stop the engine; rebuild it off the notification thread
+        self._observer = NSNotificationCenter.defaultCenter().addObserverForName_object_queue_usingBlock_(
+            AV.AVAudioEngineConfigurationChangeNotification, engine, None,
+            lambda note: threading.Thread(target=self._restart_mic, daemon=True).start())
+        self.engine = engine
+        ok, err = engine.startAndReturnError_(None)
         if not ok:
             raise RuntimeError(f"mic: {err}")
+
+    def _restart_mic(self):
+        for i in itertools.count():
+            if self._closed:
+                return
+            try:
+                self.start_mic()
+                self.push("interrupted", "you")
+                return
+            except Exception as e:
+                log.warning("mic restart failed: %s", e)
+                time.sleep(self.MIC_RETRY_S[min(i, len(self.MIC_RETRY_S) - 1)])
+
+    def _stop_mic(self):
+        if self._observer is not None:
+            from Foundation import NSNotificationCenter
+
+            NSNotificationCenter.defaultCenter().removeObserver_(self._observer)
+            self._observer = None
+        if self.engine is not None:
+            self.engine.stop()
+            self.engine.inputNode().removeTapOnBus_(0)
+            self.engine = None
 
     def start_system(self):
         import CoreMedia as CM
         import ScreenCaptureKit as SC
 
+        self._stop_system()
         got: list = []
         ev = threading.Event()
-        SC.SCShareableContent.getShareableContentWithCompletionHandler_(lambda c, e: (got.append((c, e)), ev.set()))
+
+        def on_content(c, e):  # ObjC completion blocks must return None
+            got.append((c, e))
+            ev.set()
+
+        SC.SCShareableContent.getShareableContentWithCompletionHandler_(on_content)
         if not ev.wait(10) or got[0][0] is None:
             raise RuntimeError(f"no shareable content (screen recording not granted?): {got and got[0][1]}")
         flt = SC.SCContentFilter.alloc().initWithDisplay_excludingWindows_(got[0][0].displays()[0], [])
@@ -231,7 +388,8 @@ class _MacCapture:
             n = CM.CMBlockBufferGetDataLength(blk)
             st, data = CM.CMBlockBufferCopyDataBytes(blk, 0, n, None)
             if st == 0 and data:
-                self.push("client", np.frombuffer(bytes(data)[: n // 4 * 4], np.float32).copy())
+                pts = CM.CMTimeGetSeconds(CM.CMSampleBufferGetPresentationTimeStamp(sbuf))  # host clock
+                self.push("client", np.frombuffer(bytes(data)[: n // 4 * 4], np.float32).copy(), pts)
 
         self._out = cls["out"].alloc().init()
         self._out.cb = on_audio
@@ -241,16 +399,22 @@ class _MacCapture:
             raise RuntimeError(f"system audio: {err}")
         started: list = []
         ev = threading.Event()
-        stream.startCaptureWithCompletionHandler_(lambda e: (started.append(e), ev.set()))
+
+        def on_start(e):
+            started.append(e)
+            ev.set()
+
+        stream.startCaptureWithCompletionHandler_(on_start)
         if not ev.wait(10) or started[0] is not None:
             raise RuntimeError(f"system audio start failed: {started and started[0]}")
         self.stream = stream
 
-    def stop(self):
+    def _stop_system(self):
         if self.stream is not None:
             self.stream.stopCaptureWithCompletionHandler_(lambda e: None)
             self.stream = None
-        if self.engine is not None:
-            self.engine.stop()
-            self.engine.inputNode().removeTapOnBus_(0)
-            self.engine = None
+
+    def stop(self):
+        self._closed = True
+        self._stop_system()
+        self._stop_mic()

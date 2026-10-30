@@ -1,4 +1,6 @@
-"""VAD segmenter: one per stream, turns 20 ms frames into Open / Partial / Final events (spec 7.2)."""
+"""VAD segmenter: one per stream, turns 20 ms frames into Open / Partial / Final | Discard events (spec 7.2).
+
+Every Open is closed by exactly one Final or Discard with the same segment_id."""
 from collections import deque
 from dataclasses import dataclass
 from typing import Literal
@@ -12,6 +14,7 @@ PARTIAL_MS = 1000  # a Partial per this much speech
 SILENCE_MS = 500  # silence that ends a segment
 MAX_MS = 20_000  # a segment is cut here (also bounds its buffer, spec 7.7)
 PREROLL_MS = 200  # audio kept before the first speech frame, so onsets aren't clipped
+MIN_SPEECH_MS = 300  # less voiced audio than this (a click, a chime) is discarded; counts webrtcvad's ~100 ms hangover
 
 
 @dataclass(frozen=True)
@@ -36,7 +39,13 @@ class Final:
     audio: np.ndarray
 
 
-SegEvent = Open | Partial | Final
+@dataclass(frozen=True)
+class Discard:
+    """An opened segment had too little speech; closes the Open without a Final."""
+    segment_id: str
+
+
+SegEvent = Open | Partial | Final | Discard
 
 
 class Segmenter:
@@ -72,9 +81,12 @@ class Segmenter:
         return []
 
     def flush(self) -> list[SegEvent]:
-        """Closes an open segment at the end of the recording."""
+        """Closes the open segment (also at the end of the recording): a Final, or a Discard if it was too short."""
         if self._seg is None:
             return []
+        if self._speech_ms < MIN_SPEECH_MS:
+            self._seg = None
+            return [Discard(self._id)]
         audio = np.concatenate(self._seg)[: (self._end - self._start) * SR // 1000]
         self._seg = None
         return [Final(self._id, self._start, self._end, audio)]

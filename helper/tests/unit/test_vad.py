@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 
 from fleck_helper.audio import FRAME, Frame
-from fleck_helper.vad import Final, Open, Partial, Segmenter
+from fleck_helper.vad import Discard, Final, Open, Partial, Segmenter
 
 CONV = Path(__file__).parents[3] / "fixtures/conversation"
 
@@ -53,3 +53,12 @@ def test_segmenter_reads_only_its_stream():
     noise = np.random.default_rng(0).normal(0, 0.1, FRAME * 50).astype(np.float32)
     seg = Segmenter("you")
     assert sum((seg.push(Frame(i * 20, np.zeros(FRAME, np.float32), noise[i * FRAME:(i + 1) * FRAME])) for i in range(50)), []) == []
+
+
+def test_segmenter_discards_short_noise():
+    x = np.zeros(16000 * 2, np.float32)
+    x[16000:16000 + 1600] = np.random.default_rng(0).normal(0, 0.1, 1600)  # 100 ms click (+ ~100 ms VAD hangover)
+    ev = _run(Segmenter("client"), x)
+    assert [type(e) for e in ev] == [Open, Discard] and ev[0].segment_id == ev[1].segment_id
+    x[16000:16000 + 6400] = np.random.default_rng(0).normal(0, 0.1, 6400)  # 400 ms is long enough
+    assert [type(e) for e in _run(Segmenter("client"), x)] == [Open, Final]

@@ -4,7 +4,11 @@ import wave
 
 import numpy as np
 
-from fleck_helper.audio import FRAME, AudioChunkWriter, Frame, Gap, LiveSource, ReplaySource
+import logging
+
+import pytest
+
+from fleck_helper.audio import FRAME, SR, AudioChunkWriter, Frame, Gap, LiveSource, ReplaySource, Resampler, Unavailable
 
 
 def _wav(path, secs, rate=16000):
@@ -34,6 +38,21 @@ def test_replay_source_resamples(tmp_path):
     assert len(frames) == 50 and all(len(f.you) == FRAME for f in frames)
 
 
+def test_replay_source_loops_keep_time_increasing(tmp_path):
+    frames = list(ReplaySource(_wav(tmp_path / "c.wav", 0.5), realtime=False, loops=2).frames())
+    assert [f.t_ms for f in frames] == [i * 20 for i in range(50)]
+
+
+@pytest.mark.parametrize("rate", [44100, 48000, 22050, 24000])
+def test_resampler_no_drift_over_60s(rate):
+    rs, out, n_in = Resampler(rate), 0, 0
+    for _ in range(60 * rate // 1024):
+        y, lead = rs(np.zeros(1024, np.float32))
+        assert abs((n_in / rate + lead) * SR - out) < 1  # each buffer's timestamp matches the samples so far
+        out, n_in = out + len(y), n_in + 1024
+    assert abs(out - n_in * SR / rate) < 0.02 * SR
+
+
 def test_chunk_writer_10s_chunks(tmp_path):
     w = AudioChunkWriter(tmp_path / "chunks")
     frames = [Frame(i * 20, np.full(FRAME, 0.25, np.float32), np.full(FRAME, -0.5, np.float32)) for i in range(25 * 50)]
@@ -46,46 +65,125 @@ def test_chunk_writer_10s_chunks(tmp_path):
             assert x[0].tolist() == [8192, -16384]
 
 
-class _FakeCapture:
-    """Mic and system audio in 20 ms pieces; the system stream ends after 2 s, once."""
 
-    def __init__(self, push):
-        self.push, self.system_starts, self.stopped = push, 0, False
-        self._client_on = threading.Event()
+
+def test_chunk_writer_closes_open_chunk_on_error(tmp_path):
+    def frames():
+        for i in range(12 * 50):
+            yield Frame(i * 20, np.zeros(FRAME, np.float32), np.zeros(FRAME, np.float32))
+        raise RuntimeError("source died")
+
+    w = AudioChunkWriter(tmp_path)
+    with pytest.raises(RuntimeError):
+        list(w.write(frames()))
+    with wave.open(str(tmp_path / "chunk-00001.wav")) as r:
+        assert r.getnframes() == 2 * SR
+
+
+class _FakeCapture:
+    """20 ms buffers stamped on a virtual host clock running SPEED x real time; sample values encode
+    1 + their own timestamp, so the test can measure skew and loss."""
+    SPEED = 4
+
+    def __init__(self, push, stall=None, stop_at=None, fail_first=False):
+        self.push, self.stall, self.stop_at, self.fail_first = push, stall or {}, stop_at, fail_first
+        self._r0, self.system_starts = time.monotonic(), 0
+        self.stopped, self.client_on = threading.Event(), threading.Event()
+
+    def now(self):
+        return (time.monotonic() - self._r0) * self.SPEED
+
+    def _run(self, stream):
+        t = self.now()
+        while not self.stopped.is_set():
+            while self.now() < t + 0.02:
+                time.sleep(0.001)
+            if stream == "client" and self.stop_at is not None and t >= self.stop_at:
+                self.stop_at = None
+                self.client_on.clear()
+                self.push("stopped")
+            a, b = self.stall.get(stream, (-1, -1))
+            if not a <= t < b and (stream == "you" or self.client_on.is_set()):
+                self.push(stream, (1 + t + np.arange(FRAME) / SR).astype(np.float32), t)
+            t += 0.02
 
     def start_mic(self):
-        def run():
-            for i in range(300):
-                if self.stopped:
-                    return
-                self.push("you", np.full(FRAME, 0.1, np.float32))
-                if self._client_on.is_set():
-                    self.push("client", np.full(FRAME, 0.2, np.float32))
-                if i == 100 and self.system_starts == 1:
-                    self._client_on.clear()
-                    self.push("stopped")
-                time.sleep(0.001)
-        threading.Thread(target=run, daemon=True).start()
+        threading.Thread(target=self._run, args=("you",), daemon=True).start()
 
     def start_system(self):
         self.system_starts += 1
-        self._client_on.set()
+        if self.fail_first and self.system_starts == 1:
+            raise RuntimeError("screen recording not granted")
+        if not self.client_on.is_set() and self.system_starts == 1 + self.fail_first:
+            threading.Thread(target=self._run, args=("client",), daemon=True).start()
+        self.client_on.set()
 
     def stop(self):
-        self.stopped = True
+        self.stopped.set()
 
 
-def test_capture_restart_marks_gap():
+def _live(until_ms, pause_after=None, **kw):
     caps = []
-    src = LiveSource(capture_factory=lambda push: caps.append(_FakeCapture(push)) or caps[-1])
+    src = LiveSource(capture_factory=lambda push: caps.append(_FakeCapture(push, **kw)) or caps[-1])
     items = []
     for item in src.frames():
         items.append(item)
-        if sum(isinstance(i, Frame) for i in items) == 250:
-            break
-    gaps = [i for i in items if isinstance(i, Gap)]
-    assert len(gaps) == 1 and caps[0].system_starts == 2 and caps[0].stopped
-    assert 1500 <= gaps[0].start_ms <= gaps[0].end_ms
+        if isinstance(item, Frame):
+            if item.t_ms == pause_after:
+                time.sleep(1.0)  # consumer stalls 4 s of virtual time
+            if item.t_ms >= until_ms:
+                break
     frames = [i for i in items if isinstance(i, Frame)]
-    assert [f.t_ms for f in frames] == [i * 20 for i in range(250)]
-    assert frames[-1].client[0] == np.float32(0.2)  # client audio flows again after the restart
+    assert [f.t_ms for f in frames] == [i * 20 for i in range(len(frames))]
+    return caps[0], frames, [i for i in items if isinstance(i, Gap)], [i for i in items if isinstance(i, Unavailable)]
+
+
+def _skew_ok(frames):
+    both = [f for f in frames if f.you[0] and f.client[0]]
+    assert both and all(abs(f.you[0] - f.client[0]) < 0.04 for f in both)
+    for s in ("you", "client"):  # every stream stays where its timestamps put it: t0 is the same for all frames
+        t0s = [getattr(f, s)[0] - 1 - f.t_ms / 1000 for f in frames if getattr(f, s)[0]]
+        assert max(t0s) - min(t0s) < 0.04
+
+
+def _continuous(frames, stream, from_ms, to_ms):
+    v = [getattr(f, stream)[0] for f in frames if from_ms <= f.t_ms < to_ms]
+    assert all(v) and np.allclose(np.diff(v), 0.02, atol=1e-4)
+
+
+def test_capture_restart_marks_gap():
+    cap, frames, gaps, _ = _live(4000, stop_at=2.0)
+    assert len(gaps) == 1 and gaps[0].stream == "client" and cap.system_starts == 2 and cap.stopped.is_set()
+    assert 1900 <= gaps[0].start_ms <= gaps[0].end_ms <= 2300
+    assert frames[-1].client[0] != 0  # client audio flows again after the restart
+    _skew_ok(frames)
+
+
+@pytest.mark.parametrize("stalled, other", [("you", "client"), ("client", "you")])
+def test_stall_of_either_stream_keeps_the_other_and_alignment(stalled, other):
+    _, frames, gaps, _ = _live(6000, stall={stalled: (1.0, 4.0)})
+    _continuous(frames, other, 500, 6000)  # nothing of the other stream is lost
+    assert [g.stream for g in gaps] == [stalled]
+    assert abs(gaps[0].start_ms - 1000) < 100 and abs(gaps[0].end_ms - 4000) < 100
+    assert all(getattr(f, stalled)[0] == 0 for f in frames if 1100 <= f.t_ms < 3900)
+    _continuous(frames, stalled, 4100, 6000)
+    _skew_ok(frames)
+
+
+def test_system_audio_unavailable_at_start_keeps_mic(monkeypatch):
+    monkeypatch.setattr(LiveSource, "BACKOFF_S", (0.3,))  # 1.2 s of virtual time
+    cap, frames, gaps, unavailable = _live(3000, fail_first=True)
+    assert len(unavailable) == 1 and "not granted" in unavailable[0].reason and cap.system_starts == 2
+    _continuous(frames, "you", 500, 3000)
+    assert [g.stream for g in gaps] == ["client"] and gaps[0].start_ms == 0 and gaps[0].end_ms > 1000
+    _skew_ok(frames)
+
+
+def test_queue_overflow_drops_oldest_and_marks_gap(monkeypatch, caplog):
+    monkeypatch.setattr(LiveSource, "QUEUE_MAX", 20)
+    with caplog.at_level(logging.WARNING, logger="fleck_helper.audio"):
+        _, frames, gaps, _ = _live(7000, pause_after=1000)
+    assert sorted(g.stream for g in gaps) == ["client", "you"]
+    assert len([r for r in caplog.records if "queue full" in r.message]) == 1
+    _continuous(frames, "client", 6000, 7000)
+    _skew_ok(frames)

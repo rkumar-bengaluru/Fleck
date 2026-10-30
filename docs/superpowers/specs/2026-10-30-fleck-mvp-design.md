@@ -306,10 +306,10 @@ Results go into the hand-over note (§9).
 A native macOS panel drawn by the helper (PyObjC `NSPanel`), not a browser window.
 
 - **Always on top, never in the way.** A non-activating floating panel: shown over every app and every Space, including full-screen Zoom, Meet and Teams. It never takes keyboard focus or makes a sound.
-- **Placement.** Top-centre, just under the camera, about 480 × 160 pt, so reading it keeps the eyes near the lens. It can be dragged, and remembers where it was put.
+- **Placement.** Top-centre, just under the camera, about 540 pt wide and as tall as the answer (mockups), so reading it keeps the eyes near the lens. It can be dragged, and remembers where it was put.
 - **Content**, newest only:
   - while working: the client's question and **Thinking…**
-  - then: the question (one line), the answer streaming in, and the source line rendered from Weaviate metadata (§7.4), or the **General knowledge, not from our material** / **Not in our material** / **Reference contract, not our work** labels
+  - then: the question (one line), the answer streaming in, and the source line: a label chip plus detail text, exactly as in the mockups: **Our material** + document title (from Weaviate metadata, §7.4); **General knowledge** + "Not from our material"; **Not in our material** + a link to the closest document; **Reference contract** + "Not our work: <title>"
 - **History.** ◀ ▶ step through this meeting's earlier answers; a new answer always jumps back to the newest.
 - **Show / hide.** The global shortcut ⌥⌘F, or the menu-bar item. It appears automatically when recording starts and hides when recording stops.
 - **Direct from the helper.** The helper produces the answer (§6), so the panel shows it with no trip through the api and browser. The same answer is also sent to the api for storage and the browser.
@@ -331,7 +331,7 @@ The script, the reference transcript and the expected outcome for each question 
 
 The demo library is the minimum needed to pass this test, about 10 pages in total (rupak.k's rule):
 - `_firm/rate-card.md` (rates), `_firm/delivery-faq.md` (IP, SLA, warranty, start time) and `_firm/capabilities.md`: kept as they are
-- `larkspur-retail/`: kept as it is (also preserved on branch `demo/larkspur-original`)
+- `larkspur-retail/`: kept as it is
 - three new one-page AI-automation case studies, each in its own client folder: a track-changes legal document flow, an investigation research agent, a contract-extraction pipeline **(the three topics: Claude's call)**
 - the CUAD contracts in `clients/_reference/`, as reference material
 

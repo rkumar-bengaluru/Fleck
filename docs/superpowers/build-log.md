@@ -212,3 +212,11 @@ Live §8 questions (title, kind, nearest-vector distance):
 - negative.wav: 750.0 s (12.50 min), 48,110,652 bytes, 230 segments (120 short, 80 medium, 30 logistics), gaps 1.5-2.4 s.
 - Question end_ms (s): q_rate 155.72, q_start 174.03, q_ip 195.95, q_sla 224.04, q_case 247.53, q_general 292.24, q_liability 323.81, q_price 341.71.
 - q_liability expects `reference`, doc "Photronics outsourcing agreement" (limited-liability clause, twelve-month cap). Found by markitdown text search of clients/_reference/ and confirmed in the seeded Weaviate library.
+
+## 2026-10-30 Task 11: audio sources, VAD, speaker gate, transcription
+
+- New: `audio.py` (ReplaySource, LiveSource with restart + Gap, AudioChunkWriter), `vad.py` (Segmenter: webrtcvad 2, Open/Partial/Final), `gate.py` (gate, frame_rms, drop_bleed_duplicates). `transcribe.py` unchanged: it already had `language="en"`, `condition_on_previous_text=False` and the decision-67 scheduler. New deps: `webrtcvad-wheels` (Linux and macOS wheels), `numpy`.
+- Whisper on q_rate's clip (client channel of conversation.wav sliced by reference.json): "What does a senior engineer cost per month? Offshore." WER 0.000 after `normalize_numbers`.
+- Full replay of conversation.wav (382.5 s) at realtime=False through both Segmenters + whisper-large-v3-turbo on every final, sequentially: 21.7 s total (whisper 21.5 s, VAD + WAV read 0.2 s), 56 finals for 58 scripted turns, 299 partials (not transcribed in this run), 0 empty finals.
+- Live: mic capture from a terminal (AVAudioEngine voice processing, 48 kHz tap → 16 kHz) gave 3.00 s of audio in 3 s. System audio could not be checked outside the signed bundle (TCC -3801 for the terminal); added to manual-checks.md.
+- Suites: `uv run --all-packages pytest -m "not ollama" -q` 271 passed, 5 deselected, EXIT 0; `pytest helper/tests -v` 21 passed.

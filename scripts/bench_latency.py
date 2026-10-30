@@ -39,23 +39,41 @@ print(f"question {len(q)/16000:.1f}s, monologue {len(mono)/16000:.1f}s")
 tr = StreamTranscriber()
 tr.transcribe(q, True)  # warm / download
 
-stop = threading.Event()
+QDUR = len(q) / 16000
+WIN = 48000
 
 
-def you_stream():
+def you_windows(stop):
     i = 0
     while not stop.is_set():
-        s = (i * 48000) % (len(mono) - 48000)
-        tr.transcribe(mono[s : s + 48000], False)
-        i += 1
+        s = (i * WIN) % (len(mono) - WIN); i += 1
+        tr.transcribe(mono[s : s + WIN], False, "you")
 
 
-th = threading.Thread(target=you_stream, daemon=True)
-th.start()
-ta = []
-for _ in range(N):
-    t = time.perf_counter(); txt = tr.transcribe(q, True); ta.append(time.perf_counter() - t)
-print("transcript:", txt)
+def trial(worst):
+    """One client question. Realistic: You talks 4 s, stops, 1 s gap, client asks. Worst: a You window starts 0.2 s before the question."""
+    stop = threading.Event()
+    if worst:
+        stop.set()  # exactly one window
+    th = threading.Thread(target=you_windows, args=(stop,)); th.start()
+    time.sleep(0.2 if worst else 4.0)
+    stop.set()
+    if not worst:
+        time.sleep(1.0)
+    tr.set_client_active(True)  # VAD: question starts
+    time.sleep(QDUR)
+    tr.set_client_active(False)  # VAD: question ends (silence)
+    t = time.perf_counter(); txt = tr.transcribe(q, True, "client", "q")
+    dt = time.perf_counter() - t
+    th.join()
+    return dt, txt
+
+
+res = {}
+for name, worst in (("realistic", False), ("worst", True)):
+    res[name] = [trial(worst) for _ in range(N)]
+    print(f"{name} transcript:", res[name][-1][1])
+ta = [d for d, _ in res["worst"]]  # gate uses the worst case
 
 ps = passages()
 ol = OllamaClient()
@@ -73,11 +91,10 @@ def run(nonce):
 run("")  # load model
 cold = [run(f" [{time.time_ns()}]") for _ in range(N)]  # unique prefix defeats the prompt cache
 warm = [run("") for _ in range(N)]
-stop.set(); th.join()
 
 rss = subprocess.run(["ps", "-o", "rss=", "-p", str(os.getpid())], capture_output=True, text=True).stdout.strip()
 print(subprocess.run(["ollama", "ps"], capture_output=True, text=True).stdout)
-r = {"model": MODEL, "a_transcribe_final": pct(ta), "b_cold_ttft": pct([c[0] for c in cold]), "b_cold_total": pct([c[1] for c in cold]),
+r = {"model": MODEL, "a_realistic": pct([d for d, _ in res["realistic"]]), "a_transcribe_final": pct(ta), "b_cold_ttft": pct([c[0] for c in cold]), "b_cold_total": pct([c[1] for c in cold]),
      "b_warm_ttft": pct([c[0] for c in warm]), "b_warm_total": pct([c[1] for c in warm]), "helper_rss_mb": int(rss) / 1024}
 for k, v in r.items():
     print(k, v if not isinstance(v, tuple) else f"p50 {v[0]:.2f}s p95 {v[1]:.2f}s")

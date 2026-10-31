@@ -18,6 +18,17 @@ from test_meetings import pair
 from test_realtime import helper_of, new_meeting
 from test_auth import env  # noqa: F401  (fixture)
 
+
+@pytest.fixture(autouse=True)
+def own_meeting_index(monkeypatch):
+    """process_meeting queues index_meeting: a run_once loop must not replace the running stack's meeting 1 rows."""
+    import uuid
+
+    import httpx
+    monkeypatch.setenv("FLECK_WEAVIATE_MEETING_COLLECTION", coll := f"MeetingTextT{uuid.uuid4().hex[:8]}")
+    yield
+    httpx.delete(f"http://localhost:8080/v1/schema/{coll}")
+
 ROOT = Path(__file__).parents[2]
 
 

@@ -167,7 +167,8 @@ def test_number_words_and_split_figures_never_stream(tokens):
 
 @pytest.mark.parametrize("tokens", [["None", " of", " the", " passages", " say", "."],
                                     ["The", " passages", " do", " not", " cover", " this", "."],
-                                    ["No", " passage", " answers", " it", "."], ["None", "."]])
+                                    ["No", " passage", " answers", " it", "."], ["None", "."],
+                                    ["None", " of", " the", " provided", " passages", " address", " it", "."]])
 def test_none_forms_hand_over(tokens):
     ev = run(tokens)
     assert len(ev) == 1 and ev[0].check.reasons == ["none"]
@@ -327,3 +328,26 @@ def test_bare_number_never_adds_a_second_citation():
     assert ev[-1].check.ok and [c.title for c in ev[-1].check.citations] == ["Delivery FAQ"]  # [2] only, no [1][2]
     ev = run(["Mixed teams are common. 2"])  # the reviewer's case: a bare number names its passage, read as given
     assert [c.title for c in ev[-1].check.citations] == ["Delivery FAQ"]
+
+
+@pytest.mark.parametrize("meta", ["This is from passage [2].", "According to the passages, mixed teams are common [2].",
+                                  "The passage says mixed teams are common [2].", "The passages state this [2].",
+                                  "Based on the provided passages, yes [2].", "This comes from the source [2].",
+                                  "This is from [2].", "This is mentioned in passage [2]."])
+def test_meta_sentence_is_removed(meta):
+    ev = run(["Mixed teams are common [2]. ", meta])
+    assert sents(ev) == [(0, "Mixed teams are common.", True, None), (1, "", False, "meta")]
+    assert ev[-1].check.ok and "meta" in ev[-1].check.reasons
+
+
+def test_meta_only_answer_is_not_in_material():
+    ev = run(["A senior engineer costs 5,200 per month when working offshore. This is from passage [1]."])
+    assert [s[3] for s in sents(ev)] == ["uncited", "meta"]  # the seen q_rate reply: nothing left to show
+    assert ev[-1].check.kind == "not_in_material" and not ev[-1].check.ok
+
+
+def test_passage_n_in_prose_is_not_a_citation():
+    ev = run(["Mixed teams are common, see passage 2."])
+    assert not ev[-1].check.ok  # "passage 2" names a passage, it does not cite one
+    ev = run(["Mixed teams are common, see passage. 2"])  # nor a bare number right after "passage"
+    assert not ev[-1].check.ok

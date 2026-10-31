@@ -83,7 +83,16 @@ _EOS = object()
 _PARTIAL_MARK = re.compile(r"\s*[\[(【][\d,\s]*$")
 _NUMBER_WORD_TAIL = re.compile(r"\s*\b(?:one|two|an?)\s*$", re.I)  # "need one" becomes a figure once "engineer" comes
 # replies that mean NONE: handed to the fallback like NONE itself
-_NONE_FORMS = ("none of the passages", "the passages do not", "the passages don't", "the passages does not",
+# A sentence about the passages instead of the question ("This is from passage [1].") is never shown (reason "meta")
+_SRC = r"(?:provided |given |above |cited )?(?:passages?|sources?|documents?)"
+_META = re.compile(rf"\b(?:this|that|it) (?:is|comes|was) (?:taken |mentioned |stated )?(?:from|in) (?:the )?{_SRC}"
+                   r"|^\W*(?:this|that|it) (?:is|comes|was) (?:taken |mentioned |stated )?(?:from|in)\W*(?:\[\d+\]\W*)*$"
+                   rf"|\baccording to (?:the )?{_SRC}"
+                   rf"|\b(?:the|this|that) {_SRC} (?:says?|states?|mentions?|shows?|notes?|indicates?|do(?:es)? not)\b"
+                   rf"|\bbased on (?:the )?{_SRC}", re.I)
+# a bare number after these names a passage in prose, it is not a citation
+_NAMES_A_PART = re.compile(r"\b(?:passage|source|document|section|clause|article|page|item|step)s?\W*$", re.I)
+_NONE_FORMS = ("none of the passages", "none of the provided passages", "the passages do not", "the passages don't", "the passages does not",
                "the provided passages do not", "no passage", "not in the passages")
 
 
@@ -139,7 +148,7 @@ def stream_library_answer(question: str, passages: list[Passage], client_names: 
     Event contract for a consumer: show each Delta's text appended to sentence `index` (sentences are joined with
     one space). When Sentence(index, ...) arrives, replace everything shown for that index with Sentence.text:
     "Not in our material" when the sentence failed its check (link it to Sentence.citations), or "" (reason
-    "uncited") to remove the index. An uncited sentence's verdict waits for the next sentence: if that one is
+    "uncited", or "meta" for a sentence about the passages: "This is from passage [1].") to remove the index. An uncited sentence's verdict waits for the next sentence: if that one is
     cited, the uncited one inherits its citations and is checked against them (one level only). A sentence gets Deltas only until a figure appears in it; the rest is held, and
     a trailing "one", "two", "a" or "an" waits for the next word. After MAX_SENTENCES cited sentences the stream
     is closed. Done ends the stream; if Done.check is not ok, replace the whole answer with "Not in our material"
@@ -186,6 +195,13 @@ def stream_library_answer(question: str, passages: list[Passage], client_names: 
             checked = check_library_answer(piece, passages, client_names, question).sentences
             sc = checked[0] if checked else None
             first_words = first_words if first_words is not None else ms()
+            if _META.search(piece):  # never shown, never lends or takes a citation
+                if pending:
+                    yield remove(pending[0], "uncited")
+                    pending = None
+                yield remove(index, "meta")
+                index, shown, held = index + 1, "", False
+                continue
             if not sc or not sc.cited:
                 if pending:  # one level of carry only: the older uncited sentence goes
                     yield remove(pending[0], "uncited")
@@ -248,7 +264,8 @@ def stream_library_answer(question: str, passages: list[Passage], client_names: 
                 # "…per month when offshore. 1": a bare passage number ending the reply is its citation (seen live
                 # when Whisper split the question; mid-stream a digit could still start a figure, so only here)
                 text = re.sub(r"(?<=[^\]][.!?])\s+([1-9])\s*$",  # only when the sentence has no marker yet
-                              lambda m: f" [{m[1]}]" if int(m[1]) <= len(passages) else m[0], text)
+                              lambda m: f" [{m[1]}]" if int(m[1]) <= len(passages)
+                              and not _NAMES_A_PART.search(text[: m.start()]) else m[0], text)
                 yield from emit(final=True)
                 yield done()
                 return

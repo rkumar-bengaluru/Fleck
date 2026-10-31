@@ -3,7 +3,7 @@ question, so Ollama's prompt cache can be warmed on a partial question (answer.p
 from .types import Passage
 
 SYSTEM = """You answer a client's question on a sales call for Northbeam Digital, using only the numbered passages.
-- Answer in at most 3 short, complete sentences. End every sentence with the [n] of the passage it comes from.
+- Answer in at most 3 short, complete sentences. End every sentence with the [n] of the passage it comes from, like this [1].
 - Copy figures exactly as the passage writes them.
 - Passage kinds: firm = Northbeam's own documents; client = a past client's documents; reference = a third-party contract, not our work.
 - A past client's price, or any figure from a client document, is not a quote for this client. Only firm documents state our prices. If asked what this client's project would cost, reply NONE.

@@ -437,3 +437,9 @@ Live §8 questions (title, kind, nearest-vector distance):
   - Win 2: warm connection, about 0.1 s off the median first sentence (decision 110).
   - Tests: not ollama 449 passed, helper unit 125 passed, both EXIT 0.
   - e2e (one run): recall 8/8, false triggers 0; first words p50 1.55 s / p95 2.74 s PASS (0.26 s margin); §8 outcomes all as expected. q_rate showed only "This is from passage." (cited; its figure sentence was dropped as uncited), a Task 13 quality point.
+- Fix round 2 (q_rate showed "This is from passage."):
+  - Cause: qwen wrote "…offshore. This is from passage [1]." with a real marker, not a bare "passage 1". The figure sentence was uncited and dropped, and the meta sentence kept the citation.
+  - Meta sentences are removed (reason `meta`), and a meta-only answer ends `not_in_material`. A bare closing number after passage/section/page… is not a citation. "None of the provided passages…" is a NONE form. Decision 111.
+  - Prompt: "…comes from, like this [1]." (+5 tokens). Four separate rule lines each flipped the Whisper q_general to a library answer.
+  - Tests: not ollama 460 passed, ollama 11 passed, measure_answers §8 as expected, all EXIT 0.
+  - e2e: three runs this round, one per prompt version. Final prompt: recall 8/8, false triggers 0, §8 all as expected, first words p50 1.30 s / p95 3.29 s FAIL. The p95 is q_general's Claude fallback (library NONE at once; the previous run on the same path took 2.32 s).

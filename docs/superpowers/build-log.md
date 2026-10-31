@@ -569,3 +569,34 @@ Follow-ups that must be done before the MVP is done:
 - Decision 127 also needs `start_ms >= question end - 2 s` (a 20 s monologue before the question is not credited; test `a-mono`). Stored-replay test still matches reference.json (table above).
 - Decision 128 now has the 10 s circuit breaker and a separate warm-up pool (tests with a stubbed Ollama and clock: two finals inside 10 s make no embed call, one after does, a 0.6 s call does not open it, a connection error opens it, warm-up ignores it). An autouse fixture closes the breaker between tests.
 - Web: `canSeek` disables the player, markers and time links with no recording, on an audio error or in a failed meeting; tabs are `tablist`/`tab`/`tabpanel`; the used toggle dropped `aria-pressed`; a failed PATCH or retry shows a message and the stored state is reloaded; blocked `play()` is caught; `MeetingLive` closes its socket on hand-off; the recorder falls back to the email. Tests added for seeking, no-recording, unmount polling, failed save, failed retry, tabs, and retry without a cookie (401).
+
+### Milestone F critique (2026-10-31)
+The critique agent, standing in for rupak.k, reviewed decisions 113–128 (Tasks 15–19). Verdicts are in decisions.md: 6 Agree, 9 Agree with note, 1 Disagree (128). `uv run pytest -m "not ollama" -q`: 577 passed, 1 skipped (speakers), 12 deselected. No replays, e2e, Ollama tests or app runs were done for this critique. I also removed a stray blank line before row 122 that split the decision table in two.
+
+Top three concerns:
+1. **Question detection under load is unproven, and the fix has a blind spot.** In the first after-meeting run, 3 of 8 questions were transcribed and gated `client`, yet never triggered. The cause (the 300 ms embed deadline on a busy Mac) is a likely guess with no log behind it. Decision 128 raises the budget to 1 s, which is right. But after any timeout, its breaker lets the strict rules (recall 29/200) decide for 10 s, which in effect switches detection off during exactly the busy moments that caused the misses. No replay has run since the change. The only warning is a "Question detection degraded" line in the menu bar, where nobody looks mid-call.
+2. **Names can still reach Claude through gaps.** The Milestone E follow-up is done for attendees and the meeting's client. Still open: a colleague the client names who is not on the invite, a name Whisper writes in lower case or misspells (attendee words are matched case-sensitively), and "Priyas" with no apostrophe. Each leak is a single question, but the rule says names never go.
+3. **Heat and the spec §9 evidence are still missing.** Three models stay loaded on the GPU for the whole meeting. Slow classifier calls are now allowed up to 1 s, and the Mac showed swap pressure earlier. Nothing has measured a 30–60 minute meeting for heat, swap or rules fallbacks, and spec §9 cannot pass without the soak run, the real Meet and Zoom calls (manual-checks.md), and chat.
+
+Follow-ups that must be done before the MVP is done:
+- **Task 20 (brief):** the brief is built from the event's title and description, which often contain people's names. If any part of the brief goes to Claude, apply `redact_people` and `redact_clients` (or keep the brief fully local) and log what leaves the Mac. A live question matched to a brief answer must still go through the same classifier and gate.
+- **Task 21 (chat and library):** replace the "Chat arrives in a later build" tab (decision 126b) with team chat for one meeting and across all meetings and the library, with citations to meetings, timestamps and documents (spec goal 8). Every chat call must be traced in `llm_calls`, so the page's Claude cost includes chat.
+- **Task 22 (targets, local-only, soak):**
+  - Decision 128: keep a client turn the rules rejected during a breaker window or timeout, re-classify it once the embedder answers, and show a late answer rather than none, or log why not.
+  - Run the full replay at least 3 times, with one run under load (for example, during a `make up` rebuild). Each run keeps `helper-replay.log` and must get 8/8 triggers, and the report counts slow calls, breaker openings and rules fallbacks.
+  - The soak fails if the breaker opens or a scripted question is missed in any loop. It also samples thermal state and swap (Milestone E follow-up, still owed).
+  - Re-print decision 118's used-marker score table and report any card that flips.
+  - Still owed from Milestone E: decision 112's split gates pooled over at least 3 runs, and proof that `off` sends no warm HEAD.
+  - If the degraded state fires at all in these runs, give the panel a quiet marker for it (decision 123b).
+- **Task 23 (demo, guide, hand-over):**
+  - Amend the spec where the build departed from it: §7.1's 0.30 s classify budget is now 1 s with a breaker (128), and §7.3's 0.75 threshold and "starts within 15 s" are now 0.52 and the overlap window (118, 127), on top of Milestone E's list.
+  - The hand-over states the redaction limits: non-attendees, lower-case or misspelled names, "Priyas".
+  - The hand-over includes the results of the real Meet and Zoom calls and the other manual checks (decision 124), and the echo ratio from a real call next to the 0.138 measured with afplay.
+  - Check the built-in Claude prices against Anthropic's published pricing (decision 119).
+  - Remove or mark as inert the no-speech-probability filter (decision 125e).
+  - Say the api must not be exposed beyond this Mac, since pairing has no attempt limit (115i).
+  - Merge the duplicate row 91, which is still in the table.
+
+Check of the Milestone E follow-ups:
+- **Task 15, done.** The helper receives the meeting's client name and its attendees (`start` message and `GET /api/meetings/{id}`). `question_only` redacts them along with the library clients, and both probe lines are unit tests (`core/tests/test_fallback.py`, `helper/tests/unit/test_assist.py`). Decision 116 then hardened the matching (short surnames, possessives).
+- **Task 18, done, with one part left to rupak.k.** (1) ScreenCaptureKit ran on hardware inside the signed bundle: the speakers test measured an echo ratio of 0.138 against the 0.3 cut-off, and the panel stayed out of a full-display capture. That run used afplay rather than a real call, so the check on real echo cancellation is still manual check 1–2. (2) A visible state while the rules decide exists: "⚠ Question detection degraded" in the menu (decision 123b), though in the menu only. (3) `OLLAMA_NUM_PARALLEL` is read from the runners after warm-up, and anything but 1 logs a warning (123c). Replay run 2 logged "one slot each".

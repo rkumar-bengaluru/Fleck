@@ -84,14 +84,13 @@ def local_model(repo: str) -> str:
         return repo
 
 
-MAX_COMPRESSION, MAX_NO_SPEECH = 2.4, 0.6  # Whisper's own thresholds, which it applies only to pick a retry
+MAX_COMPRESSION = 2.4  # Whisper's own threshold, which it applies only to pick a retry
 
 
 def kept_text(out: dict) -> str:
-    """The transcript without Whisper's hallucinations: segments that repeat themselves ("2. 2. 2. …", compression
-    ratio over 2.4) or that it thinks hold no speech (no_speech_prob over 0.6)."""
+    """The transcript without Whisper's repetition hallucinations ("2. 2. 2. …", compression ratio over 2.4).
+    No no_speech_prob filter: mlx-whisper reports 0.0 on every segment, noise included (decision 125e)."""
     segs = out.get("segments")
     if segs is None:
         return out["text"].strip()
-    return " ".join(t for s in segs if s.get("compression_ratio", 0) <= MAX_COMPRESSION
-                    and s.get("no_speech_prob", 0) <= MAX_NO_SPEECH and (t := s["text"].strip()))
+    return " ".join(t for s in segs if s.get("compression_ratio", 0) <= MAX_COMPRESSION and (t := s["text"].strip()))

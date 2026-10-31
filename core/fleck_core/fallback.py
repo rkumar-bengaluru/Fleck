@@ -1,8 +1,9 @@
 """Live fallback (spec 7.4 rules 5-6): Claude Haiku answers from general knowledge when the library can't.
 
 Only the client's question text is sent (spec 6): `question_only` keeps the turn's question sentences, without a
-leading vocative and with library client names redacted. The reply streams; each sentence is shown only once the text up to it passes
-`check_fallback`, and a block anywhere ends the answer in "Not in our material" (decision 108). A blocked answer is
+leading vocative and with library client names redacted. The reply streams token by token until the sentence so far
+could hold a figure, money, a rate or a client name; the rest of that sentence waits for `check_fallback` on the text
+up to it, and a block anywhere ends the answer in "Not in our material" (decision 108). A blocked answer is
 never retried. Raw HTTP over httpx, because the anthropic SDK is not a dependency of the live path."""
 import json
 import os
@@ -15,7 +16,9 @@ from dataclasses import dataclass
 
 import httpx
 
-from .validate import check_fallback, redact_clients, split_sentences
+from .answer import _NUMBER_WORD_TAIL, Delta, Sentence
+from .numbers import CODES, extract_figures
+from .validate import check_fallback, name_words, redact_clients, split_sentences
 
 TIMEOUT_S = 5.0  # wall clock for the whole call; past it the answer is "Not in our material"
 URL = "https://api.anthropic.com/v1/messages"
@@ -29,6 +32,7 @@ _http = httpx.Client(timeout=TIMEOUT_S, limits=httpx.Limits(keepalive_expiry=300
 _END = object()
 _VOCATIVE = re.compile(r"^(\w+ )?[A-Z][a-z]+, ")  # "Marcus, how do you…" (as classify._VOCATIVE)
 SLICE_S = 0.05  # how often a waiting stream checks its cancel event
+_RISKY = re.compile(rf"\d|%|[$€£¥₹]|\bper\b|/|\b(?:{CODES})\b", re.I)  # a figure, money or a rate could follow: hold the sentence
 
 
 def question_only(turn: str, client_names: list[str]) -> str:
@@ -63,6 +67,21 @@ class FallbackResult:
     input_tokens: int | None = None
     output_tokens: int | None = None
     error: str | None = None
+    started: float = 0.0  # wall clock (time.time()) when the request was sent
+    first_text: float | None = None  # wall clock of Claude's first text token
+
+
+def _hold(partial: str, client_names: list[str]) -> bool:
+    """True when the sentence so far must not stream further: it has a figure, money, a rate or anything
+    check_fallback blocks, or its last words could still become a client name ("Callo" of "Calloway & Marsh")."""
+    if _RISKY.search(partial) or extract_figures(partial) or not check_fallback(partial, client_names).ok:
+        return True
+    low = partial.lower()
+    for name in (w.lower() for c in client_names for w in name_words(c)):
+        starts = [m.start() for m in re.finditer(r"\b\w", low)][-len(name.split()):]
+        if any(name.startswith(low[i:]) for i in starts):
+            return True
+    return False
 
 
 def _pump(http: httpx.Client, question: str, key: str, q: queue.Queue, stop: threading.Event, box: dict) -> None:
@@ -88,25 +107,55 @@ def _pump(http: httpx.Client, question: str, key: str, q: queue.Queue, stop: thr
 
 
 def stream_fallback(question: str, client_names: list[str], http: httpx.Client | None = None,
-                    cancel: threading.Event | None = None) -> Iterator[str | FallbackResult]:
-    """Each sentence as soon as the answer up to it passes `check_fallback`, then the FallbackResult (always last).
-    A result that is not ok means: replace anything shown with "Not in our material". `question` is sent as given:
+                    cancel: threading.Event | None = None) -> Iterator[Delta | Sentence | FallbackResult]:
+    """The library contract (answer.stream_library_answer): Deltas append to sentence `index` until it could hold a
+    figure, money, a rate or a client name (`_hold`); Sentence(index, text) replaces them once the answer up to it
+    passes `check_fallback`. A block yields Sentence(index, "", False, reason) and ends at once with a blocked
+    FallbackResult (always last). A result that is not ok means: replace anything shown with "Not in our material". `question` is sent as given:
     pass it through `question_only` first. Setting `cancel` closes the HTTP stream within SLICE_S and ends with a
     "discarded" result. Never raises."""
     key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not key:
         yield FallbackResult("", False, ["no_api_key"], 0, model(), "error", error="ANTHROPIC_API_KEY is empty")
         return
-    t = time.perf_counter()
+    t, started = time.perf_counter(), time.time()
     ms = lambda: round((time.perf_counter() - t) * 1000)  # noqa: E731
     q, stop, box = queue.Queue(), threading.Event(), {}
     threading.Thread(target=_pump, args=(http or _http, question, key, q, stop, box), daemon=True).start()
-    text, shown, used, stop_reason, name = "", 0, {}, None, model()
+    text, used, stop_reason, name, first = "", {}, None, model(), None
+    pos, index, shown, held, kept = 0, 0, "", False, []
+
+    def result(ok, reasons, status, **kw) -> FallbackResult:
+        return FallbackResult(text.strip(), ok, reasons, ms(), name, status, used.get("input_tokens"),
+                              used.get("output_tokens"), started=started, first_text=first, **kw)
+
+    def emit(final: bool) -> Iterator[Delta | Sentence]:
+        """Sentences that ended get their verdict; a block is a Sentence with "" (the caller then stops)."""
+        nonlocal pos, index, shown, held
+        pieces = split_sentences(text[pos:])
+        for piece in pieces if final else pieces[:-1]:  # the last piece may still grow
+            pos = text.index(piece, pos) + len(piece)
+            chk = check_fallback(" ".join(kept + [piece]), client_names)
+            if not chk.ok:
+                yield Sentence(index, "", False, chk.reasons[0])
+                return
+            kept.append(piece)
+            yield Sentence(index, piece, True, None)
+            index, shown, held = index + 1, "", False
+        partial = text[pos:].lstrip()
+        if final or held or not partial:
+            return
+        if _hold(partial, client_names):
+            held = True
+            return
+        disp = _NUMBER_WORD_TAIL.sub("", partial)  # "costs one" could become a figure with the next word
+        if len(disp) > len(shown) and disp.startswith(shown):
+            yield Delta(index, disp[len(shown):])
+            shown = disp
     try:
         while True:
             if cancel is not None and cancel.is_set():
-                yield FallbackResult(text, False, ["cancelled"], ms(), name, "discarded",
-                                     used.get("input_tokens"), used.get("output_tokens"))
+                yield result(False, ["cancelled"], "discarded")
                 return
             left = TIMEOUT_S - (time.perf_counter() - t)
             try:
@@ -114,11 +163,11 @@ def stream_fallback(question: str, client_names: list[str], http: httpx.Client |
             except queue.Empty:
                 if left > SLICE_S:
                     continue
-                yield FallbackResult(text, False, ["timeout"], ms(), name, "timeout", error=f"over {TIMEOUT_S} s")
+                yield result(False, ["timeout"], "timeout", error=f"over {TIMEOUT_S} s")
                 return
             if isinstance(ev, Exception):  # never let the key reach a log: only the type and status go in the trace
                 err = f"HTTP {ev.response.status_code}" if isinstance(ev, httpx.HTTPStatusError) else type(ev).__name__
-                yield FallbackResult(text, False, ["claude_error"], ms(), name, "error", error=err)
+                yield result(False, ["claude_error"], "error", error=err)
                 return
             if ev is _END:
                 break
@@ -130,21 +179,26 @@ def stream_fallback(question: str, client_names: list[str], http: httpx.Client |
                 stop_reason = ev.get("delta", {}).get("stop_reason") or stop_reason
                 used.update(ev.get("usage", {}))
             elif kind == "error":
-                yield FallbackResult(text, False, ["claude_error"], ms(), name, "error", error=ev.get("error", {}).get("type"))
+                yield result(False, ["claude_error"], "error", error=ev.get("error", {}).get("type"))
                 return
             elif kind == "content_block_delta" and ev["delta"].get("type") == "text_delta":
+                first = first or time.time()
                 text += ev["delta"]["text"]
-                done = split_sentences(text)[:-1]  # the last piece may still grow
-                while shown < len(done) and check_fallback(" ".join(done[: shown + 1]), client_names).ok:
-                    yield done[shown]
-                    shown += 1
-        text = text.strip()
-        reasons = check_fallback(text, client_names).reasons + ([] if text else ["empty"])
-        reasons += ["refusal"] if stop_reason == "refusal" else []
-        if not reasons:
-            yield from split_sentences(text)[shown:]
-        yield FallbackResult(text, not reasons, reasons, ms(), name, "blocked" if reasons else "ok",
-                             used.get("input_tokens"), used.get("output_tokens"))
+                for x in emit(final=False):
+                    yield x
+                    if isinstance(x, Sentence) and not x.ok:
+                        yield result(False, check_fallback(text, client_names).reasons, "blocked")
+                        return
+        reasons = (["refusal"] if stop_reason == "refusal" else []) + ([] if text.strip() else ["empty"])
+        if reasons:  # nothing more is shown; the done replaces what was
+            yield result(False, check_fallback(text, client_names).reasons + reasons, "blocked")
+            return
+        for x in emit(final=True):
+            yield x
+            if isinstance(x, Sentence) and not x.ok:
+                yield result(False, check_fallback(text, client_names).reasons, "blocked")
+                return
+        yield result(True, [], "ok")
     finally:
         stop.set()
         if r := box.get("r"):

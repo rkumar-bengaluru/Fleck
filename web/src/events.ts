@@ -36,6 +36,9 @@ export interface LlmCall {
   latency_ms: number;
   status: "ok" | "blocked" | "error" | "timeout" | "discarded";
   error: string | null;
+  started_at: number | null;
+  first_text_at: number | null;
+  speculative: boolean;
 }
 
 export interface MeetingStateEvent {

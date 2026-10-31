@@ -98,10 +98,14 @@ def _past_work(text: str) -> bool:
     return bool(_PAST_WORK.search(text))
 
 
+def name_words(c: str) -> list[str]:
+    """A library client's full name, then each distinctive word of it ("Larkspur"): what check_fallback blocks."""
+    return [c] + [w for w in re.findall(r"[^\W\d_]+", c) if len(w) >= 4 and w.lower() not in _NAME_STOP]
+
+
 def _name_rx(c: str) -> re.Pattern:
-    """A library client's full name or any distinctive word of it ("Larkspur"), with a possessive."""
-    tokens = [w for w in re.findall(r"[^\W\d_]+", c) if len(w) >= 4 and w.lower() not in _NAME_STOP]
-    return re.compile("|".join(rf"\b{re.escape(w)}(?:['’]s)?\b" for w in [c] + tokens), re.I)
+    """Any of name_words(c), with a possessive."""
+    return re.compile("|".join(rf"\b{re.escape(w)}(?:['’]s)?\b" for w in name_words(c)), re.I)
 
 
 def _client_hits(text: str, client_names: list[str]) -> list[str]:

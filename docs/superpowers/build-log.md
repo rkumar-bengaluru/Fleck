@@ -443,3 +443,9 @@ Live §8 questions (title, kind, nearest-vector distance):
   - Prompt: "…comes from, like this [1]." (+5 tokens). Four separate rule lines each flipped the Whisper q_general to a library answer.
   - Tests: not ollama 460 passed, ollama 11 passed, measure_answers §8 as expected, all EXIT 0.
   - e2e: three runs this round, one per prompt version. Final prompt: recall 8/8, false triggers 0, §8 all as expected, first words p50 1.30 s / p95 3.29 s FAIL. The p95 is q_general's Claude fallback (library NONE at once; the previous run on the same path took 2.32 s).
+- Fix round 3 (fallback latency):
+  - Fallback streams token by token under hold rules (`fallback._hold`): a digit, %, currency, "per" or "/", any check_fallback block, or last words that could still become a client name hold the rest of the sentence. A block yields Sentence "" and ends blocked.
+  - LlmCall gains `started_at`, `first_text_at` and `speculative`. Win 1 did not fire for the Whisper q_general (two client passages and one reference), so it now starts when no passage is firm.
+  - Latency gates per rupak.k (decision 112; spec 5 amended): library/brief first words p95 <= 3 s and done <= 6 s, Claude first words p95 <= 5 s, "Not in our material" reported, all pooled. `measure_e2e.py --runs N`.
+  - Tests: not ollama 468 passed, helper unit 129 passed, both EXIT 0.
+  - e2e `--runs 2`: recall 8/8, false triggers 0, §8 all as expected in both runs; pooled library first p95 1.80 s, done p95 2.26 s; Claude first p95 2.17 s; Not in our material 1.23 s. PASS.

@@ -55,7 +55,7 @@ iOS, Android, Windows; Outlook calendar; several teams with separate data (one t
 ## 5. Anti-goals (failure even if it works)
 
 - **A made-up fact shown as ours.** Prices, rates, team sizes, dates, client names and results come only from the library, quoted with their source. If no document backs a number, the answer says so. Claude's fallback answers never contain prices or claims about the firm's past work.
-- **Help that arrives too late.** Target: the first words of an answer appear within **3 s** of the client finishing the question; the full answer within **6 s** (p95, on the test conversation, on rupak.k's Mac).
+- **Help that arrives too late.** Target (p95 over pooled replays of the test conversation, on rupak.k's Mac): the first words of a library or brief answer appear within **3 s** of the client finishing the question, and the full library answer within **6 s**; the first words of a Claude fallback answer within **5 s** (its timeout). The time to a "Not in our material" outcome is reported, not gated (rupak.k, 2026-10-31).
 - **Missed or misheard questions.** Target: on the test conversation, at least 90% of the client's questions trigger an answer, and no more than one false trigger per 10 minutes.
 - **Getting in the way.** Reading an answer must never need a window or tab switch, a click, or a sound. The answer panel (§7.8) floats over the call, never takes keyboard focus, and stays out of screen shares.
 

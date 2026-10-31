@@ -43,10 +43,12 @@ def _cosine(a, b) -> float:
     return float(a @ b / ((np.linalg.norm(a) * np.linalg.norm(b)) or 1.0))
 
 
-def _llm(r: FallbackResult, ask: str, status: str | None = None) -> LlmCall:
+def _llm(r: FallbackResult, ask: str, q_end: float, speculative: bool, status: str | None = None) -> LlmCall:
+    rel = lambda w: None if w is None else round((w - q_end) * 1000)  # noqa: E731
     return LlmCall(purpose="live_fallback", model=r.model, request=ask, response=r.text or None,
                    input_tokens=r.input_tokens, output_tokens=r.output_tokens, latency_ms=r.latency_ms,
-                   status=status or r.status, error=r.error)
+                   status=status or r.status, error=r.error, started_at=rel(r.started or None),
+                   first_text_at=rel(r.first_text), speculative=speculative)
 
 
 class _Spec:
@@ -66,14 +68,14 @@ class _Spec:
             yield x
         yield x
 
-    def discard(self) -> LlmCall | None:
+    def discard(self, q_end: float) -> LlmCall | None:
         self.cancel.set()
         try:
             while not isinstance(x := self.items.get(timeout=1.0), FallbackResult):
                 pass
         except queue.Empty:
             return None
-        return None if x.reasons == ["no_api_key"] else _llm(x, self.ask, "discarded")
+        return None if x.reasons == ["no_api_key"] else _llm(x, self.ask, q_end, True, "discarded")
 
 
 @dataclass
@@ -132,9 +134,9 @@ class Assistant:
                 prep.passages.set_exception(e)
                 return
             ask = question_only(text, self.client_names)
-            if (self.fallback_mode == "claude" and all(p.kind == "reference" for p in passages)
+            if (self.fallback_mode == "claude" and not any(p.kind == "firm" for p in passages)
                     and not PRICE_ASK.search(ask)):
-                with self._lock:  # the library is likely to say NONE: Claude starts now, beside it
+                with self._lock:  # no firm passage: the library is likely to say NONE, so Claude starts now, beside it
                     if not prep.dropped:
                         prep.spec = _Spec(ask, self.client_names, self.claude)
             prep.passages.set_result(passages)
@@ -238,7 +240,7 @@ class Assistant:
                     t = ms()
                     yield ev(phase="sentence", sentence_index=0, text=item.answer, citations=item.citations, kind=item.kind)
                     yield ev(phase="done", kind=item.kind, from_brief=True, citations=item.citations, first_words_ms=t,
-                             full_ms=t, llm=self._traced(spec))
+                             full_ms=t, llm=self._traced(spec, q_end))
                     return
             try:
                 if prep:
@@ -251,7 +253,7 @@ class Assistant:
                 timed_out = isinstance(e, (RetrievalTimeout, TimeoutError))
                 log.warning("live search failed: %r", e)
                 yield ev(phase="done", kind="not_in_material", rejected=["retrieval_timeout" if timed_out else "retrieval_error"],
-                         full_ms=ms(), llm=self._traced(spec))
+                         full_ms=ms(), llm=self._traced(spec, q_end))
                 return
             why = ["no_passages"]
             if passages:
@@ -264,19 +266,19 @@ class Assistant:
                         if u.check.reasons != ["none"]:  # NONE hands over to the fallback (spec 7.4 rule 1)
                             yield ev(phase="done", kind=u.check.kind, citations=u.check.citations,
                                      first_words_ms=u.first_words_ms, full_ms=u.full_ms, rejected=u.check.reasons,
-                                     llm=self._traced(spec))
+                                     llm=self._traced(spec, q_end))
                             return
                 why = ["none"]
-            yield from self._fallback(ev, question_only(trig.question, self.client_names), why, ms, spec, cancel)
+            yield from self._fallback(ev, question_only(trig.question, self.client_names), why, ms, q_end, spec, cancel)
         finally:
             if spec:
                 spec.cancel.set()
 
-    def _traced(self, spec: _Spec | None, calls: list[LlmCall] = ()) -> list[LlmCall]:
+    def _traced(self, spec: _Spec | None, q_end: float, calls: list[LlmCall] = ()) -> list[LlmCall]:
         """`calls` plus every speculative call never shown: this one's (cut now) and dropped preparations'."""
         with self._lock:
             orphans, self._orphans = self._orphans, []
-        return [*calls, *(c for s in ([spec] if spec else []) + orphans if (c := s.discard()))]
+        return [*calls, *(c for s in ([spec] if spec else []) + orphans if (c := s.discard(q_end)))]
 
     def _brief_match(self, question: str, vector):
         """(the best brief item at or over BRIEF_MIN_COSINE or None, the question's search vector or None)."""
@@ -293,23 +295,24 @@ class Assistant:
         score, item = max(scored, key=lambda x: x[0], default=(0.0, None))
         return (item if score >= BRIEF_MIN_COSINE else None), vector
 
-    def _fallback(self, ev, ask: str, why: list[str], ms, spec: _Spec | None, cancel):
+    def _fallback(self, ev, ask: str, why: list[str], ms, q_end: float, spec: _Spec | None, cancel):
         """Claude Haiku from `ask` (question_only: the question sentences, no client names), labelled kind "general"
-        (General knowledge, not from our material) on each sentence and on done (decision 102). Sentences stream once
-        checked (decision 108); a block ends in a not_in_material done that replaces them. Never retried. A price ask
+        (General knowledge, not from our material) on each delta, sentence and done (decision 102). It streams under the
+        library's hold rules, each sentence replaced once checked (decision 108); a block ends in a not_in_material done that replaces them. Never retried. A price ask
         never reaches Claude (decision 107)."""
         if self.fallback_mode != "claude" or PRICE_ASK.search(ask):
             extra = ["price_question"] if self.fallback_mode == "claude" else []
-            yield ev(phase="done", kind="not_in_material", rejected=why + extra, full_ms=ms(), llm=self._traced(spec))
+            yield ev(phase="done", kind="not_in_material", rejected=why + extra, full_ms=ms(), llm=self._traced(spec, q_end))
             return
-        first, i = None, 0
-        for r in spec.stream() if spec and spec.ask == ask else stream_fallback(ask, self.client_names, self.claude, cancel):
-            if isinstance(r, str):  # a sentence that passed check_fallback with everything before it
-                first = first if first is not None else ms()
-                yield ev(phase="sentence", sentence_index=i, text=r, kind="general")
-                i += 1
-        used = [] if r.reasons == ["no_api_key"] else [_llm(r, ask)]
-        rest = self._traced(None if spec and spec.ask == ask else spec, used)
+        first, mine = None, not (spec and spec.ask == ask)
+        for r in stream_fallback(ask, self.client_names, self.claude, cancel) if mine else spec.stream():
+            if isinstance(r, FallbackResult):
+                break
+            first = first if first is not None or not r.text else ms()
+            yield ev(phase="delta" if isinstance(r, Delta) else "sentence", sentence_index=r.index, text=r.text,
+                     kind="general")
+        used = [] if r.reasons == ["no_api_key"] else [_llm(r, ask, q_end, not mine)]
+        rest = self._traced(spec if mine else None, q_end, used)
         if not r.ok:  # replaces any sentence already shown
             yield ev(phase="done", kind="not_in_material", rejected=why + r.reasons, first_words_ms=first, full_ms=ms(), llm=rest)
             return

@@ -34,6 +34,9 @@ class LlmCall(_Event):
     latency_ms: int
     status: Literal["ok", "blocked", "error", "timeout", "discarded"]
     error: str | None = None
+    started_at: int | None = None  # ms from the question's end to the request (negative: sent before it ended)
+    first_text_at: int | None = None  # ms from the question's end to Claude's first text token
+    speculative: bool = False  # started at prepare(), beside the library answer (decision 109)
 
 
 class AssistEvent(_Event):

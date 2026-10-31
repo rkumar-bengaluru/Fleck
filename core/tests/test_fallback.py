@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import time
 from pathlib import Path
 
@@ -9,6 +10,7 @@ import pytest
 from fleck_core import fallback
 import threading
 
+from fleck_core.answer import Delta, Sentence
 from fleck_core.fallback import FallbackResult, fallback_answer, question_only, stream_fallback
 
 
@@ -56,12 +58,44 @@ def test_blocked_answer(text, reason):
     assert not r.ok and r.status == "blocked" and reason in r.reasons and r.text == text  # kept for the trace
 
 
-def test_sentences_stream_once_checked_and_a_later_block_ends_it():
-    ok = list(stream_fallback("q?", [], client(reply("It depends on scope. It also depends on the data."))))
-    assert ok[:2] == ["It depends on scope.", "It also depends on the data."] and ok[-1].ok
-    bad = list(stream_fallback("q?", [], client(reply("It depends on scope. Most firms charge $120 per hour. Ok."))))
-    assert bad[0] == "It depends on scope." and all(not isinstance(x, str) or "$" not in x for x in bad)
-    assert isinstance(bad[-1], FallbackResult) and not bad[-1].ok and "currency" in bad[-1].reasons
+def stream(text, names=(), chunk=8):
+    return list(stream_fallback("q?", list(names), client(lambda req: httpx.Response(
+        200, text=sse(text, chunk=chunk), headers={"content-type": "text/event-stream"}))))
+
+
+def shown(items, i):
+    """What a viewer saw at any moment for sentence i: every Delta's text."""
+    return "".join(x.text for x in items if isinstance(x, Delta) and x.index == i)
+
+
+def test_clean_sentences_stream_token_by_token():
+    ev = stream("It depends on scope. It also depends on the data.", chunk=4)
+    assert sum(isinstance(x, Delta) and x.index == 0 for x in ev) > 2  # word by word, not at the full stop
+    assert "It depends on scope.".startswith(shown(ev, 0)) and len(shown(ev, 0)) > 10
+    sents = [(x.index, x.text) for x in ev if isinstance(x, Sentence)]
+    assert sents == [(0, "It depends on scope."), (1, "It also depends on the data.")] and ev[-1].ok
+    assert ev.index(next(x for x in ev if isinstance(x, Delta))) < ev.index(next(x for x in ev if isinstance(x, Sentence)))
+
+
+@pytest.mark.parametrize("chunk", [2, 3, 5])
+def test_client_name_split_across_tokens_is_never_shown(chunk):
+    ev = stream("It depends on scope. Teams like Calloway & Marsh did it.", ["Calloway & Marsh"], chunk)
+    assert all("Ca" not in x.text for x in ev if isinstance(x, (Delta, Sentence)))
+    assert Sentence(1, "", False, "client_name:Calloway & Marsh") in ev
+    assert isinstance(ev[-1], FallbackResult) and not ev[-1].ok and ev[-1].status == "blocked"
+
+
+@pytest.mark.parametrize("chunk", [2, 3, 5])
+def test_price_split_across_tokens_is_never_shown(chunk):
+    ev = stream("It depends on scope. Most firms charge $120 per hour. Ok.", chunk=chunk)
+    assert all(not re.search(r"\d|\$", x.text) for x in ev if isinstance(x, (Delta, Sentence)))
+    assert Sentence(0, "It depends on scope.", True, None) in ev and Sentence(1, "", False, "currency") in ev
+    assert not ev[-1].ok and "currency" in ev[-1].reasons and "Most firms charge $120" in ev[-1].text
+
+
+def test_result_carries_wall_times():
+    *_, r = stream("It depends.")
+    assert r.started and r.first_text and r.started <= r.first_text <= time.time()
 
 
 def test_timeout(monkeypatch):

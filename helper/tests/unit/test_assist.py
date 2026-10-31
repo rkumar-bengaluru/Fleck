@@ -115,12 +115,13 @@ def test_brief_match_short_circuits():
 def test_empty_library_falls_back():
     claude = FakeClaude()
     ev = list(make(FakeRetriever(passages=()), claude=claude).handle(trig(), "m1"))
-    assert [e.phase for e in ev] == ["thinking", "sentence", "done"]
-    assert ev[1].kind == "general" and ev[1].text == claude.text and ev[1].citations == []  # labelled as it streams
+    assert [e.phase for e in ev] == ["thinking", "delta", "sentence", "done"]
+    assert all(e.kind == "general" for e in ev[1:])  # labelled as it streams
+    assert claude.text.startswith(ev[1].text) and ev[2].text == claude.text and ev[2].citations == []
     done = ev[-1]
     assert done.kind == "general" and done.first_words_ms is not None and done.rejected == ["no_passages"]
     [call] = done.llm
-    assert call.status == "ok" and call.purpose == "live_fallback" and call.request == Q
+    assert call.status == "ok" and call.purpose == "live_fallback" and call.request == Q and not call.speculative
     assert claude.requests[0]["messages"] == [{"role": "user", "content": Q}]  # the question text only
 
 
@@ -146,7 +147,7 @@ def test_blocked_fallback_not_retried():
     claude = FakeClaude("Typically about $150 per hour for this kind of work.")
     ev = list(make(ollama=FakeOllama(("NONE",)), claude=claude).handle(trig(), "m1"))
     assert len(claude.requests) == 1
-    assert [e.phase for e in ev] == ["thinking", "done"]  # the blocked text is never shown
+    assert [e.phase for e in ev] == ["thinking", "sentence", "done"] and ev[1].text == ""  # the blocked text is never shown
     done = ev[-1]
     assert done.kind == "not_in_material" and done.rejected[0] == "none" and "currency" in done.rejected
     assert [c.status for c in done.llm] == ["blocked"] and done.llm[0].response.startswith("Typically")
@@ -304,6 +305,21 @@ def test_reference_only_retrieval_starts_claude_early_and_shows_it_on_none():
     assert len(claude.requests) == 1 and claude.requests[0]["messages"][0]["content"] == Q  # one call, question only
     assert ev[-1].kind == "general" and [c.status for c in ev[-1].llm] == ["ok"]
     assert claude.heads and all(content == b"" and "x-api-key" not in h for h, content in claude.heads)
+    [call] = ev[-1].llm
+    assert call.speculative and call.started_at is not None and call.started_at <= call.first_text_at
+
+
+CASE = Passage(n=1, doc_id="c1", chunk_id="c1-0", title="Case study: Calloway & Marsh", client="Calloway & Marsh",
+               kind="client", text="Case study · What we'd do differently\nSplit the playbook per clause.")
+
+
+def test_client_and_reference_retrieval_also_starts_claude_early():
+    claude = FakeClaude()
+    a = make(FakeRetriever(passages=(CASE, REF)), FakeOllama(("NONE",)), claude=claude)
+    a.prepare(Q)
+    time.sleep(0.1)
+    ev = list(a.handle(trig(), "m1"))
+    assert len(claude.requests) == 1 and ev[-1].kind == "general" and ev[-1].llm[0].speculative
 
 
 def test_speculative_claude_answer_is_discarded_when_the_library_answers():

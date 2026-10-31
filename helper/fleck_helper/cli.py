@@ -10,6 +10,7 @@ from pathlib import Path
 
 import httpx
 import keyring
+import keyring.errors
 
 log = logging.getLogger("fleck.cli")
 
@@ -21,8 +22,17 @@ def api_url() -> str:
     return os.environ.get("FLECK_API_URL", "http://localhost:8000").rstrip("/")
 
 
+def _keychain(account: str) -> str | None:
+    """A keychain item, or None when it is missing or the user pressed Deny on macOS's prompt (KeyringLocked)."""
+    try:
+        return keyring.get_password(SERVICE, account)
+    except keyring.errors.KeyringError as e:
+        log.warning("keychain item %s not read: %s", account, type(e).__name__)
+        return None
+
+
 def load_token() -> str | None:
-    return keyring.get_password(SERVICE, ACCOUNT)
+    return _keychain(ACCOUNT)
 
 
 def pair(code: str) -> None:
@@ -61,7 +71,7 @@ def set_claude_key(env_file: Path | None) -> None:
 def load_claude_key() -> bool:
     """Puts the keychain's Claude key in the environment unless one is set there. True if a key is now set."""
     if not os.environ.get("ANTHROPIC_API_KEY"):
-        os.environ["ANTHROPIC_API_KEY"] = keyring.get_password(SERVICE, CLAUDE_ACCOUNT) or ""
+        os.environ["ANTHROPIC_API_KEY"] = _keychain(CLAUDE_ACCOUNT) or ""
     return bool(os.environ["ANTHROPIC_API_KEY"])
 
 

@@ -101,6 +101,16 @@ def test_a_key_saved_after_launch_is_picked_up(kr, monkeypatch):
     assert cli.load_claude_key() is True  # the next menu refresh or recording start clears the warning
 
 
+def test_a_denied_keychain_prompt_means_no_key_not_a_crash(kr, monkeypatch):
+    from keyring.errors import KeyringLocked
+    def denied(service, username):
+        raise KeyringLocked("Can't get password from keychain: denied")  # macOS keyring on Deny
+    monkeypatch.setattr(kr, "get_password", denied)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    assert cli.load_claude_key() is False  # the menu warns "No Claude key"; general answers end Not in our material
+    assert cli.load_token() is None  # the menu says Not paired
+
+
 def test_replay_uploads_its_audio_in_10_s_chunks(tmp_path):
     import wave
     from fleck_helper.audio import AudioChunkWriter, ReplaySource

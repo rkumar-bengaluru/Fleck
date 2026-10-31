@@ -134,6 +134,14 @@ def test_generic_words_of_a_client_name_are_not_the_client():
         assert not check_fallback(answer, names).ok, answer
 
 
+def test_a_client_named_only_with_industry_words_is_still_protected():
+    # review of decision 142: with no distinctive word left, the industry words stay identifying
+    assert question_only("What did Global Logistics pay?", ["Global Logistics Services"]) == "What did a client a client pay?"
+    assert not check_fallback("Global Logistics uses this.", ["Global Logistics Services"]).ok
+    assert "Capital" not in question_only("Does Capital use you?", ["Capital Group"])
+    assert not check_fallback("Ace Insurance chose it.", ["ACE Insurance"]).ok
+
+
 def test_fallback_allows_retry_advice():
     assert check_fallback("Restore the backup and retry 3 times.", ["Larkspur Retail Group"]).ok
 

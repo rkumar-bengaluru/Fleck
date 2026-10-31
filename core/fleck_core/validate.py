@@ -99,8 +99,11 @@ def _past_work(text: str) -> bool:
 
 
 def name_words(c: str) -> list[str]:
-    """A library client's full name, then each distinctive word of it ("Larkspur"): what check_fallback blocks."""
-    return [c] + [w for w in re.findall(r"[^\W\d_]+", c) if len(w) >= 4 and w.lower() not in _NAME_STOP]
+    """A library client's full name, then each distinctive word of it ("Larkspur"): what check_fallback blocks.
+    Industry words ("Insurance") are skipped only when a distinctive word is left, so "Global Logistics Services"
+    still protects "Global" and "Logistics" (decision 142)."""
+    words = [w for w in re.findall(r"[^\W\d_]+", c) if len(w) >= 4 and w.lower() not in _NAME_STOP]
+    return [c] + ([w for w in words if w.lower() not in _NAME_INDUSTRY] or words)
 
 
 def _name_rx(c: str) -> re.Pattern:
@@ -278,11 +281,11 @@ _BLOCK = [
     ("sla", re.compile(rf"\b(?:SLA|respon\w*|restor\w*|resolv\w*|uptime|availability|turnaround)\b(?:\W+\w+){{0,5}}?\W+{_DUR}|{_DUR}(?:\W+\w+){{0,5}}?\W+\b(?:SLA|respon\w*|restor\w*|resolv\w*|uptime|availability)\b", re.I)),
     ("team_size", re.compile(rf"\b(?:team|pod|squad)\s+of\s+\d+|\b\d+\s+(?:{_PEOPLE})\b", re.I)),
 ]
-# company-form and industry words: "the vendor's insurance" is not Brightwater Insurance (Task 22 soak, decision 142)
-_NAME_STOP = {"group", "retail", "inc", "llc", "ltd", "corp", "company", "partners", "limited", "the", "and",
-              "insurance", "legal", "intelligence", "health", "healthcare", "bank", "banking", "capital", "finance",
-              "financial", "holdings", "services", "solutions", "systems", "technologies", "technology", "global",
-              "international", "consulting", "logistics", "energy", "media", "digital", "labs", "law", "pharma"}
+_NAME_STOP = {"group", "retail", "inc", "llc", "ltd", "corp", "company", "partners", "limited", "the", "and"}
+# industry words: "the vendor's insurance" is not Brightwater Insurance (Task 22 soak, decision 142)
+_NAME_INDUSTRY = {"insurance", "legal", "intelligence", "health", "healthcare", "bank", "banking", "capital", "finance",
+                  "financial", "holdings", "services", "solutions", "systems", "technologies", "technology", "global",
+                  "international", "consulting", "logistics", "energy", "media", "digital", "labs", "law", "pharma"}
 
 
 def check_fallback(answer: str, client_names: list[str]) -> FallbackCheck:

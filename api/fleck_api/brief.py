@@ -6,9 +6,10 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from fleck_core.answer import MODEL, Delta, Done, OllamaClient, Sentence, stream_library_answer
-from fleck_core.retrieval import Embedder, Retriever
+from fleck_core.retrieval import EMBED_MODEL, Embedder, Retriever
 from fleck_core.validate import redact_clients, redact_people
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
@@ -19,7 +20,7 @@ from fleck_api.claude import claude_call
 from fleck_api.config import get_settings, setting
 from fleck_api.db import get_session
 from fleck_api.devices import user_or_device
-from fleck_api.jobs import enqueue, enqueue_once, job
+from fleck_api.jobs import enqueue, enqueue_once, job, wait_for_recording
 from fleck_api.meetings import _meeting, people_of
 from fleck_api.models import Brief, BriefItem, CalendarEvent, Client, Document, Job, LlmCall, Meeting, User
 
@@ -40,17 +41,40 @@ TOOL = {
 }
 
 
+def _keep_alive(url: str, model: str) -> int | str:
+    """KEEP_ALIVE, or -1 when `model` is already loaded without expiry (a recording pinned it). Ollama sets a loaded
+    model's expiry from the newest request's keep_alive, so a brief that started before Record would otherwise lower
+    the live models' -1 to 2 min. shortcut: a Record landing between this check and the call still wins the race only
+    if its warm-up is scheduled after the call; the live path's next request (all keep_alive -1) restores it."""
+    try:
+        loaded = httpx.get(f"{url}/api/ps", timeout=5).json().get("models", [])
+    except (httpx.HTTPError, ValueError):
+        return KEEP_ALIVE
+    pinned = any(model in (m.get("name"), m.get("model")) and m.get("expires_at", "") > "2100" for m in loaded)
+    return -1 if pinned else KEEP_ALIVE
+
+
 class _Ollama(OllamaClient):
+    def __init__(self, url: str):
+        super().__init__(url)
+        self.url = url
+
     def stream(self, messages, model, keep_alive=-1, **kw):
-        return super().stream(messages, model, KEEP_ALIVE, **kw)
+        return super().stream(messages, model, _keep_alive(self.url, model), **kw)
 
     def warm(self, model):
-        self._keep(model, KEEP_ALIVE)
+        self._keep(model, _keep_alive(self.url, model))
+
+
+class _Embedder(Embedder):
+    def embed(self, texts):
+        self.keep_alive = _keep_alive(self.url, EMBED_MODEL)
+        return super().embed(texts)
 
 
 def _deps():
     ollama = setting("FLECK_OLLAMA_URL", "http://localhost:11434")
-    return Retriever(setting("FLECK_WEAVIATE_URL", "http://localhost:8080"), Embedder(ollama, KEEP_ALIVE, timeout=60)), _Ollama(ollama)
+    return Retriever(setting("FLECK_WEAVIATE_URL", "http://localhost:8080"), _Embedder(ollama, KEEP_ALIVE, timeout=60)), _Ollama(ollama)
 
 
 def propose_questions(s: Session, title: str, description: str | None, doc_titles: list[str], passages: list,
@@ -108,11 +132,9 @@ def build_brief(s: Session, payload: dict) -> None:
         return
     if "scheduled_for" in payload and (ev.client_id is None or payload["scheduled_for"] != ev.start_at.isoformat()):
         return  # unlinked or moved since it was queued
-    if s.scalar(select(Meeting.id).where(Meeting.status == "recording").limit(1)):
-        # Ollama must not be touched mid-meeting: a 2 min keep_alive would shorten the recording's -1
-        later = {"event_id": ev.id} | ({"scheduled_for": payload["scheduled_for"]} if "scheduled_for" in payload else {})
-        if not s.scalar(select(Job.id).where(Job.kind == "build_brief", Job.status == "queued", Job.payload == later).limit(1)):
-            enqueue(s, "build_brief", later, datetime.now(timezone.utc) + RECORDING_RETRY)
+    # Ollama is not touched mid-meeting (it would compete with the live path for the GPU)
+    later = {"event_id": ev.id} | ({"scheduled_for": payload["scheduled_for"]} if "scheduled_for" in payload else {})
+    if wait_for_recording(s, "build_brief", later, RECORDING_RETRY):
         return
     b = _brief(s, ev.id)
     b.status, b.error = "building", None

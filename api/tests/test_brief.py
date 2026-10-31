@@ -1,6 +1,7 @@
 import json
 from datetime import datetime, timedelta, timezone
 
+import httpx
 import pytest
 from sqlalchemy import select
 
@@ -326,3 +327,22 @@ def test_event_cost_counts_once_across_meetings(env, stubbed, monkeypatch):
     pair(env)
     costs = [env[0].get(f"/api/meetings/{i}").json()["cost_usd"] for i in ids]
     assert costs[0] == pytest.approx(0.004) and costs[1] == 0
+
+
+@pytest.mark.parametrize("loaded,want", [
+    ([{"name": "qwen3:4b-q4_K_M", "model": "qwen3:4b-q4_K_M", "expires_at": "2319-02-10T12:27:49+05:30"}], -1),  # pinned by a recording
+    ([{"name": "qwen3:4b-q4_K_M", "model": "qwen3:4b-q4_K_M", "expires_at": "2026-10-31T13:10:51+05:30"}], "2m"),
+    ([{"name": "qwen3-embedding:0.6b", "model": "qwen3-embedding:0.6b", "expires_at": "2319-02-10T12:27:49+05:30"}], "2m"),  # another model
+    ([], "2m"),
+    (None, "2m"),  # Ollama unreachable: the call itself will fail and say so
+])
+def test_brief_never_lowers_a_pinned_models_keep_alive(monkeypatch, loaded, want):
+    def get(url, timeout):
+        if loaded is None:
+            raise httpx.ConnectError("down")
+        return httpx.Response(200, json={"models": loaded})
+    monkeypatch.setattr(brief.httpx, "get", get)
+    assert brief._keep_alive("http://ollama", "qwen3:4b-q4_K_M") == want
+    embedder = brief._deps()[0].embedder
+    monkeypatch.setattr(brief.Embedder, "embed", lambda self, texts: [self.keep_alive])
+    assert embedder.embed(["x"]) == [-1 if loaded and loaded[0]["name"] == "qwen3-embedding:0.6b" else "2m"]

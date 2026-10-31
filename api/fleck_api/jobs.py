@@ -5,11 +5,12 @@ from datetime import datetime, timedelta
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
-from fleck_api.models import Job
+from fleck_api.models import Job, Meeting
 
 log = logging.getLogger("fleck.jobs")
 MAX_ATTEMPTS = 3
 BACKOFF_S = (5, 30)  # delay after failed attempt 1, 2
+RECORDING_RETRY = timedelta(minutes=2)  # indexing waits this long between checks while a meeting records
 STALE_AFTER = timedelta(minutes=10)  # a running job locked longer than this lost its worker
 _handlers: dict[str, Callable[[Session, dict], None]] = {}
 _on_fail: dict[str, Callable[[Session, dict, str], None]] = {}
@@ -31,6 +32,16 @@ def enqueue(session: Session, kind: str, payload: dict, run_after: datetime | No
     session.add(j)
     session.commit()
     return j.id
+
+
+def wait_for_recording(session: Session, kind: str, payload: dict, delay: timedelta) -> bool:
+    """True while any meeting records: Ollama is left to the live path and the job is queued again `delay` later
+    (once: an identical queued job is not duplicated). The caller returns without doing its work."""
+    if not session.scalar(select(Meeting.id).where(Meeting.status == "recording").limit(1)):
+        return False
+    if not session.scalar(select(Job.id).where(Job.kind == kind, Job.status == "queued", Job.payload == payload).limit(1)):
+        enqueue(session, kind, payload, func.now() + delay)  # DB clock, like the backoff
+    return True
 
 
 def enqueue_once(session: Session, kind: str, payload: dict) -> int | None:

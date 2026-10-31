@@ -5,7 +5,7 @@ import uuid
 import httpx
 import pytest
 from fleck_core.retrieval import Embedder, ensure_schema, put_passages, weaviate_client
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from fleck_api import chat, claude, jobs
 from fleck_api.models import Assist, Client, Document, Job, LlmCall, Meeting, Note, Segment, Summary
@@ -230,3 +230,15 @@ def test_threads_are_unique_and_reading_makes_none(chatenv):
         a, b = chat._thread(s, mid), chat._thread(s, mid)
         n1, n2 = chat._thread(s, None), chat._thread(s, None)
     assert a.id == b.id and n1.id == n2.id
+
+
+def test_index_meeting_waits_while_a_meeting_records(chatenv, monkeypatch):
+    mid = ready_meeting(chatenv, "Harbourline call", HARBOUR)
+    monkeypatch.setattr(Embedder, "embed", lambda self, texts: pytest.fail("Ollama touched during a recording"))
+    with chatenv[2]() as s:
+        s.add(Meeting(title="next call", status="recording"))
+        s.commit()
+        chat.index_meeting(s, {"meeting_id": mid})
+        chat.index_meeting(s, {"meeting_id": mid})
+        [j] = s.scalars(select(Job).where(Job.kind == "index_meeting", Job.status == "queued"))
+        assert j.payload == {"meeting_id": mid} and j.run_after > s.scalar(select(func.now()))

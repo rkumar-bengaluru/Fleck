@@ -14,7 +14,7 @@ from fleck_api import jobs, library
 from fleck_api.auth import current_user
 from fleck_api.db import get_session
 from fleck_api.main import create_app
-from fleck_api.models import Document
+from fleck_api.models import Document, Meeting
 
 ROOT = Path(__file__).parents[2]
 FIX = Path(__file__).parent / "fixtures"
@@ -352,3 +352,22 @@ def test_price_and_ip_questions_are_not_crowded_by_contracts(live_like_index):
     ip = live_like_index.search("Who owns the IP in what you build?")
     assert sum(p.kind == "reference" for p in ip) <= 1 and (ip[-1].kind == "reference" or all(p.kind != "reference" for p in ip))
     assert any("Who owns the IP" in p.text for p in ip)
+
+
+def test_indexing_waits_while_a_meeting_records(api, monkeypatch):
+    c, make_session, coll = api
+    d = _upload(c, "a.md", f"# A\n\n{BODY}\n".encode())
+    with make_session() as s:
+        m = Meeting(title="live", status="recording")
+        s.add(m)
+        s.commit()
+        monkeypatch.setattr(library.Embedder, "embed", lambda self, texts: pytest.fail("Ollama touched during a recording"))
+        assert jobs.run_once(s) and not jobs.run_once(s)  # ran once, then re-queued for later, not now
+        [queued] = s.scalars(select(jobs.Job).where(jobs.Job.status == "queued"))
+        assert queued.payload == {"document_id": d["id"]} and s.get(Document, d["id"]).status != "indexing"
+        m.status = "ready"
+        queued.run_after = func.now()
+        s.commit()
+    monkeypatch.setattr(library.Embedder, "embed", lambda self, texts: [[0.1, 0.2, 0.3, 0.4]] * len(texts))
+    _drain(make_session)
+    assert c.get("/api/library/documents").json()[0]["status"] == "indexed"

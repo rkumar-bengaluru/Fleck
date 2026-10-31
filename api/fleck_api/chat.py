@@ -18,7 +18,7 @@ from fleck_api.auth import current_user
 from fleck_api.claude import claude_call
 from fleck_api.config import get_settings, setting
 from fleck_api.db import get_session
-from fleck_api.jobs import enqueue, job
+from fleck_api.jobs import RECORDING_RETRY, enqueue, job, wait_for_recording
 from fleck_api.library import _collection
 from fleck_api.meetings import _meeting
 from fleck_api.models import ChatMessage, ChatThread, Job, Meeting, Segment, Summary, User
@@ -67,7 +67,7 @@ def meeting_rows(s: Session, m: Meeting) -> list[dict]:
 def index_meeting(s: Session, payload: dict) -> None:
     """Idempotent: a re-run replaces the meeting's rows."""
     m = s.get(Meeting, payload["meeting_id"])
-    if m is None or m.status != "ready":
+    if m is None or m.status != "ready" or wait_for_recording(s, "index_meeting", {"meeting_id": m.id}, RECORDING_RETRY):
         return
     rows = meeting_rows(s, m)
     vectors = Embedder(_urls()[1], timeout=120).embed([r["text"] for r in rows]) if rows else []

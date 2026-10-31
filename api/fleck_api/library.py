@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 from fleck_api.auth import current_user
 from fleck_api.config import setting
 from fleck_api.db import get_session
-from fleck_api.jobs import enqueue, job
+from fleck_api.jobs import RECORDING_RETRY, enqueue, job, wait_for_recording
 from fleck_api.models import Assist, Client, Document
 
 log = logging.getLogger("fleck.library")
@@ -225,7 +225,7 @@ def _mark_failed(session: Session, payload: dict, error: str) -> None:  # job on
 def index_document(session: Session, payload: dict) -> None:
     """Idempotent: a retry replaces the document's passages."""
     doc = session.get(Document, payload["document_id"])
-    if doc is None:  # deleted while queued
+    if doc is None or wait_for_recording(session, "index_document", payload, RECORDING_RETRY):  # deleted while queued
         return
     doc.status, doc.error = "indexing", None
     session.commit()

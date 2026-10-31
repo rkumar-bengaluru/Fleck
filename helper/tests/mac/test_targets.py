@@ -18,19 +18,12 @@ pytestmark = pytest.mark.skipif(sys.platform != "darwin" or not os.environ.get("
 
 
 def build_demo_brief(c, event_title: str = "Presales: demo prospect") -> int:
-    from stack_replay import ORIGIN
+    from stack_replay import build_brief
     eid = int(os.environ.get("FLECK_DEMO_EVENT_ID", "1"))
     assert c.get(f"/api/events/{eid}").json()["title"] == event_title
-    c.post(f"/api/events/{eid}/brief", headers=ORIGIN).raise_for_status()
-    end = time.time() + 600
-    while time.time() < end:
-        b = c.get(f"/api/events/{eid}/brief").json()
-        if b.get("status") in ("ready", "failed"):
-            assert b["status"] == "ready", b
-            print("demo brief:", [(i["question"], i["kind"]) for i in b["items"]])
-            return eid
-        time.sleep(5)
-    raise TimeoutError("brief not built in 10 min")
+    b = build_brief(c, eid)
+    print("demo brief:", [(i["question"], i["kind"]) for i in b["items"]])
+    return eid
 
 
 def test_targets():

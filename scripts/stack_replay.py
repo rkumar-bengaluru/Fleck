@@ -85,6 +85,19 @@ def wait_ready(c: httpx.Client, mid: int, timeout: float = 600) -> dict:
     raise TimeoutError(f"meeting {mid} not processed in {timeout:.0f} s")
 
 
+def build_brief(c: httpx.Client, eid: int, timeout: float = 600) -> dict:
+    """Refresh brief on event `eid` and wait for it; returns the ready brief."""
+    c.post(f"/api/events/{eid}/brief", headers=ORIGIN).raise_for_status()
+    end = time.time() + timeout
+    while time.time() < end:
+        b = c.get(f"/api/events/{eid}/brief").json()
+        if b.get("status") in ("ready", "failed"):
+            assert b["status"] == "ready", b
+            return b
+        time.sleep(5)
+    raise TimeoutError(f"brief not built in {timeout:.0f} s")
+
+
 def used_scores(mid: int) -> dict[str, float | None]:
     """assist_id -> used_score (decision 118), which the api does not serve."""
     out = subprocess.run(["docker", "exec", "fleck-postgres-1", "psql", "-U", "fleck", "-d", "fleck", "-Atc",

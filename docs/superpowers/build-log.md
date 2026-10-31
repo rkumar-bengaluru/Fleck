@@ -712,3 +712,23 @@ Brief: 8 questions (2 library, 6 `not_in_material`). Again none matched a script
   - **Memory: FAIL as the script defines it.** Footprint growth was 573 MB from the 60 s sample (2492 MB) to the peak (3065 MB). The timeline: 2415 MB at 31 s, rising through the first loop (2992 MB at 6 min, 3013 at 11 min), then **flat at 3013–3065 MB for the remaining 52 minutes** (3030 MB at the end). After the first loop it grew 73 MB. This looks like a one-time fill of MLX's buffer cache as Whisper meets each window length, not growth over the meeting. But the 60 s baseline was set before I saw this, so I have not moved it.
   - Spec §7.7 verdict for soak 2: drift PASS. Memory FAILs the script's 60 s baseline but grows only 73 MB once the first loop has run. Outcomes 79/80; the miss was a remote timeout. **Both need a ruling from rupak.k:** whether the memory baseline should start after the first loop, and whether a Claude timeout counts against "expected outcome".
   - **rupak.k's rulings (decision 143):** the memory baseline starts after loop 1, and a traced Claude timeout is allowed but reported (`claude_timeouts` in summary.json). `scripts/soak.py` was changed to match. Soak 2's saved samples and rows were re-scored, not re-run: memory growth 50 MB (3015 → 3065 MB) PASS; outcomes 0 wrong, with 1 Claude timeout (loop 5 q_liability) PASS. **Soak 2 passes §7.7.** The live fallback timeout rate is 1 of 40 calls (2.5%); it goes in the hand-over limits.
+
+### Task 23a: demo data, full journey, Milestone G product follow-ups (2026-10-31)
+
+**Product follow-ups:**
+- **Goal 2, ad-hoc meeting client.** The live and after pages show `ClientSelect` for a meeting with no event; it saves with `PUT /api/meetings/{id}/client` (decision 144). Vitest: 3 new tests in meeting-live and meeting-after.
+- **Decision 129, no-client brief.** The redacted description now goes to Sonnet with or without a client, through the same `_safe` redaction (attendees, library clients, emails, links, digits). `test_brief_without_client` now probes an attendee and a library client name in the description. It failed before the change and passes after. The brief prompt and the context line say "invite" instead of "title".
+- **Decision 134, chat figures.** `figures_in_sources` in core/validate.py applies the live figure rule to each chat sentence against the sources it cites. A sentence that fails is left out, with a note (decision 145). Tests: 5 api cases and 6 core cases.
+- **Decision 125e.** The no-speech-probability filter is removed from `kept_text`. Only the compression-ratio test is left, and its unit test is updated.
+- **Decision 119.** The built-in prices match Anthropic's list (Sonnet 5.5 2/10, Haiku 5.5 0.10/0.50 USD per million tokens). No change (decision 146).
+- **Row 91.** The duplicate row is merged into one.
+
+**Demo and journey:** `scripts/seed_demo.py` and `make seed-demo` (decision 147). Fresh stack: `docker compose ... down -v` (meetings 1–18 and the Task 22 data were wiped, as planned), then `make up` and `make seed-demo`.
+- seed-library: **15 documents, all indexed**: 3 firm (22 chunks), 6 reference (322 chunks), 6 client (40 chunks). This is the plan's 15.
+- Event 1, "Presales: demo prospect", is linked to the new client Harbourline Legal. Its brief has 8 questions: 3 answered from our material, 5 thin.
+- Meeting 1 (the event's meeting) is ready, with 57 transcript lines and 8 answers: 5 library, 2 general, 1 not in our material (q_price). None came from the brief.
+- `web/e2e/full-journey.spec.ts` passed (6.2 s): sign in → Today (client shown) → Open brief → Meetings → the demo meeting → 8 helped items → Play/Pause recording (audio advances) → Chat "What did they say about where documents can live?" cites "Presales: demo prospect 2:00" and "1:04" and opens the transcript at that line → Library shows 15 rows, all Indexed. The first run failed only on my own locator ("Meetings" also matched "Ask across meetings"); I fixed it with `exact`.
+- `web/e2e/chat.spec.ts`: passed (its first run).
+- Screenshot: docs/superpowers/screenshots/brief.png.
+
+**Runs:** `uv run --all-packages pytest core api gsim helper/tests -q --ignore=helper/tests/mac -m "not ollama and not claude"`: 645 passed, 17 deselected, 1 warning. The warning is a menubar `NSApp` thread in `test_resume`, which predates this task. Vitest: 60 passed. `tsc --noEmit`: clean. The stack is left running with the demo meeting (meeting 1).

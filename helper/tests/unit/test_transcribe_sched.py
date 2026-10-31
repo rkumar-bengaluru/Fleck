@@ -2,6 +2,7 @@ import threading
 import time
 
 import numpy as np
+import pytest
 
 from fleck_helper.transcribe import StreamTranscriber
 
@@ -89,3 +90,19 @@ def test_whisper_hallucinations_are_dropped():
                                            seg(" No, no, no.", ns=0.83), seg(" We do.")]}
     assert kept_text(out) == "Who owns the code? We do."
     assert kept_text({"text": " Hello. "}) == "Hello."  # no segments: the text as is
+
+
+def test_whisper_loads_from_the_local_cache_without_asking_the_hub(monkeypatch):
+    hub = pytest.importorskip("huggingface_hub")
+    from fleck_helper.transcribe import local_model
+    calls = []
+
+    def snapshot(repo, local_files_only=False):
+        calls.append(local_files_only)
+        if repo == "cached/model":
+            return "/cache/snapshots/abc"
+        raise hub.errors.LocalEntryNotFoundError("not cached")
+    monkeypatch.setattr(hub, "snapshot_download", snapshot)
+    assert local_model("cached/model") == "/cache/snapshots/abc"
+    assert local_model("new/model") == "new/model"  # mlx_whisper downloads it on first use
+    assert calls == [True, True]

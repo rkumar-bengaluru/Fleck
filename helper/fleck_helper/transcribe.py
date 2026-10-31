@@ -65,11 +65,23 @@ class StreamTranscriber:
     def _whisper(self, audio: np.ndarray, final: bool) -> str:
         import mlx_whisper  # lazy: darwin-only
 
+        if not hasattr(self, "_path"):
+            self._path = local_model(self.model)
         out = mlx_whisper.transcribe(
-            audio.astype(np.float32), path_or_hf_repo=self.model, language="en",
+            audio.astype(np.float32), path_or_hf_repo=self._path, language="en",
             condition_on_previous_text=False, verbose=None,
         )
         return kept_text(out)
+
+
+def local_model(repo: str) -> str:
+    """The cached snapshot's folder, so loading Whisper never asks huggingface.co for the latest revision (spec: local
+    only, Task 22). Only a model not yet on this Mac is fetched by its repo name."""
+    from huggingface_hub import snapshot_download
+    try:
+        return snapshot_download(repo, local_files_only=True)
+    except Exception:  # not cached yet (LocalEntryNotFoundError)
+        return repo
 
 
 MAX_COMPRESSION, MAX_NO_SPEECH = 2.4, 0.6  # Whisper's own thresholds, which it applies only to pick a retry

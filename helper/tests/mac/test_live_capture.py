@@ -3,6 +3,7 @@ mic never becomes a You line. Plays about 10 s out loud: run it rarely, with FLE
 import json
 import os
 import re
+import shutil
 import subprocess
 import wave
 from difflib import SequenceMatcher
@@ -53,6 +54,10 @@ def test_live_capture_speakers(tmp_path):
 
     reference = _client_clip(tmp_path / "client.wav")
     run_in_bundle("--capture-test", "--play", str(tmp_path / "client.wav"), "--out", str(tmp_path), timeout=120)
+    keep = ROOT / ".superpowers/live-capture"  # kept for offline checks (pytest's tmp dirs rotate away)
+    keep.mkdir(parents=True, exist_ok=True)
+    for f in ("capture.wav", "capture.json", "client.wav"):
+        shutil.copy(tmp_path / f, keep / f)
     info = json.loads((tmp_path / "capture.json").read_text())
     assert "error" not in info and not info["unavailable"], info
     with wave.open(str(tmp_path / "capture.wav")) as w:

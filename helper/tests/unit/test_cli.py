@@ -37,8 +37,7 @@ class Resp:
         return self._b
 
 
-def test_pair_stores_the_token_in_the_keychain(kr, monkeypatch, tmp_path):
-    monkeypatch.chdir(tmp_path)  # no .env here: the repo's would seed the Claude key too
+def test_pair_stores_the_token_in_the_keychain(kr, monkeypatch):
     monkeypatch.setattr(cli.httpx, "post", lambda url, json, timeout: Resp(200, {"device_token": "secret"}))
     cli.pair("ABCD-1234")
     assert kr.store == {("ai.fleck.helper", "device_token"): "secret"} and cli.load_token() == "secret"
@@ -75,9 +74,26 @@ def test_environment_key_wins_and_missing_key_is_reported(kr, monkeypatch):
     assert cli.load_claude_key() is False
 
 
-def test_pair_seeds_the_claude_key_from_dotenv(kr, monkeypatch, tmp_path):
+def test_pair_never_stores_the_claude_key(kr, monkeypatch, tmp_path):
     (tmp_path / ".env").write_text("ANTHROPIC_API_KEY=sk-ant-pair\n")
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(cli.httpx, "post", lambda url, json, timeout: Resp(200, {"device_token": "secret"}))
     cli.pair("ABCD-1234")
-    assert kr.store[("ai.fleck.helper", "anthropic_api_key")] == "sk-ant-pair"
+    assert ("ai.fleck.helper", "anthropic_api_key") not in kr.store  # only set-claude-key stores it
+
+
+def test_dotenv_parsing_matches_dotenv(tmp_path):
+    env = tmp_path / ".env"
+    env.write_text("ANTHROPIC_API_KEY=old\n# ANTHROPIC_API_KEY=commented\nexport ANTHROPIC_API_KEY=sk-new  # rotated\n")
+    assert cli._dotenv_key(env) == "sk-new"
+    env.write_text('ANTHROPIC_API_KEY="sk-a #b" # quoted\n')
+    assert cli._dotenv_key(env) == "sk-a #b"
+    env.write_text("OTHER=1\n")
+    assert cli._dotenv_key(env) == ""
+
+
+def test_a_key_saved_after_launch_is_picked_up(kr, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    assert cli.load_claude_key() is False  # launched without a key: the menu warns
+    kr.store[("ai.fleck.helper", "anthropic_api_key")] = "sk-later"  # fleck-helper set-claude-key meanwhile
+    assert cli.load_claude_key() is True  # the next menu refresh or recording start clears the warning

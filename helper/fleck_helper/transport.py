@@ -37,7 +37,8 @@ class Transport:
         self._put("evt", event.model_dump_json() if hasattr(event, "model_dump_json") else json.dumps(event))
 
     def upload_chunk(self, meeting_id: str, seq: int, path: Path) -> None:
-        """Queue a WAV file for `PUT /api/meetings/{id}/audio/{seq}`. The file must stay until it is uploaded."""
+        """Queue a WAV file for `PUT /api/meetings/{id}/audio/{seq}`. The file must stay until it is uploaded; it is
+        deleted once the api has it."""
         self._put("chunk", json.dumps({"meeting_id": meeting_id, "seq": seq, "path": str(path)}))
 
     def pending(self) -> int:
@@ -122,4 +123,6 @@ class Transport:
                 raise httpx.HTTPError(f"upload {r.status_code}")  # try again after the backoff
             if r.status_code >= 400:
                 log.warning("api refused chunk %s/%s (%s); dropped", job["meeting_id"], job["seq"], r.status_code)
+            else:
+                path.unlink(missing_ok=True)  # the api stored it; resume numbering is kept in the recorder's state file
         item.unlink(missing_ok=True)

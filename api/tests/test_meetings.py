@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select, update
 
-from fleck_api.models import Assist, AudioChunk, CalendarEvent, Meeting, PairingCode
+from fleck_api.models import Assist, AudioChunk, CalendarEvent, Meeting, PairingCode, User
 from test_auth import _sign_in, env  # noqa: F401  (env is a fixture)
 
 WAV = b"RIFF\x24\x00\x00\x00WAVEfmt " + b"\x00" * 24
@@ -90,15 +90,22 @@ def test_audio_put_is_for_the_recording_device_only(env):
 
 def test_the_helper_reads_me_events_meetings_and_stops_with_its_device_token(env):
     """The menu bar's Today list, "Connected as", resume and Stop recording (Task 18)."""
-    client, _, _ = env
+    client, _, make = env
     auth = pair(env)
     client.cookies.clear()
     assert client.get("/api/me", headers=auth).json()["email"] == "rupak@northbeam.test"
     assert client.get("/api/events?range=today", headers=auth).status_code == 200
     m = client.post("/api/meetings", json={"title": "Ad hoc"}, headers=auth).json()
-    [row] = [x for x in client.get("/api/meetings", headers=auth).json() if x["id"] == m["id"]]
-    assert row["status"] == "recording" and row["recorded_by"] == m["recorded_by"]
+    assert client.get("/api/meetings", headers=auth).status_code == 401  # the meeting list stays a signed-in view
+    with make() as s:  # another user's recording
+        other = s.scalar(select(User).where(User.email != "rupak@northbeam.test")) or User(email="dana@northbeam.test", name="Dana")
+        s.add(other)
+        s.flush()
+        s.add(theirs := Meeting(title="Theirs", recorded_by=other.id))
+        s.commit()
+        theirs_id = theirs.id
+    assert client.post(f"/api/meetings/{theirs_id}/stop", headers=auth).status_code == 403
     assert client.post(f"/api/meetings/{m['id']}/stop", headers=auth).status_code == 204
     assert client.get(f"/api/meetings/{m['id']}", headers=auth).json()["meeting"]["status"] == "processing"
-    for path in ("/api/me", "/api/events", "/api/meetings"):
+    for path in ("/api/me", "/api/events"):
         assert client.get(path, headers={"Authorization": "Bearer nope"}).status_code == 401

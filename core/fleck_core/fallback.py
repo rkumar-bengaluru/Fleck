@@ -35,12 +35,17 @@ SLICE_S = 0.05  # how often a waiting stream checks its cancel event
 _RISKY = re.compile(rf"\d|%|[$€£¥₹]|\bper\b|/|\b(?:{CODES})\b", re.I)  # a figure, money or a rate could follow: hold the sentence
 
 
-def question_only(turn: str, client_names: list[str], people: list[str] = ()) -> str:
-    """What may go to Claude: the turn's sentences ending in "?" (else its last sentence), a leading vocative
-    dropped from each, client names (the library's and the meeting's) replaced by "a client" and the meeting's
-    attendees by "someone". Statements around the question stay home."""
+def question_sentences(turn: str) -> list[str]:
+    """The turn's sentences ending in "?", else its last sentence (also the answer panel's question line)."""
     sents = split_sentences(turn) or [turn.strip()]
-    asks = [s for s in sents if s.endswith("?")] or sents[-1:]
+    return [s for s in sents if s.endswith("?")] or sents[-1:]
+
+
+def question_only(turn: str, client_names: list[str], people: list[str] = ()) -> str:
+    """What may go to Claude: `question_sentences`, a leading vocative dropped from each, client names (the
+    library's and the meeting's) replaced by "a client" and the meeting's attendees by "someone". Statements around
+    the question stay home."""
+    asks = question_sentences(turn)
     return redact_clients(redact_people(" ".join(_VOCATIVE.sub("", s) for s in asks), people), client_names)
 
 

@@ -80,3 +80,12 @@ def test_client_partial_runs_before_you_final():
     for th in ths + [blocker]:
         th.join()
     assert order == [1, 3, 2]
+
+
+def test_whisper_hallucinations_are_dropped():
+    from fleck_helper.transcribe import kept_text
+    seg = lambda text, cr=1.2, ns=0.05: {"text": text, "compression_ratio": cr, "no_speech_prob": ns}  # noqa: E731
+    out = {"text": "ignored", "segments": [seg(" Who owns the code?"), seg(" 2. 2. 2. 2. 2. 2. 2. 2.", cr=4.1),
+                                           seg(" No, no, no.", ns=0.83), seg(" We do.")]}
+    assert kept_text(out) == "Who owns the code? We do."
+    assert kept_text({"text": " Hello. "}) == "Hello."  # no segments: the text as is

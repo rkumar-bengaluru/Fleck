@@ -309,10 +309,10 @@ def panel_test(out_path: str) -> None:
             cit = Citation(doc_id="d1", chunk_id="d1-0", title="Rate card FY2026", client=None, kind="firm")
             ev = dict(type="assist", meeting_id="t", assist_id="a1", segment_id="client-61000",
                       question="What does a senior engineer cost per month, offshore?")
+            panel.show("t")
             panel.apply(AssistEvent(phase="thinking", **ev))
             panel.apply(AssistEvent(phase="done", kind="library", citations=[cit],
                                     text="$5,200 a month offshore in Bengaluru, $13,500 onsite.", **ev))
-            panel.show()
             time.sleep(1.5)
             shareable = []
             SC.SCShareableContent.getShareableContentWithCompletionHandler_(lambda c, e: shareable.append((c, e)))

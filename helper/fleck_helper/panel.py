@@ -8,6 +8,8 @@ import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from fleck_core.fallback import question_sentences
+
 LABELS = {"library": "Our material", "general": "General knowledge", "reference": "Reference contract",
           "not_in_material": "Not in our material", "thinking": "Thinking…"}
 STRIPE = {"library": "#2FB8A8", "general": "#F2B95A", "reference": "#B39DF0", "thinking": "#6B7A88",
@@ -59,13 +61,20 @@ class PanelModel:
     def __init__(self):
         self._cards: list[_Card] = []
         self._i = -1
+        self.meeting_id: str | None = None  # set: events of other meetings are ignored
         self._lock = threading.Lock()  # events come from answer threads, reads from the main thread
+
+    def reset(self, meeting_id: str | None) -> None:
+        with self._lock:
+            self._cards, self._i, self.meeting_id = [], -1, meeting_id
 
     def apply(self, e) -> None:
         with self._lock:
+            if self.meeting_id is not None and e.meeting_id != self.meeting_id:
+                return  # an answer thread of an earlier meeting finishing late
             card = next((c for c in self._cards if c.assist_id == e.assist_id), None)
             if e.phase == "thinking":
-                fresh = _Card(e.assist_id, e.question, _asked_ms(e.segment_id))
+                fresh = _Card(e.assist_id, " ".join(question_sentences(e.question)), _asked_ms(e.segment_id))
                 if card is None:  # a new question
                     self._cards.append(fresh)
                     self._i = len(self._cards) - 1
@@ -108,6 +117,16 @@ def _asked_ms(segment_id: str) -> int:
         return int(segment_id.rsplit("-", 1)[1])  # "client-61000": the segment's start
     except (IndexError, ValueError):
         return 0
+
+
+def place(saved, screens, width: int, gap: int = 16) -> tuple[float, float]:
+    """The panel's top-left: `saved` if it lies on one of `screens` (visibleFrames as ((x, y), (w, h))), pulled in
+    horizontally to fit; else top-centre of the first screen, `gap` below the menu bar."""
+    for (x, y), (w, h) in screens:
+        if saved and x <= saved[0] < x + w and y < saved[1] <= y + h:
+            return (float(min(max(saved[0], x), x + w - width)), float(saved[1]))
+    (x, y), (w, h) = screens[0]
+    return (x + (w - width) / 2, y + h - gap)
 
 
 def clock(ms: int) -> str:
@@ -159,7 +178,9 @@ class AnswerPanel:
         self.model.apply(e)
         self._main(self._render)
 
-    def show(self) -> None:
+    def show(self, meeting_id: str | None = None) -> None:
+        """Starts a meeting's panel: empty until its first question."""
+        self.model.reset(meeting_id)
         self.active = True
         self._main(self._update_visibility)
 
@@ -362,9 +383,8 @@ class AnswerPanel:
         stripe.layer().setBackgroundColor_((self._hatch if STRIPE[kind] is None else _color(STRIPE[kind])).CGColor())
         self._root.addSubview_(stripe)
 
-        screen = NSScreen.mainScreen().visibleFrame()
-        if self._origin is None:  # top-centre, just below the menu bar
-            self._origin = (screen.origin.x + (screen.size.width - WIDTH) / 2, screen.origin.y + screen.size.height - 16)
+        self._origin = place(self._origin, [((f.origin.x, f.origin.y), (f.size.width, f.size.height))
+                                            for f in (sc.visibleFrame() for sc in NSScreen.screens())], WIDTH)
         self._panel.setFrame_display_(((self._origin[0], self._origin[1] - height), (WIDTH, height)), True)
         self._root.setFrame_(((0, 0), (WIDTH, height)))
         if snap := os.environ.get("FLECK_PANEL_SNAPSHOT"):

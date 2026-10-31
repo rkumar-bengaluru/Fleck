@@ -1,4 +1,5 @@
 """Recording control behind the menu bar: start, stop, resume, and the api's start/stop messages (all fakes)."""
+import json
 import threading
 import time
 
@@ -13,15 +14,15 @@ from fleck_helper.pipeline import Trigger
 
 class FakeApi:
     def __init__(self, meetings=()):
-        self.meetings, self.posts, self.next_id = list(meetings), [], 100
+        self.meetings = {str(m["id"]): m for m in meetings}
+        self.posts, self.next_id = [], 100
 
     def get(self, path):
         if path == "/api/me":
             return {"id": 5, "email": "rupak@northbeam.test"}
-        if path == "/api/meetings":
-            return self.meetings
         mid = path.rsplit("/", 1)[1]
-        return {"meeting": {"id": int(mid), "people": [], "client_name": None, "library_clients": []}}
+        m = self.meetings.get(mid, {"status": "recording", "title": f"Meeting {mid}"})
+        return {"meeting": m | {"id": int(mid), "people": [], "client_name": None, "library_clients": []}}
 
     def post(self, path, json=None):
         self.posts.append((path, json))
@@ -35,8 +36,9 @@ class FakePanel:
     def __init__(self):
         self.calls, self.events = [], []
 
-    def show(self):
+    def show(self, meeting_id=None):
         self.calls.append("show")
+        self.meeting_id = meeting_id
 
     def hide(self):
         self.calls.append("hide")
@@ -150,10 +152,14 @@ def test_panel_shows_on_start_hides_on_stop(make):
     assert r.panel.calls == ["show", "hide"] and r.power.held == 0
 
 
-def test_resume_recording_meeting(make):
-    api = FakeApi([{"id": 40, "status": "ready", "recorded_by": 5, "title": "Old"},
-                   {"id": 41, "status": "recording", "recorded_by": 5, "title": "Presales: Harbourline Legal"},
-                   {"id": 42, "status": "recording", "recorded_by": 9, "title": "Someone else's"}])
+def _crashed_mid_meeting(tmp_path, mid="41", next_seq=0):
+    """What a crash leaves: the state file naming the meeting being recorded."""
+    (tmp_path / "current.json").write_text(json.dumps({"meeting_id": mid, "next_seq": next_seq}))
+
+
+def test_resume_recording_meeting(make, tmp_path):
+    api = FakeApi([{"id": 41, "status": "recording", "recorded_by": 5, "title": "Presales: Harbourline Legal"}])
+    _crashed_mid_meeting(tmp_path)
     asked = []
     r = make(api, ask=lambda text: asked.append(text) or True)
     r.start(title="Ad hoc call")
@@ -162,10 +168,29 @@ def test_resume_recording_meeting(make):
     assert not [p for p in api.posts if p[0] == "/api/meetings"]  # reused, not created
     r.stop()
     r.wait(5)
+    assert not (tmp_path / "current.json").exists()  # a stopped meeting is never offered again
 
 
-def test_declined_resume_stops_the_old_meeting_and_starts_a_new_one(make):
+def test_no_resume_without_this_macs_state_or_once_the_meeting_ended(make, tmp_path):
+    # another Mac of the same user is recording meeting 42: never offered here (no state file names it)
+    r = make(FakeApi([{"id": 42, "status": "recording", "recorded_by": 5, "title": "Other Mac"}]),
+             ask=lambda text: pytest.fail("not this Mac's meeting"))
+    r.start(title="Ad hoc call")
+    assert r.recording == "101"
+    r.stop()
+    r.wait(5)
+    _crashed_mid_meeting(tmp_path)  # ...stopped from the web meanwhile
+    r = make(FakeApi([{"id": 41, "status": "processing", "recorded_by": 5, "title": "Presales"}]),
+             ask=lambda text: pytest.fail("not recording any more"))
+    r.start()
+    assert r.recording == "101"  # a new meeting (a fresh api)
+    r.stop()
+    r.wait(5)
+
+
+def test_declined_resume_stops_the_old_meeting_and_starts_a_new_one(make, tmp_path):
     api = FakeApi([{"id": 41, "status": "recording", "recorded_by": 5, "title": "Presales"}])
+    _crashed_mid_meeting(tmp_path)
     r = make(api, ask=lambda text: False)
     r.start(title="Ad hoc call")
     assert r.recording == "101" and ("/api/meetings/41/stop", None) in api.posts
@@ -174,10 +199,8 @@ def test_declined_resume_stops_the_old_meeting_and_starts_a_new_one(make):
 
 
 def test_resumed_meeting_continues_the_chunk_numbering(make, tmp_path):
-    (tmp_path / "41").mkdir()
-    for i in range(3):
-        (tmp_path / "41" / f"chunk-{i:05d}.wav").write_bytes(b"x")
     api = FakeApi([{"id": 41, "status": "recording", "recorded_by": 5, "title": "Presales"}])
+    _crashed_mid_meeting(tmp_path, next_seq=3)  # chunks 0-2 went up (and were deleted locally)
     r = make(api)
     r.start()
     assert _until(lambda: r.transport.sent)
@@ -185,6 +208,64 @@ def test_resumed_meeting_continues_the_chunk_numbering(make, tmp_path):
     r.wait(5)
     assert r.transport.chunks[0] == ("41", 3)
     assert FakePipeline.first_t["41"] == 30_000  # the timeline goes on after the 3 chunks (30 s) already recorded
+
+
+def test_a_crashed_or_ended_pipeline_stops_the_recording(make):
+    class Crashing(FakePipeline):
+        def run(self, source):
+            raise RuntimeError("mlx failed")
+            yield
+    r = make()
+    r.pipeline_factory = Crashing
+    r.start()
+    assert _until(lambda: r.recording is None)
+    r.wait(5)
+    assert r.power.held == 0 and r.panel.calls == ["show", "hide"] and sorted(r.ollama.unloaded) == sorted(MODELS)
+    assert ("/api/meetings/101/stop", None) in r.api.posts  # the api processes what it has
+
+    class Ending(FakePipeline):
+        def run(self, source):
+            return iter(())  # the source ran out
+    r = make()
+    r.pipeline_factory = Ending
+    r.start()
+    assert _until(lambda: r.recording is None)
+    r.wait(5)
+    assert r.power.held == 0 and ("/api/meetings/101/stop", None) in r.api.posts
+
+
+def test_back_to_back_meetings_keep_the_models_loaded(make):
+    r = make()
+    r.start()
+    r.stop()
+    r.start()  # the next call, at once
+    r.wait(5)
+    assert r.recording == "102" and r.ollama.unloaded == []  # the old meeting's unload is skipped
+    assert ("/api/meetings/101/stop", None) in r.api.posts
+    r.stop()
+    r.wait(5)
+    assert sorted(r.ollama.unloaded) == sorted(MODELS)
+
+
+def test_a_start_for_another_meeting_while_busy_is_stopped(make):
+    r = make()
+    r.start()
+    r.on_message({"type": "start", "meeting_id": "7"})  # Record in the web app during this call
+    assert r.recording == "101"
+    assert _until(lambda: ("/api/meetings/7/stop", None) in r.api.posts)  # not left `recording` forever
+    r.on_message({"type": "start", "meeting_id": "101"})  # a duplicate after a reconnect: ignored
+    time.sleep(0.05)
+    assert ("/api/meetings/101/stop", None) not in r.api.posts
+    r.stop()
+    r.wait(5)
+
+
+def test_the_panel_starts_each_meeting_empty(make):
+    r = make()
+    r.start()
+    assert r.panel.meeting_id == "101"
+    r.stop()
+    r.wait(5)
 
 
 def test_start_message_starts_recording(make):

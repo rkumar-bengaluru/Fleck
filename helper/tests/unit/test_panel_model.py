@@ -66,3 +66,35 @@ def test_panel_labels_per_kind():
     m.apply(ev("nim", "sentence", sentence_index=0, text="Roughly $90k.", kind="general"))
     m.apply(ev("nim", "done", kind="not_in_material", text=""))  # replaces what was shown
     assert (m.current.label, m.current.source_text, m.current.text) == ("Not in our material", "", "")
+
+
+def test_panel_shows_only_the_question_of_the_turn():
+    m = PanelModel()
+    m.apply(ev("a", "thinking", q="that is roughly what we had in mind. Before we go further, let me ask about the team. "
+                              "What does a senior engineer cost per month? Offshore."))
+    assert m.current.question == "What does a senior engineer cost per month?"
+    m.apply(ev("b", "thinking", q="We close our budget cycle in March. Tell me about your support model."))
+    assert m.current.question == "Tell me about your support model."  # no "?": the last sentence
+
+
+def test_panel_reset_per_meeting_and_foreign_events_ignored():
+    m = PanelModel()
+    m.reset("m1")
+    m.apply(ev("a", "thinking"))
+    m.reset("m2")
+    assert m.current is None  # the next meeting starts empty
+    m.apply(ev("a", "done", kind="general", text="Late answer from meeting 1."))  # an old answer thread finishing late
+    m.apply(ev("b", "thinking"))  # ev() says meeting m1
+    assert m.current is None
+    m.apply(AssistEvent(type="assist", meeting_id="m2", assist_id="c", segment_id="client-0", phase="thinking", question="Q?"))
+    assert m.current.question == "Q?" and m.current.total == 1
+
+
+def test_saved_panel_position_is_kept_on_a_visible_screen():
+    from fleck_helper.panel import place
+    screens = [((0, 0), (1440, 875))]  # visibleFrame: origin, size
+    default = (450.0, 859.0)  # top-centre, 16 below the menu bar
+    assert place(None, screens, 540) == default
+    assert place((100.0, 600.0), screens, 540) == (100.0, 600.0)
+    assert place((3000.0, 600.0), screens, 540) == default  # a display that is gone
+    assert place((1200.0, 600.0), screens, 540) == (900.0, 600.0)  # partly off the right edge: pulled in

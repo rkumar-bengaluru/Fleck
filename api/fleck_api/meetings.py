@@ -2,7 +2,7 @@
 import io
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
@@ -73,7 +73,7 @@ async def create_meeting(body: MeetingIn, u: User = Depends(user_or_device), s: 
 
 
 @router.get("/meetings")
-def list_meetings(_u: User = Depends(user_or_device), s: Session = Depends(get_session)):
+def list_meetings(_u: User = Depends(current_user), s: Session = Depends(get_session)):
     return [meeting_dict(s, m) for m in s.scalars(select(Meeting).order_by(Meeting.started_at.desc(), Meeting.id.desc()))]
 
 
@@ -138,8 +138,11 @@ def put_client(meeting_id: int, body: ClientIn, _u: User = Depends(current_user)
 
 
 @router.post("/meetings/{meeting_id}/stop", status_code=204)
-async def stop_meeting(meeting_id: int, u: User = Depends(user_or_device), s: Session = Depends(get_session)):
+async def stop_meeting(meeting_id: int, u: User = Depends(user_or_device), s: Session = Depends(get_session),
+                       authorization: str | None = Header(None)):
     m = _meeting(s, meeting_id)
+    if authorization and m.recorded_by != u.id:  # a helper stops only its own user's recordings
+        raise HTTPException(403, "not your meeting")
     sent = await hub.to_helper(m.recorded_by or u.id, {"type": "stop", "meeting_id": str(m.id)})
     # the transition is one conditional UPDATE, so only one of any number of Stops gets the row back and enqueues
     won = s.execute(update(Meeting).where(Meeting.id == m.id, Meeting.status == "recording")

@@ -177,8 +177,10 @@ class Pipeline:
                 ev = head.event(self.meeting_id)
                 if ev.stream == "client":
                     self._recent_client.append(ev)
-                elif drop_bleed_duplicates(ev, list(self._recent_client) + self._queued_client()):
-                    continue  # the client's voice leaking into the mic
+                elif head.gate == "client" or drop_bleed_duplicates(ev, list(self._recent_client) + self._queued_client()):
+                    # the client's voice leaking into the mic: the gate found only bleed under it, or Whisper heard it
+                    # nearly word for word
+                    continue
                 if ev.text:
                     yield ev
                 if head.turn is not None and head.gate == "client" and ev.text:

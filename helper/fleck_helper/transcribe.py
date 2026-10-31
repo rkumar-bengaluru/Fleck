@@ -69,4 +69,17 @@ class StreamTranscriber:
             audio.astype(np.float32), path_or_hf_repo=self.model, language="en",
             condition_on_previous_text=False, verbose=None,
         )
+        return kept_text(out)
+
+
+MAX_COMPRESSION, MAX_NO_SPEECH = 2.4, 0.6  # Whisper's own thresholds, which it applies only to pick a retry
+
+
+def kept_text(out: dict) -> str:
+    """The transcript without Whisper's hallucinations: segments that repeat themselves ("2. 2. 2. …", compression
+    ratio over 2.4) or that it thinks hold no speech (no_speech_prob over 0.6)."""
+    segs = out.get("segments")
+    if segs is None:
         return out["text"].strip()
+    return " ".join(t for s in segs if s.get("compression_ratio", 0) <= MAX_COMPRESSION
+                    and s.get("no_speech_prob", 0) <= MAX_NO_SPEECH and (t := s["text"].strip()))

@@ -263,3 +263,18 @@ def test_degraded_while_the_rules_decide():
     p = Pipeline("m1", FakeTranscriber({"client": [q]}), embed=EMBED)
     list(p.run(Src(items)))
     assert not p.degraded and p.fallbacks == 0
+
+
+def test_garbled_bleed_on_the_mic_is_not_a_you_line():
+    """Whisper on echo-cancelled bleed hears other words ("Something great to describe. How can we?" for "If
+    something breaks at night…"): no duplicate to match, but the gate says the mic held only bleed, so it is dropped."""
+    c = np.concatenate([_silence(500), _clip(1), _silence(1500)])
+    out, _ = _run(_frames(c, you=c * 0.14), {"client": ["Who owns the code you write for us?"],
+                                             "you": ["Something great to describe. How can we?"]})
+    assert [e.stream for e in out if isinstance(e, SegmentEvent)] == ["client"]
+
+
+def test_you_speaking_over_quiet_client_audio_is_kept():
+    c = np.concatenate([_silence(500), _clip(1), _silence(1500)])
+    out, _ = _run(_frames(np.zeros_like(c), you=c), {"you": ["Who owns the code you write for us?"]})
+    assert [(e.stream, e.gate) for e in out if isinstance(e, SegmentEvent)] == [("you", "you")]

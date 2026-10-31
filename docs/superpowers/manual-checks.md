@@ -2,7 +2,7 @@
 
 ## Task 18: before hand-over (spec §9), first
 
-Claude cannot hold a real call, so these are the checks only a person can do (decision 124). Build first: `make helper-app`, then `fleck-helper set-claude-key --from-env .env` once (or pair again from the repo folder), and start the app with `open "dist/Fleck Helper.app"`. Logs: `~/Library/Logs/Fleck/helper.log`.
+Claude cannot hold a real call, so these are the checks only a person can do (decision 124). Build first: `make helper-app`, then `fleck-helper set-claude-key --from-env .env` once, and start the app with `open "dist/Fleck Helper.app"`. Logs: `~/Library/Logs/Fleck/helper.log`.
 
 1. **Real Google Meet call on speakers (browser).** Join a Meet with a second device or colleague as the client, no headset. Have the client ask two or three questions from `fixtures/conversation/reference.json` (q_rate, q_start, q_general). Expect: each shows **Thinking…** within about a second of the client finishing, then an answer with its label; your own voice never triggers; the web transcript has no You line that repeats the client's words. Then share your **full screen** in Meet and look at the shared view on the other device: the answer panel must not appear in it. Note any echoed You lines and the time to first words.
 2. **Real Zoom call on speakers (desktop app).** Same as 1 in the Zoom app, with a full-screen share. Zoom's own echo cancellation differs from the browser's: note any client words that reach the You stream.

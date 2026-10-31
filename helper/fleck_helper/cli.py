@@ -27,16 +27,21 @@ def pair(code: str) -> None:
         sys.exit(r.json().get("detail", f"pairing failed ({r.status_code})"))
     keyring.set_password(SERVICE, ACCOUNT, r.json()["device_token"])
     print("Paired.")
-    if Path(".env").exists() and _dotenv_key(Path(".env")):
-        set_claude_key(Path(".env"))
 
 
 def _dotenv_key(path: Path) -> str:
+    """ANTHROPIC_API_KEY as dotenv reads it: the last assignment wins, `export ` is allowed, and an unquoted value
+    ends at a ` #` comment."""
+    key = ""
     for line in path.read_text().splitlines():
-        k, _, v = line.partition("=")
-        if k.strip() == "ANTHROPIC_API_KEY":
-            return v.strip().strip("'\"")
-    return ""
+        k, eq, v = line.strip().removeprefix("export ").partition("=")
+        if eq and k.strip() == "ANTHROPIC_API_KEY":
+            v = v.strip()
+            if v[:1] in ("'", '"') and v[0] in v[1:]:
+                key = v[1:v.index(v[0], 1)]
+            else:
+                key = v.split(" #", 1)[0].strip()
+    return key
 
 
 def set_claude_key(env_file: Path | None) -> None:

@@ -3,6 +3,7 @@
 `Recorder` holds the recording logic and takes its edges as arguments, so it is tested with fakes; `MenuBarApp` is
 the rumps shell around it. macOS-only imports are lazy so Linux CI can import this module."""
 import dataclasses
+import json
 import logging
 import os
 import re
@@ -173,31 +174,62 @@ class Recorder:
         self._thread = self._after = None
 
     def start(self, event_id: int | None = None, title: str | None = None, meeting_id: str | None = None) -> None:
-        """`meeting_id` records an existing meeting (the api's `start`); otherwise a meeting still `recording` for
-        this user is offered for resume, else a new one is created."""
+        """`meeting_id` records an existing meeting (the api's `start`); otherwise the meeting this Mac was recording
+        when Fleck stopped (the state file) is offered for resume, else a new one is created. Makes HTTP calls: call
+        it off the main thread (`ask` is then run on the main thread)."""
         with self._lock:
             if self.recording:
-                log.warning("already recording %s; start for %s ignored", self.recording, meeting_id or event_id)
+                if meeting_id and meeting_id != self.recording:  # Record in the web app during this call
+                    log.warning("already recording %s; meeting %s stopped", self.recording, meeting_id)
+                    threading.Thread(target=self._post_stop, args=(meeting_id,), daemon=True).start()
                 return
             mid = meeting_id or self._resumable() or str(self.api.post("/api/meetings", {"event_id": event_id, "title": title})["id"])
             self.recording, self.started_at, stop = mid, time.time(), threading.Event()
             self._stop = stop
             self.power.acquire()
-            self.panel.show()
+            self.panel.show(mid)
             threading.Thread(target=self._warm, daemon=True).start()
             self._thread = threading.Thread(target=self._record, args=(mid, stop), daemon=True, name=f"meeting-{mid}")
             self._thread.start()
         self.on_change()
 
+    # the meeting this Mac is recording and its next chunk number; removed at Stop, so after a crash it names the
+    # meeting to resume (chunks are deleted once uploaded, so the number can't come from the folder)
+    def _state(self) -> dict:
+        try:
+            return json.loads((self.chunks / "current.json").read_text())
+        except (OSError, ValueError):
+            return {}
+
+    def _save_state(self, mid: str, next_seq: int) -> None:
+        with self._lock:
+            if self.recording != mid:  # after Stop the state file is gone for good
+                return
+            self.chunks.mkdir(parents=True, exist_ok=True)
+            (self.chunks / "current.json.tmp").write_text(json.dumps({"meeting_id": mid, "next_seq": next_seq}))
+            (self.chunks / "current.json.tmp").replace(self.chunks / "current.json")
+
     def _resumable(self) -> str | None:
-        me = self.api.get("/api/me")["id"]
-        m = next((m for m in self.api.get("/api/meetings") if m["status"] == "recording" and m["recorded_by"] == me), None)
-        if m is None:
+        mid = self._state().get("meeting_id")
+        if not mid:
             return None
-        if self.ask(f"“{m['title']}” is still recording (Fleck stopped before it ended). Resume it?"):
-            return str(m["id"])
-        self.api.post(f"/api/meetings/{m['id']}/stop")  # declined: process what it has
+        try:
+            m = self.api.get(f"/api/meetings/{mid}")["meeting"]
+        except Exception as e:
+            log.warning("meeting %s not checked for resume: %r", mid, e)
+            return None
+        if m["status"] == "recording":
+            if self.ask(f"“{m['title']}” is still recording (Fleck stopped before it ended). Resume it?"):
+                return mid
+            self._post_stop(mid)  # declined: process what it has
+        (self.chunks / "current.json").unlink(missing_ok=True)
         return None
+
+    def _post_stop(self, mid: str) -> None:
+        try:
+            self.api.post(f"/api/meetings/{mid}/stop")
+        except Exception as e:
+            log.warning("stop for meeting %s not sent: %r", mid, e)
 
     def stop(self, notify_api: bool = True) -> None:
         with self._lock:
@@ -206,26 +238,27 @@ class Recorder:
             mid, th = self.recording, self._thread
             self.recording = self.started_at = None
             self._stop.set()
+            (self.chunks / "current.json").unlink(missing_ok=True)
             self.panel.hide()
             self.power.release()
 
             def after():  # the pipeline flushes its last segments and chunks first
-                th.join(120)
-                for m in MODELS:
+                if th is not threading.current_thread():
+                    th.join(120)
+                with self._lock:
+                    busy = self.recording is not None  # the next meeting already started: keep its models
+                for m in () if busy else MODELS:
                     try:
                         self.ollama.unload(m)
                     except Exception as e:
                         log.warning("unload %s failed: %r", m, e)
                 if notify_api:
-                    try:
-                        self.api.post(f"/api/meetings/{mid}/stop")
-                    except Exception as e:
-                        log.warning("stop for meeting %s not sent: %r", mid, e)
+                    self._post_stop(mid)
             self._after = threading.Thread(target=after, daemon=True)
             self._after.start()
         self.on_change()
 
-    def wait(self, timeout: float) -> None:
+    def wait(self, timeout: float | None) -> None:
         if self._after:
             self._after.join(timeout)
 
@@ -259,10 +292,15 @@ class Recorder:
             self.on_change()
             assistant = self.assistant_factory(m)
             writer = AudioChunkWriter(self.chunks / mid)
-            writer.seq = len(list(writer.dir.glob("chunk-*.wav")))  # a resumed meeting goes on after its chunks
+            state = self._state()
+            writer.seq = state.get("next_seq", 0) if state.get("meeting_id") == mid else 0  # a resumed meeting goes on
+            self._save_state(mid, writer.seq)
             # shortcut: a chunk cut short by a crash still counts as a full 10 s (the api fills missing seqs the same way)
-            src = _Recording(self.source_factory(), stop, writer.seq * CHUNK_FRAMES * 20, writer,
-                             lambda seq, path: self.transport.upload_chunk(mid, seq, path))
+
+            def upload(seq, path):
+                self.transport.upload_chunk(mid, seq, path)
+                self._save_state(mid, seq + 1)
+            src = _Recording(self.source_factory(), stop, writer.seq * CHUNK_FRAMES * 20, writer, upload)
 
             def post(e):
                 self.transport.send(e)
@@ -282,13 +320,33 @@ class Recorder:
             log.exception("recording meeting %s failed", mid)
         finally:
             self._set_degraded(False)
+            if not stop.is_set():  # a crash or a source that ended: release everything as Stop does
+                self.stop()
 
 
 def _ask(text: str) -> bool:
+    """The resume question, on the main thread (`Recorder.start` runs off it), waiting for the answer."""
     import rumps
     from AppKit import NSApp
-    NSApp.activateIgnoringOtherApps_(True)  # a menu-bar app's alert would open behind the call
-    return rumps.alert(title="Fleck", message=text, ok="Resume", cancel="Start new") == 1
+    from Foundation import NSThread
+    from PyObjCTools import AppHelper
+    box, done = [], threading.Event()
+
+    def ask():
+        NSApp.activateIgnoringOtherApps_(True)  # a menu-bar app's alert would open behind the call
+        box.append(rumps.alert(title="Fleck", message=text, ok="Resume", cancel="Start new") == 1)
+        done.set()
+    if NSThread.isMainThread():
+        ask()
+    else:
+        AppHelper.callAfter(ask)
+        done.wait()
+    return box[0]
+
+
+def _bg(fn, *args, **kw) -> None:
+    """Menu and notification actions that make HTTP calls run off the main thread, so the panel never freezes."""
+    threading.Thread(target=fn, args=args, kwargs=kw, daemon=True).start()
 
 
 def _clock(seconds: float) -> str:
@@ -313,11 +371,13 @@ def _app_class():
             panel.on_visibility = lambda visible: AppHelper.callAfter(self.rebuild)
             self.rebuild()
             rumps.Timer(self._tick, 1).start()
-            rumps.Timer(self._refresh, 300).start()
+            rumps.Timer(lambda _: _bg(self._refresh), 300).start()
             threading.Thread(target=self._refresh, daemon=True).start()
 
         def _refresh(self, _=None):
-            """The Today list, reminders and "Connected as", off the main thread."""
+            """The Today list, reminders, the Claude key and "Connected as"; call it off the main thread."""
+            from fleck_helper.cli import load_claude_key
+            self.has_key = load_claude_key()  # `set-claude-key` while the app runs clears the warning
             if self.recorder is None:
                 return
             try:
@@ -341,12 +401,15 @@ def _app_class():
                 self._rec_item.title = f"Recording {_clock(time.time() - r.started_at)}"
 
         def rebuild(self):
+            from fleck_helper.cli import load_claude_key
             r = self.recorder
+            if r and r.recording:
+                self.has_key = load_claude_key()  # re-read at each recording start (a local keychain read)
             items, self._rec_item = [], None
             if r and r.recording:
                 self._rec_item = rumps.MenuItem(f"Recording {_clock(time.time() - (r.started_at or time.time()))}")
                 items += [self._rec_item] + ([rumps.MenuItem(r.title)] if r.title else [])
-                items += [rumps.MenuItem("Stop recording", callback=lambda _: r.stop()), None]
+                items += [rumps.MenuItem("Stop recording", callback=lambda _: _bg(r.stop)), None]
             hide = rumps.MenuItem("Hide answer panel" if not self.panel.user_hidden else "Show answer panel",
                                   callback=lambda _: self.panel.toggle())
             from AppKit import NSEventModifierFlagCommand, NSEventModifierFlagOption
@@ -363,7 +426,7 @@ def _app_class():
                     at = datetime.fromisoformat(e["start_at"]).astimezone().strftime("%H:%M")
                     items.append(rumps.MenuItem(f"{at}   {e['title']}", callback=self._record_event(e) if r and not r.recording else None))
                 items.append(None)
-            items.append(rumps.MenuItem("Start recording now", callback=(lambda _: r.start()) if r and not r.recording else None))
+            items.append(rumps.MenuItem("Start recording now", callback=(lambda _: _bg(r.start)) if r and not r.recording else None))
             items.append(rumps.MenuItem("Open Fleck", callback=lambda _: webbrowser.open(self.web_url)))
             items.append(None)
             items += [rumps.MenuItem(f"⚠ {w}") for w in self._warnings()]
@@ -374,12 +437,12 @@ def _app_class():
             self._tick(None)
 
         def _record_event(self, e):
-            return lambda _: self.recorder.start(event_id=e["id"], title=e["title"])
+            return lambda _: _bg(self.recorder.start, event_id=e["id"], title=e["title"])
 
         def _quit(self, _):
             if self.recorder and self.recorder.recording:
                 self.recorder.stop()
-                self.recorder.wait(30)
+                self.recorder.wait(None)  # its thread waits up to 120 s for the pipeline, then unloads the models
             rumps.quit_application()
 
     return MenuBarApp
@@ -391,7 +454,6 @@ def main() -> None:
     from fleck_helper.notify import Scheduler, UNNotifier
     from fleck_helper.panel import AnswerPanel
     from fleck_helper.transport import Transport
-    from PyObjCTools import AppHelper
 
     LOG.parent.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -405,7 +467,7 @@ def main() -> None:
         recorder.transport = Transport(api_url(), token, on_message=recorder.on_message)
         from Foundation import NSBundle
         if NSBundle.mainBundle().bundleIdentifier():
-            scheduler = Scheduler(UNNotifier(lambda event_id: AppHelper.callAfter(recorder.start, event_id)))
+            scheduler = Scheduler(UNNotifier(lambda event_id: _bg(recorder.start, event_id)))
         else:  # `fleck-helper run` from a terminal: UNUserNotificationCenter aborts without a bundle
             log.warning("meeting reminders off: not running from the app bundle")
     app = _app_class()(api, recorder, panel, scheduler, has_key, os.environ.get("FLECK_WEB_URL", "http://localhost:5173"))

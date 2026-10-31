@@ -89,3 +89,23 @@ def test_a_missing_chunk_is_logged_and_dropped(tmp_path, caplog):
     t.upload_chunk("7", 0, tmp_path / "gone.wav")
     t._upload(t._items()[0])
     assert t.pending() == 0 and "gone.wav" in caplog.text
+
+
+def test_an_uploaded_chunk_is_deleted_locally(tmp_path, monkeypatch):
+    import httpx
+
+    from fleck_helper import transport
+    codes = iter([503, 204])
+    monkeypatch.setattr(transport.httpx, "put", lambda *a, **k: httpx.Response(next(codes)))
+    t = Transport("http://127.0.0.1:1", "tok", tmp_path / "box")
+    t.close()
+    wav = tmp_path / "chunk-00000.wav"
+    wav.write_bytes(b"RIFF")
+    t.upload_chunk("7", 0, wav)
+    try:
+        t._upload(t._items()[0])  # a 503: kept for the retry
+    except httpx.HTTPError:
+        pass
+    assert wav.exists() and t.pending() == 1
+    t._upload(t._items()[0])
+    assert not wav.exists() and t.pending() == 0  # the api has it: about 230 MB an hour no longer piles up

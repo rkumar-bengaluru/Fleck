@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { api, safeNext, Unauthorized, type Me } from "./api";
 import Nav from "./components/Nav";
+import MeetingLive from "./routes/MeetingLive";
 import Settings from "./routes/Settings";
 import SignIn from "./routes/SignIn";
 import Today, { EventPage } from "./routes/Today";
@@ -35,6 +36,7 @@ function Shell() {
         <Routes>
           <Route path="/" element={<Today me={me} />} />
           <Route path="/events/:id/*" element={<EventPage me={me} />} />
+          <Route path="/meetings/:id" element={<MeetingLive />} />
           <Route path="/settings" element={<Settings me={me} />} />
           <Route path="*" element={null} />
         </Routes>

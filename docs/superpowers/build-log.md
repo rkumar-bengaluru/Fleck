@@ -492,3 +492,10 @@ Follow-ups that must be done before the MVP is done:
 ### Task 15 fix round 2
 
 - N1 title-cased email names, N2 name parts of 2+ letters plus space-separated tokens (a lone initial stays), N3 `done.text` documented in AssistEvent, the browser websocket uses `Depends(get_session)` and `s.close()` before accept. Full not-ollama run: 511 passed, 1 failed (the new initial test, fixed); the touched files then 82 passed.
+
+### Task 16: live meeting page (2026-10-31)
+
+- Route `/meetings/:id` (`MeetingLive`, `useMeetingStream`, `Transcript`, `AssistCard`, `NotesEditor`, shared `SourceChip`). On every socket open the hook GETs the meeting, applies it, then replays the events that arrived meanwhile; a closed socket reconnects after 1 s. Vite proxy now has `ws: true` (the websocket goes through the same-origin proxy, so the cookie and Origin work in dev and in the compose `web` service).
+- Vitest: the five brief tests pass; whole web suite 16 passed. `tsc --noEmit` clean. Python untouched, so no pytest run.
+- Playwright `replay-live.spec.ts` (two runs; the first only found my own 120 s wait too short for a question that is 152 s into the audio): passed, 2.7 min, **Our material** chip citing **Rate card FY2026** 1.2 s after the question's `end_ms` (clock taken from the first transcript line; the chip's own "First words" figure is on the page). The device was paired through `/api/devices/pairing-code` and a file keyring backend (`web/e2e/support/file_keyring.py` via `PYTHON_KEYRING_BACKEND`), so the real keychain was never touched. Rebuilt api, worker and web images (new `websockets` dependency).
+- Not done: Today's **Record** button still opens the event page (starting a meeting from the web is Task 17); after-meeting view for non-recording status shows only the header state.

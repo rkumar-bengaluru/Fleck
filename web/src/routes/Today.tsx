@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, browserZone, domain, setTitle, Unauthorized, type CalendarEvent, type CalendarStatus, type ClientRef, type Device, type Me } from "../api";
+import { api, browserZone, domain, HttpError, setTitle, Unauthorized, type CalendarEvent, type CalendarStatus, type ClientRef, type Device, type Me } from "../api";
 import ClientSelect from "../components/ClientSelect";
 
 const CONNECTED_MS = 60_000;
@@ -38,7 +38,7 @@ export function MeetingCard({ event, clients, me, next, now, onChange }: {
     setRecordError(null);
     api<{ id: number }>("/api/meetings", { method: "POST", body: { event_id: event.id, start_helper: true } })
       .then(m => navigate(`/meetings/${m.id}`))
-      .catch(e => { if (!(e instanceof Unauthorized)) setRecordError(String(e.message).endsWith(": 409") ? "Desktop app not connected" : "Couldn't start the recording. Try again."); });
+      .catch(e => { if (!(e instanceof Unauthorized)) setRecordError(e instanceof HttpError && e.status === 409 ? "Desktop app not connected" : "Couldn't start the recording. Try again."); });
   };
   const myDomain = domain(me.email);
   const mins = Math.ceil((new Date(event.start_at).getTime() - now) / 60_000);

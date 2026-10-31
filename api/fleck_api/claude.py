@@ -11,7 +11,7 @@ from fleck_api.config import setting
 from fleck_api.models import LlmCall
 
 URL = "https://api.anthropic.com/v1/messages"
-TIMEOUT_S = 180.0
+TIMEOUT_S = 600.0
 # USD per million tokens, from the Claude API price list; FLECK_PRICES (JSON, same shape) overrides per model
 PRICES = {"claude-sonnet-5-5": {"input": 2.0, "output": 10.0}, "claude-haiku-5-5": {"input": 0.1, "output": 0.5}}
 
@@ -32,6 +32,14 @@ def _send(body: dict) -> dict:
     return r.json()
 
 
+def _api_error(e: httpx.HTTPStatusError) -> str:
+    try:
+        err = e.response.json()["error"]
+        return f"HTTP {e.response.status_code} {err['type']}: {err['message']}"
+    except Exception:
+        return f"HTTP {e.response.status_code}"
+
+
 def cost_usd(model: str, input_tokens: int, output_tokens: int) -> float | None:
     p = (PRICES | json.loads((setting("FLECK_PRICES", "") or "{}"))).get(model)
     return None if p is None else (input_tokens * p["input"] + output_tokens * p["output"]) / 1e6
@@ -39,7 +47,7 @@ def cost_usd(model: str, input_tokens: int, output_tokens: int) -> float | None:
 
 def claude_call(purpose: str, messages: list[dict], model: str, meeting_id: int | None = None, *, session: Session, **kw) -> Message:
     """kw (system, max_tokens, tools, tool_choice, thinking ...) goes into the request. The llm_calls row is written
-    and committed whether the call succeeds or raises. Never put the API key in anything that is stored."""
+    and committed whether the call succeeds or raises (the commit covers the caller's whole session). Never put the API key in anything that is stored."""
     body = {"max_tokens": 4096} | kw | {"model": model, "messages": messages}
     row = LlmCall(purpose=purpose, model=model, request={k: v for k, v in body.items() if k != "model"}, meeting_id=meeting_id)
     t = time.perf_counter()
@@ -56,9 +64,9 @@ def claude_call(purpose: str, messages: list[dict], model: str, meeting_id: int 
         row.input_tokens, row.output_tokens = msg.input_tokens, msg.output_tokens
         row.cost_usd = cost_usd(model, msg.input_tokens or 0, msg.output_tokens or 0)
         return msg
-    except Exception as e:  # only the type and status go in the trace: the key stays out of every log
+    except Exception as e:  # the trace gets the type, the status and the API's own error message; the key is in no response body
         row.status = "error"
-        row.error = f"{type(e).__name__}: {f'HTTP {e.response.status_code}' if isinstance(e, httpx.HTTPStatusError) else e}"
+        row.error = f"{type(e).__name__}: {_api_error(e) if isinstance(e, httpx.HTTPStatusError) else e}"[:1000]
         raise
     finally:
         row.latency_ms = round((time.perf_counter() - t) * 1000)

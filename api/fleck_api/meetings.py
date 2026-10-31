@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -136,11 +136,15 @@ def put_client(meeting_id: int, body: ClientIn, _u: User = Depends(current_user)
 async def stop_meeting(meeting_id: int, u: User = Depends(current_user), s: Session = Depends(get_session)):
     m = _meeting(s, meeting_id)
     sent = await hub.to_helper(m.recorded_by or u.id, {"type": "stop", "meeting_id": str(m.id)})
-    if m.status == "recording":
-        m.status, m.ended_at = "processing", datetime.now(timezone.utc)
+    # the transition is one conditional UPDATE, so only one of any number of Stops gets the row back and enqueues
+    won = s.execute(update(Meeting).where(Meeting.id == m.id, Meeting.status == "recording")
+                    .values(status="processing", ended_at=func.now()).returning(Meeting.id)).first()
+    if won:
         # 15 s for the helper's last chunks to arrive; nothing to wait for when it is offline
-        enqueue(s, "process_meeting", {"meeting_id": m.id}, func.now() + timedelta(seconds=15) if sent else None)
-        await hub.to_browsers(m.id, {"type": "meeting_state", "meeting_id": str(m.id), "status": m.status})
+        enqueue(s, "process_meeting", {"meeting_id": m.id}, func.now() + timedelta(seconds=15) if sent else None)  # commits both
+        await hub.to_browsers(m.id, {"type": "meeting_state", "meeting_id": str(m.id), "status": "processing"})
+    else:
+        s.rollback()
 
 
 class UsedIn(BaseModel):

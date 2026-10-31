@@ -7,11 +7,13 @@ import re
 import subprocess
 import tempfile
 import wave
+from collections import Counter
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from fleck_core.retrieval import Embedder
+from minio.error import S3Error
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -29,13 +31,15 @@ USED_WINDOW_MS = 15_000
 HEADINGS = ("Key points", "Decisions", "Next steps", "Open questions")
 SUMMARY_PROMPT = Path(__file__).with_name("prompts") / "summary.md"
 SUMMARY_TOOL = {
-    "name": "write_summary", "description": "The meeting summary.",
-    "input_schema": {"type": "object", "required": ["sections"], "properties": {"sections": {"type": "array", "items": {
-        "type": "object", "required": ["heading", "items"], "properties": {
+    "name": "write_summary", "description": "The meeting summary.", "strict": True,
+    "input_schema": {"type": "object", "required": ["sections"], "additionalProperties": False, "properties": {"sections": {"type": "array", "items": {
+        "type": "object", "required": ["heading", "items"], "additionalProperties": False, "properties": {
             "heading": {"type": "string", "enum": list(HEADINGS)},
-            "items": {"type": "array", "items": {"type": "object", "required": ["user_text", "ai_text"], "properties": {
+            "items": {"type": "array", "items": {"type": "object", "required": ["user_text", "ai_text"], "additionalProperties": False, "properties": {
                 "user_text": {"type": "string"}, "ai_text": {"type": "string"}}}}}}}}},
 }
+MAX_CHUNKS = 4 * 360  # 4 hours of the helper's 10 s chunks; a larger seq is a bad upload, not a meeting
+BULLET = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+")
 
 
 def assemble_recording(s: Session, meeting_id: int) -> None:
@@ -43,6 +47,8 @@ def assemble_recording(s: Session, meeting_id: int) -> None:
     chunks = list(s.scalars(select(AudioChunk).where(AudioChunk.meeting_id == meeting_id).order_by(AudioChunk.seq)))
     if not chunks:
         return
+    if chunks[-1].seq >= MAX_CHUNKS:
+        raise RuntimeError(f"audio chunk {chunks[-1].seq} is past the {MAX_CHUNKS}-chunk (4 hour) limit")
     mc = _minio()
     with tempfile.TemporaryDirectory() as d:
         paths, params, frames = {}, None, 0
@@ -60,7 +66,7 @@ def assemble_recording(s: Session, meeting_id: int) -> None:
         (Path(d) / "list.txt").write_text("".join(f"file '{p}'\n" for p in order))
         out = Path(d) / "out.m4a"
         r = subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", str(Path(d) / "list.txt"),
-                            "-c:a", "aac", "-ac", "2", str(out)], capture_output=True, text=True)
+                            "-c:a", "aac", "-ac", "2", str(out)], capture_output=True, text=True, timeout=600)
         if r.returncode:
             raise RuntimeError(f"ffmpeg failed: {r.stderr.strip()[-300:]}")
         key = f"recordings/{meeting_id}.m4a"
@@ -84,7 +90,7 @@ def _cos(a: list[float], b: list[float]) -> float:
 def compute_used_markers(s: Session, meeting_id: int, embedder=None) -> None:
     """Auto "used it": the best cosine between an assist's answer and the You finals that start within 15 s after the
     card appeared. Assists a person set (used_by manual) are left alone."""
-    threshold = float(setting("FLECK_USED_THRESHOLD", "") or 0.55)
+    threshold = float(setting("FLECK_USED_THRESHOLD", "") or 0.52)
     segs = {x.segment_id: x for x in s.scalars(select(Segment).where(Segment.meeting_id == meeting_id))}
     you = [x for x in segs.values() if x.stream == "you" and x.text.strip()]
     todo = [a for a in s.scalars(select(Assist).where(Assist.meeting_id == meeting_id)) if a.used_by != "manual"]
@@ -103,37 +109,69 @@ def compute_used_markers(s: Session, meeting_id: int, embedder=None) -> None:
     s.commit()
 
 
-def _note_lines(s: Session, meeting_id: int) -> tuple[str, list[str]]:
+def _clean(text: str) -> list[str]:
+    """Non-empty lines without their list bullet."""
+    return [x for ln in text.splitlines() if (x := BULLET.sub("", ln).strip())]
+
+
+def _note_lines(s: Session, meeting_id: int) -> list[str]:
     note = s.scalar(select(Note).where(Note.meeting_id == meeting_id))
-    text = note.text if note else ""
-    return text, [x.strip() for x in text.splitlines() if x.strip()]
+    return _clean(note.text if note else "")
+
+
+def _verbatim(user_text: str, lines: list[str]) -> bool:
+    """A whole note line, or a run of whole consecutive lines."""
+    ut = _clean(user_text)
+    return bool(ut) and any(lines[k:k + len(ut)] == ut for k in range(len(lines)))
+
+
+def _shape(got: dict | None) -> list[dict] | None:
+    """The tool input as a list of sections, or None when it is not the schema's shape."""
+    try:
+        out = [{"heading": x["heading"], "items": [{"user_text": i["user_text"], "ai_text": i["ai_text"]} for i in x["items"]]}
+               for x in got["sections"] if x["heading"] in HEADINGS]
+    except (TypeError, KeyError):
+        return None
+    return out if all(isinstance(v, str) for x in out for i in x["items"] for v in i.values()) else None
 
 
 def summarise(s: Session, meeting_id: int) -> None:
-    notes, lines = _note_lines(s, meeting_id)
+    lines = _note_lines(s, meeting_id)
     segs = s.scalars(select(Segment).where(Segment.meeting_id == meeting_id).order_by(Segment.start_ms, Segment.id))
     transcript = "\n".join(f"{'You' if x.stream == 'you' else 'Client'}: {x.text}" for x in segs)
-    prompt = f"<notes>\n{notes}\n</notes>\n\n<transcript>\n{transcript}\n</transcript>"
-    ask = lambda: claude_call("summary", [{"role": "user", "content": prompt}], get_settings().claude_model, meeting_id, session=s,  # noqa: E731
-                              system=SUMMARY_PROMPT.read_text(), tools=[SUMMARY_TOOL], max_tokens=4096)  # Sonnet 5.5 takes no forced tool_choice
-    for attempt in range(2):  # verbatim guard: one retry
-        if (got := ask().tool_input) is None:
-            raise RuntimeError("Claude returned no summary")
-        sections = [x for x in got.get("sections", []) if x.get("heading") in HEADINGS]
-        if all(i["user_text"] in notes for x in sections for i in x["items"] if i["user_text"]):
-            break
-    else:  # still paraphrased: the closest note line stands in, without Claude's addition
-        used: set[str] = set()
-        for x in sections:
-            for i in x["items"]:
-                if i["user_text"] and i["user_text"] not in notes:
-                    near = difflib.get_close_matches(i["user_text"], [ln for ln in lines if ln not in used], 1, 0)
-                    i["user_text"], i["ai_text"] = (near[0] if near else ""), ""
-                    used.update(near)
-    sections = [{"heading": x["heading"], "items": [i for i in x["items"] if i["user_text"] or i["ai_text"]]} for x in sections]
-    sections = [x for x in sections if x["items"]]
-    covered = "\n".join(i["user_text"] for x in sections for i in x["items"] if i["user_text"])  # coverage guard
-    missing = [{"user_text": ln, "ai_text": ""} for ln in lines if ln not in covered]
+    prompt = f"<notes>\n{chr(10).join(lines)}\n</notes>\n\n<transcript>\n{transcript}\n</transcript>"
+    sections: list[dict] = []
+    for attempt in range(2):  # one retry, told what was wrong
+        msg = claude_call("summary", [{"role": "user", "content": prompt}], get_settings().claude_model, meeting_id, session=s,
+                          system=SUMMARY_PROMPT.read_text(), tools=[SUMMARY_TOOL], max_tokens=16000)  # Sonnet 5.5 takes no forced tool_choice
+        got = None if msg.stop_reason == "max_tokens" else _shape(msg.tool_input)
+        if got is None:
+            sections, why = [], ("The reply hit the token limit; be briefer." if msg.stop_reason == "max_tokens"
+                                 else "You did not call write_summary with the required fields.")
+        else:
+            sections = got
+            bad = [i["user_text"] for x in sections for i in x["items"] if i["user_text"] and not _verbatim(i["user_text"], lines)]
+            if not bad:
+                break
+            why = "These user_text values are not copied exactly from the note lines: " + "; ".join(f'"{b}"' for b in bad)
+        prompt += f"\n\nYour previous reply was rejected. {why} Call write_summary again."
+    avail = Counter(lines)
+    for x in sections:  # lines a valid item already carries
+        for i in x["items"]:
+            if i["user_text"] and _verbatim(i["user_text"], lines):
+                i["user_text"] = "\n".join(_clean(i["user_text"]))
+                avail.subtract(_clean(i["user_text"]))
+    for x in sections:  # still paraphrased: the closest line nothing else carries stands in, without Claude's addition
+        for i in x["items"]:
+            if i["user_text"] and not _verbatim(i["user_text"], lines):
+                near = difflib.get_close_matches(i["user_text"], list(avail.elements()), 1, 0)
+                i["user_text"], i["ai_text"] = (near[0] if near else ""), ""
+                avail.subtract(near)
+    sections = [x for x in ({"heading": x["heading"], "items": [i for i in x["items"] if i["user_text"] or i["ai_text"]]} for x in sections) if x["items"]]
+    missing = []  # coverage guard: each line as often as it was written
+    for ln, n in avail.items():
+        missing += [{"user_text": ln, "ai_text": ""}] * max(n, 0)
+    missing.sort(key=lambda m: lines.index(m["user_text"]))
     if missing:
         kp = next((x for x in sections if x["heading"] == "Key points"), None)
         if kp is None:
@@ -154,8 +192,8 @@ def process_meeting(s: Session, payload: dict) -> None:
     try:
         assemble_recording(s, mid)
         s.commit()
-        store_transcript(s, mid)
         compute_used_markers(s, mid)
+        store_transcript(s, mid)  # after the markers: it carries used / used_by
         summarise(s, mid)
         s.get(Meeting, mid).status = "ready"
     except Exception as e:
@@ -174,7 +212,10 @@ def get_recording(meeting_id: int, request: Request, _u: User = Depends(current_
     if not m.recording_key:
         raise HTTPException(404, "no recording")
     mc, key = _minio(), m.recording_key
-    size = mc.stat_object(BUCKET, key).size
+    try:
+        size = mc.stat_object(BUCKET, key).size
+    except S3Error:
+        raise HTTPException(404, "recording file is missing")
     head = {"Accept-Ranges": "bytes"}
     start, end, status = 0, size - 1, 200
     if rng := request.headers.get("range"):  # single ranges only: "a-b", "a-", "-n"

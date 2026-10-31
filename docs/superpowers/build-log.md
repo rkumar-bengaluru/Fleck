@@ -520,3 +520,8 @@ Follow-ups that must be done before the MVP is done:
 - Real Sonnet summary on the replayed meeting 3 through the rebuilt worker (stop, 15 s grace skipped as the helper was offline): `ready`, one `llm_calls` row, 2,795 in / 1,519 out tokens, $0.021. The first attempt failed with a 400 (Sonnet 5.5 refuses a forced `tool_choice` and `thinking: disabled`), found only by this live call; stubs hid it.
 - Tests: the new api tests 7 pass (the `ollama` one included), `test_claude_trace.py` 3 pass (one real Haiku call, marked `claude`); Vitest 24 pass (the whole web suite); `uv run pytest -m "not ollama" -q`: 521 passed. Rebuilt api, worker and web images.
 
+### Task 17 fix round 1 (2026-10-31)
+
+- Review items fixed with tests: line-count coverage and bullets, strict tool schema and the retry loop (no tool call, malformed, max_tokens, named bad lines, note-line fallback), atomic Stop, 4-hour chunk cap and ffmpeg timeout, 404 and 416 on the recording, API error message in the trace, `HttpError.status` in the web client. Threshold 0.52 (decision 118), transcript JSON written after the markers, q_general fixture timings null (decision 120h). New decision 122.
+- No replay, no new real Claude calls; `strict: true` is therefore untested against the live API.
+

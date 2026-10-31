@@ -5,13 +5,14 @@ import wave
 from pathlib import Path
 
 import pytest
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, update
 
 from fleck_api import processing
 from fleck_api.claude import Message
 from fleck_api.jobs import run_once
 from fleck_api.meetings import BUCKET
 from fleck_api.library import _minio
+from fleck_api.realtime import hub
 from fleck_api.models import Assist, Job, Meeting, Note, Segment, Summary
 from test_meetings import pair
 from test_realtime import helper_of, new_meeting
@@ -135,12 +136,12 @@ def test_manual_used_not_overwritten(make_session):
 NOTES = "Asked for SLA in writing\nSend the rate card\n\nKickoff in May"
 
 
-def _summary_env(make, monkeypatch, replies):
+def _summary_env(make, monkeypatch, replies, notes=NOTES):
     with make() as s:
         m = Meeting(title="t", status="processing")
         s.add(m)
         s.flush()
-        s.add(Note(meeting_id=m.id, text=NOTES))
+        s.add(Note(meeting_id=m.id, text=notes))
         s.add(Segment(meeting_id=m.id, segment_id="c1", stream="client", start_ms=0, end_ms=1000, text="What is the SLA?"))
         s.commit()
         mid = m.id
@@ -148,7 +149,8 @@ def _summary_env(make, monkeypatch, replies):
 
     def fake(purpose, messages, model, meeting_id=None, **kw):
         calls.append((purpose, model, messages))
-        return Message(text="", tool_input=replies[min(len(calls), len(replies)) - 1], input_tokens=1, output_tokens=1, model=model)
+        r = replies[min(len(calls), len(replies)) - 1]
+        return r if isinstance(r, Message) else Message(text="", tool_input=r, input_tokens=1, output_tokens=1, model=model)
     monkeypatch.setattr(processing, "claude_call", fake)
     return mid, calls
 
@@ -204,3 +206,103 @@ def test_used_markers_match_script(make_session):
             got[next(r["id"] for r in ref if q.start_ms <= r["end_ms"] <= q.end_ms)] = (a.used, round(a.used_score, 3))
     print("\n".join(f"{r['id']:10} expect {r['used']!s:5} got {got[r['id']]}" for r in ref))
     assert {r["id"]: got[r["id"]][0] for r in ref} == {r["id"]: r["used"] for r in ref}
+
+
+def _items(*texts):
+    return {"sections": [{"heading": "Next steps", "items": [{"user_text": t, "ai_text": ""} for t in texts]}]}
+
+
+def _all_user_text(make, mid):
+    return sorted(i["user_text"] for items in _sections(make, mid).values() for i in items if i["user_text"])
+
+
+def test_coverage_counts_whole_lines_and_duplicates(make_session, monkeypatch):
+    notes = "Pricing\nPricing for phase 2\nFollow up\nFollow up"
+    mid, _ = _summary_env(make_session, monkeypatch, [_items("Pricing for phase 2", "Follow up")], notes)
+    with make_session() as s:
+        processing.summarise(s, mid)
+    assert _all_user_text(make_session, mid) == sorted(["Pricing", "Pricing for phase 2", "Follow up", "Follow up"])
+
+
+def test_bullets_do_not_double_add(make_session, monkeypatch):
+    mid, _ = _summary_env(make_session, monkeypatch, [_items("Send card", "Call Dana")], "- Send card\n* Call Dana")
+    with make_session() as s:
+        processing.summarise(s, mid)
+    assert _all_user_text(make_session, mid) == ["Call Dana", "Send card"]
+
+
+def test_summary_retries_after_text_only_or_malformed_reply(make_session, monkeypatch):
+    good = _items("Asked for SLA in writing", "Send the rate card", "Kickoff in May")
+    for first in (Message("I will summarise...", None, 1, 1, "m"), {"sections": [{"heading": "Next steps", "items": [{"user_text": "x"}]}]}):
+        mid, calls = _summary_env(make_session, monkeypatch, [first, good])
+        with make_session() as s:
+            processing.summarise(s, mid)
+        assert len(calls) == 2 and "rejected" in calls[1][2][0]["content"] and "Next steps" in _sections(make_session, mid)
+
+
+def test_summary_falls_back_to_note_lines_and_retry_names_bad_lines(make_session, monkeypatch):
+    mid, calls = _summary_env(make_session, monkeypatch, [Message("", None, 1, 1, "m", "max_tokens"), {"sections": "nope"}])
+    with make_session() as s:
+        processing.summarise(s, mid)
+    assert "token limit" in calls[1][2][0]["content"]
+    assert _sections(make_session, mid) == {"Key points": [{"user_text": ln, "ai_text": ""} for ln in NOTES.splitlines() if ln]}
+    mid, calls = _summary_env(make_session, monkeypatch, [_items("Paraphrase of the SLA note")])
+    with make_session() as s:
+        processing.summarise(s, mid)
+    assert '"Paraphrase of the SLA note"' in calls[1][2][0]["content"]
+
+
+def test_stop_race_enqueues_once(env, monkeypatch):
+    client, _, make = env
+    auth = pair(env)
+    mid = new_meeting(client, auth)
+
+    async def other_stop_wins(user_id, data):  # another Stop commits while this one awaits the helper
+        with make() as s:
+            s.execute(update(Meeting).where(Meeting.id == mid).values(status="processing"))
+            s.commit()
+        return True
+    monkeypatch.setattr(hub, "to_helper", other_stop_wins)
+    assert client.post(f"/api/meetings/{mid}/stop").status_code == 204
+    with make() as s:
+        assert jobs_of(s, mid) == []  # the winner (not simulated here) is the one that enqueues
+
+
+def test_recording_ranges_and_missing_file(env, tmp_path):
+    client, _, make = env
+    auth = pair(env)
+    mid = new_meeting(client, auth)
+    assert client.get(f"/api/meetings/{mid}/recording").status_code == 404
+    client.put(f"/api/meetings/{mid}/audio/0", content=wav(1.0), headers=auth)
+    client.post(f"/api/meetings/{mid}/stop")
+    with make() as s:
+        processing.assemble_recording(s, mid)
+        s.commit()
+    full = client.get(f"/api/meetings/{mid}/recording").content
+    n = len(full)
+    r = client.get(f"/api/meetings/{mid}/recording", headers={"Range": "bytes=-10"})
+    assert r.status_code == 206 and r.content == full[-10:] and r.headers["content-range"] == f"bytes {n - 10}-{n - 1}/{n}"
+    r = client.get(f"/api/meetings/{mid}/recording", headers={"Range": f"bytes={n - 5}-{n + 999}"})
+    assert r.status_code == 206 and r.content == full[-5:]
+    for bad in ("bytes=5-3", f"bytes={n}-", "bytes=-0", "bytes=abc"):
+        r = client.get(f"/api/meetings/{mid}/recording", headers={"Range": bad})
+        assert r.status_code == 416 and r.headers["content-range"] == f"bytes */{n}", bad
+    with make() as s:
+        s.get(Meeting, mid).recording_key = "recordings/gone.m4a"
+        s.commit()
+    assert client.get(f"/api/meetings/{mid}/recording").status_code == 404
+
+
+def test_audio_seq_past_four_hours_fails_the_meeting(env):
+    client, _, make = env
+    auth = pair(env)
+    mid = new_meeting(client, auth)
+    client.put(f"/api/meetings/{mid}/audio/0", content=wav(1.0), headers=auth)
+    client.put(f"/api/meetings/{mid}/audio/{processing.MAX_CHUNKS}", content=wav(1.0), headers=auth)
+    client.post(f"/api/meetings/{mid}/stop")
+    with make() as s:
+        while run_once(s):
+            pass
+        s.expire_all()
+        m = s.get(Meeting, mid)
+        assert m.status == "failed" and "4 hour" in m.failure_reason

@@ -60,3 +60,15 @@ def test_real_haiku_call_is_traced(make_session, monkeypatch):
                                  session=s, max_tokens=20, thinking={"type": "disabled"})
         row = s.scalar(select(LlmCall))
     assert msg.text.strip() and row.status == "ok" and row.cost_usd > 0 and row.input_tokens > 0
+
+
+def test_failed_call_keeps_the_api_error_message(make_session, monkeypatch):
+    import httpx
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    resp = httpx.Response(400, json={"error": {"type": "invalid_request_error", "message": "tool_choice: not supported"}},
+                          request=httpx.Request("POST", claude.URL))
+    monkeypatch.setattr(claude, "_send", lambda body: resp.raise_for_status())
+    with make_session() as s:
+        with pytest.raises(httpx.HTTPStatusError):
+            claude.claude_call("summary", [], "claude-sonnet-5-5", session=s)
+        assert s.scalar(select(LlmCall.error)) == "HTTPStatusError: HTTP 400 invalid_request_error: tool_choice: not supported"

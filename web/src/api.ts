@@ -17,6 +17,10 @@ export interface Device { id: number; name: string | null; last_seen: string | n
 export interface Me { id: number; email: string; name: string | null }
 
 export class Unauthorized extends Error {}
+export class HttpError extends Error {
+  status: number;
+  constructor(message: string, status: number) { super(message); this.status = status; }
+}
 
 // Any 401 (session expired mid-use too) goes to sign-in with a return path. An object so tests can replace it.
 export const session = {
@@ -37,7 +41,7 @@ export async function api<T>(path: string, init?: { method?: string; body?: unkn
     session.signIn(window.location.pathname + window.location.search);
     throw new Unauthorized();
   }
-  if (!r.ok) throw new Error(`${init?.method ?? "GET"} ${path}: ${r.status}`);
+  if (!r.ok) throw new HttpError(`${init?.method ?? "GET"} ${path}: ${r.status}`, r.status);
   return (r.status === 204 ? undefined : await r.json()) as T;
 }
 

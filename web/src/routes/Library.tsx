@@ -22,7 +22,7 @@ function AddDialog({ onClose, onDone }: { onClose: () => void; onDone: (close: b
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const box = useRef<HTMLDivElement>(null);
-  useEffect(() => { api<ClientRef[]>("/api/clients").then(setClients).catch(() => {}); }, []);
+  useEffect(() => { api<ClientRef[]>("/api/clients").then(cs => setClients(cs.filter(c => !c.reference_only))).catch(() => {}); }, []);  // as Today: reference contracts' companies are not clients
   useEffect(() => document.getElementById("files")?.focus(), []);
   // aria-modal: Escape closes, Tab stays inside
   function keys(e: React.KeyboardEvent) {

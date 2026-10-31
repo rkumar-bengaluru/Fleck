@@ -11,7 +11,7 @@ beforeEach(() => {
   calls = [];
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
     calls.push({ method: init?.method ?? "GET", url });
-    if (url === "/api/clients") return new Response(JSON.stringify([{ id: 1, name: "Calloway & Marsh" }]), { status: 200 });
+    if (url === "/api/clients") return new Response(JSON.stringify([{ id: 1, name: "Calloway & Marsh" }, { id: 2, name: "HealthGate", reference_only: true }]), { status: 200 });
     if (init?.method === "POST") return new Response(JSON.stringify(doc(9)), { status: 202 });
     return new Response(JSON.stringify([doc(1, { used_count: 14 }), doc(2, { kind: "client", client: "Calloway & Marsh", used_count: 0 }),
       doc(3, { status: "indexing", progress_done: 32, progress_total: 120 }), doc(4, { status: "failed", error: "Encrypted PDF" })]), { status: 200 });
@@ -41,7 +41,9 @@ test("search and kind filter go to the api; upload needs a client for past work"
   fireEvent.click(screen.getByRole("button", { name: "Add documents" }));
   const dialog = await screen.findByRole("dialog", { name: "Add documents" });
   fireEvent.change(within(dialog).getByRole("combobox", { name: "Kind of document" }), { target: { value: "client" } });
-  expect(within(dialog).getByRole("combobox", { name: "Client" })).toBeTruthy();
+  const client = within(dialog).getByRole("combobox", { name: "Client" });
+  await within(client).findByRole("option", { name: "Calloway & Marsh" });
+  expect(within(client).queryByRole("option", { name: "HealthGate" })).toBeNull();  // a reference contract's company, hidden as on Today
 });
 
 test("the dialog takes focus, keeps Tab inside and closes on Escape", async () => {

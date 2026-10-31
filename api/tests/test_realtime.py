@@ -169,3 +169,17 @@ def test_other_session_without_cookie_rejected(env):
     with pytest.raises(WebSocketDisconnect):
         with client.websocket_connect("/api/ws/helper", headers={"Authorization": "Bearer nope"}):
             pass
+
+
+def test_email_only_attendee_is_titlecased_for_redaction(env):
+    from fleck_core.fallback import question_only
+    client, _, make = env
+    pair(env)
+    with make() as s:
+        e = s.scalars(select(CalendarEvent)).first()
+        e.attendees = [{"email": "anna.lee@harbourline.test", "name": None}]
+        s.commit()
+        event_id = e.id
+    people = client.post("/api/meetings", json={"event_id": event_id}).json()["people"]
+    assert people == ["Anna Lee"]
+    assert "Anna" not in question_only("Can Anna Lee join the next call?", [], people)

@@ -1,7 +1,6 @@
 """Live traffic (spec 7.6): the helper's websocket in, browsers' websockets out. One api process, so the hub is in memory."""
 import logging
 import time
-from contextlib import contextmanager
 from dataclasses import dataclass, field
 
 from fastapi import APIRouter, Cookie, Depends, WebSocket, WebSocketDisconnect
@@ -58,19 +57,20 @@ hub = Hub()
 
 
 @router.websocket("/meetings/{meeting_id}")
-async def browser_ws(ws: WebSocket, meeting_id: int, fleck_session: str | None = Cookie(None)):
+async def browser_ws(ws: WebSocket, meeting_id: int, fleck_session: str | None = Cookie(None),
+                     s: Session = Depends(get_session)):
     origin = ws.headers.get("origin")
     if origin is not None and origin.rstrip("/") not in allowed_origins():
         await ws.close(1008)
         return
-    with contextmanager(ws.app.dependency_overrides.get(get_session, get_session))() as s:  # short: a socket open for the whole meeting must not hold a pooled connection
-        try:
-            current_user(fleck_session, s)
-        except Exception:
-            await ws.close(1008)
-            return
-        m = s.get(Meeting, meeting_id)
-        status = m.status if m else "unknown"
+    try:
+        current_user(fleck_session, s)
+    except Exception:
+        await ws.close(1008)
+        return
+    m = s.get(Meeting, meeting_id)
+    status = m.status if m else "unknown"
+    s.close()  # a socket open for the whole meeting must not hold a pooled connection
     await ws.accept()
     hub.browsers.setdefault(meeting_id, set()).add(ws)
     # the client then fetches GET /api/meetings/{id} and applies events: this one says it is subscribed

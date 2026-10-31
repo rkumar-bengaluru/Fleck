@@ -177,6 +177,15 @@ def test_question_only_name_words_are_case_sensitive_and_short_names_count(turn,
     assert question_only(turn, [], ["Wei Li", "Priya Shah", "Will Turner", "Max Ng"]) == ask
 
 
+@pytest.mark.parametrize("turn, people, ask", [
+    ("Does O'Brien agree?", ["Seán O'Brien"], "Does someone agree?"),
+    ("A client asked about SSO?", ["Rupak A"], "A client asked about SSO?"),
+    ("Can Anna Lee join the next call?", ["Anna Lee"], "Can someone join the next call?"),
+])
+def test_question_only_name_parts(turn, people, ask):
+    assert question_only(turn, [], people) == ask
+
+
 def test_cancel_ends_with_a_discarded_result():
     cancel = threading.Event()
 

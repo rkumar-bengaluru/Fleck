@@ -488,3 +488,7 @@ Follow-ups that must be done before the MVP is done:
 
 - Review items I1-I6, M1-M3, M9 fixed with a test each (resent answer, audio ownership, `Did Li's group test it?`, failing `on_message`, poison event, missing chunk, foreign Origin). `done.text` now carries the shown answer and `hub.sentences` is gone (events.py unchanged, so no regeneration of web/src/events.ts). Redaction rulings are decision 116; 115(b) and (c) corrected.
 - A browser socket opens a short DB session (honouring `dependency_overrides`) for its checks only.
+
+### Task 15 fix round 2
+
+- N1 title-cased email names, N2 name parts of 2+ letters plus space-separated tokens (a lone initial stays), N3 `done.text` documented in AssistEvent, the browser websocket uses `Depends(get_session)` and `s.close()` before accept. Full not-ollama run: 511 passed, 1 failed (the new initial test, fixed); the touched files then 82 passed.

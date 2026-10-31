@@ -45,6 +45,7 @@ class AssistEvent(_Event):
     its `thinking` on. Contract for the helper: post each event before asking the stream for the next one; the
     newer stream then holds its `thinking` (up to 0.2 s) until the older one has stopped, so an older event never lands
     after it (decision 104).
+    On `done`, `text` is the whole answer as shown ("" for `not_in_material`); the api stores it.
     `kind` is also set on a `sentence` whose answer is already final: a brief replay, or the Claude fallback
     ("general": General knowledge, not from our material)."""
 

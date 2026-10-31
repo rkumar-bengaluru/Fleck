@@ -30,7 +30,7 @@ def meeting_dict(s: Session, m: Meeting) -> dict:
     return _row(m, "id", "event_id", "title", "client_id", "recorded_by", "status", "failure_reason", "started_at", "ended_at") | {
         "client_name": client.name if client else None, "attendees": ev.attendees if ev else [],
         # the names the helper must keep out of what it sends to Claude (either side of the call)
-        "people": [a.get("name") or a["email"].split("@")[0].replace(".", " ") for a in ev.attendees if a.get("email")] if ev else []}
+        "people": [a.get("name") or a["email"].split("@")[0].replace(".", " ").replace("_", " ").title() for a in ev.attendees if a.get("email")] if ev else []}
 
 
 def _meeting(s: Session, meeting_id: int) -> Meeting:

@@ -4,11 +4,12 @@ The score is a logistic regression over the L2-normalised qwen3-embedding:4b vec
 classification instruction (`CLASSIFY_TASK`). On the live path that call runs in parallel with the 0.6b
 `Embedder.embed_query` call whose vector search uses; that vector travels on in the verdict and the Trigger.
 The model is `question_model.json`, retrained with scripts/train_classifier.py. If either embed fails or the pair
-takes over 300 ms, the CPU rules in question_rules decide (logged once)."""
+takes over 1 s, the CPU rules in question_rules decide (logged once); over 300 ms is logged as slow."""
 import json
 import logging
 import os
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from functools import cache
@@ -23,7 +24,11 @@ from fleck_helper import question_rules as rules
 MODEL_PATH = Path(__file__).with_name("question_model.json")
 CLASSIFY_MODEL = "qwen3-embedding:4b"  # the classifier's own embedder; search stays on 0.6b (decision 95)
 CLASSIFY_OPTIONS = {"num_ctx": 512}
-EMBED_TIMEOUT_S = 0.30  # the live budget for both embeds; over it, the rules decide
+# The live budget for both embeds; over it, the rules decide. Normally they take under 0.3 s, but a busy Mac
+# (cold model, Docker build) pushed them past 0.3 s and the strict rules missed 3 of 8 questions: a question
+# answered a second late beats one never answered (decision 128). Two looks of 1 s fit LiveSource's 5 s queue.
+EMBED_TIMEOUT_S = 1.0
+SLOW_S = 0.30
 CLASSIFY_TASK = ("Decide whether this line, spoken by a client on a sales call, is a substantive question about the vendor, "
                  "the engagement or the solution that the vendor should answer, rather than small talk, call logistics, "
                  "scheduling or a request to send something")
@@ -133,8 +138,11 @@ def live_embed(text: str, timeout: float = EMBED_TIMEOUT_S) -> tuple[list[float]
     from fleck_core.retrieval import Embedder
     search = _pool.submit(Embedder(_URL, timeout=timeout).embed_query, text)
     cls = _pool.submit(embed_classify, [text], timeout)
+    t0 = time.perf_counter()
     if len(wait([cls, search], timeout)[0]) < 2:  # one deadline for the pair, not one per call
         raise TimeoutError(f"embeds over {timeout * 1000:.0f} ms")
+    if (dt := time.perf_counter() - t0) > SLOW_S:
+        log.info("question classifier slow: %.0f ms", dt * 1000)
     return cls.result()[0], search.result()
 
 

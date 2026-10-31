@@ -154,7 +154,7 @@ def test_rules_fallback_is_strict(text, fires):
     assert triggers(text, "client", embed=clf.rules_only) is fires
 
 
-def test_slow_embed_falls_back_within_one_shared_deadline(monkeypatch):
+def _stall_search(monkeypatch, search_s):
     import fleck_core.retrieval
 
     class SlowSearch:  # the 0.6b search embed stalls while the 4b classify embed is quick
@@ -162,13 +162,25 @@ def test_slow_embed_falls_back_within_one_shared_deadline(monkeypatch):
             pass
 
         def embed_query(self, text):
-            time.sleep(0.6)
+            time.sleep(search_s)
             return [0.0]
     monkeypatch.setattr(fleck_core.retrieval, "Embedder", SlowSearch)
     monkeypatch.setattr(clf, "embed_classify", lambda texts, timeout: (time.sleep(0.25), [[1.0]])[1])
+
+
+def test_slow_embed_falls_back_within_one_shared_deadline(monkeypatch):
+    _stall_search(monkeypatch, 1.5)
     t = time.perf_counter()
     v = classify("Who owns the code you write for us?", "client")
-    assert time.perf_counter() - t <= 0.35 and v.reason.startswith("rules fallback"), v
+    assert time.perf_counter() - t <= clf.EMBED_TIMEOUT_S + 0.05 and v.reason.startswith("rules fallback"), v
+
+
+def test_busy_embed_still_uses_the_model(monkeypatch):
+    # 0.6 s on a busy Mac: late, but the model decides, not the strict rules (decision 128)
+    _stall_search(monkeypatch, 0.6)
+    monkeypatch.setattr(clf, "score", lambda v: 0.9)
+    v = classify("Who owns the code you write for us?", "client")
+    assert v.reason == "question shape, model score", v
 
 
 class _Tags:

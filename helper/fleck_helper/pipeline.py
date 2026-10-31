@@ -3,7 +3,7 @@
 A Candidate comes at each client final whose turn-so-far classifies as a question, so the answer's search and
 prefill can start before the turn closes (spec 7.1 item 2, decision 103); the Trigger still comes once per turn, when
 it closes, and reuses the Candidate's verdict when the text is the same. Classification runs on this loop: at most
-two looks of <= 0.3 s each per final, which LiveSource's queue absorbs (decision 105). Events come out in audio
+two looks of <= 1 s each per final (decision 128), which LiveSource's queue absorbs (decision 105). Events come out in audio
 order; transcription runs off the loop thread because the transcriber holds You jobs while a Client segment is
 open, and only this loop can close it."""
 import logging

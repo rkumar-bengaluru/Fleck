@@ -5,5 +5,8 @@
 	<!-- Mic access under the hardened runtime. Screen Recording has no entitlement: macOS grants it per app through the privacy prompt. -->
 	<key>com.apple.security.device.audio-input</key>
 	<true/>
+	<!-- Self-signed identity has no Team ID, so hardened-runtime library validation rejects the bundled Python dylib and extension modules. -->
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
 </dict>
 </plist>

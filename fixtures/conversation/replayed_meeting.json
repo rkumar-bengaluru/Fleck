@@ -1,0 +1,597 @@
+{
+ "segments": [
+  {
+   "segment_id": "you-0",
+   "stream": "you",
+   "start_ms": 0,
+   "end_ms": 4800,
+   "text": "Good morning Dana, good morning Marcus, thanks for making the time today.",
+   "gate": "you"
+  },
+  {
+   "segment_id": "client-5160",
+   "stream": "client",
+   "start_ms": 5160,
+   "end_ms": 7360,
+   "text": "Morning. Can you hear me okay?",
+   "gate": "client"
+  },
+  {
+   "segment_id": "you-7700",
+   "stream": "you",
+   "start_ms": 7700,
+   "end_ms": 11800,
+   "text": "loud and clear. Can you hear me alright on your side?",
+   "gate": "you"
+  },
+  {
+   "segment_id": "client-12140",
+   "stream": "client",
+   "start_ms": 12140,
+   "end_ms": 15840,
+   "text": "Yes, perfectly. The line is much better than last week.",
+   "gate": "client"
+  },
+  {
+   "segment_id": "you-16220",
+   "stream": "you",
+   "start_ms": 16220,
+   "end_ms": 21640,
+   "text": "Good. I know you were traveling on Monday. How was the trip back from Manchester?",
+   "gate": "you"
+  },
+  {
+   "segment_id": "client-21960",
+   "stream": "client",
+   "start_ms": 21960,
+   "end_ms": 26820,
+   "text": "long, honestly. The train was delayed by an hour and then it rained the whole way home.",
+   "gate": "client"
+  },
+  {
+   "segment_id": "you-27160",
+   "stream": "you",
+   "start_ms": 27160,
+   "end_ms": 31180,
+   "text": "That sounds exhausting. I hope the weekend made up for it.",
+   "gate": "you"
+  },
+  {
+   "segment_id": "client-31480",
+   "stream": "client",
+   "start_ms": 31480,
+   "end_ms": 36800,
+   "text": "It did. We went to my sister's place and I did absolutely nothing. Which was the plan?",
+   "gate": "client"
+  },
+  {
+   "segment_id": "you-37120",
+   "stream": "you",
+   "start_ms": 37120,
+   "end_ms": 45260,
+   "text": "That is the best kind of weekend. We had a bit of monsoon here in Bengaluru, so the traffic was a nightmare as usual.",
+   "gate": "you"
+  },
+  {
+   "segment_id": "client-45580",
+   "stream": "client",
+   "start_ms": 45580,
+   "end_ms": 50640,
+   "text": "I can imagine. Marcus is just dialing in from the other office. He says hello.",
+   "gate": "client"
+  },
+  {
+   "segment_id": "you-50960",
+   "stream": "you",
+   "start_ms": 50960,
+   "end_ms": 57860,
+   "text": "Hello Marcus. Lovely to have you both. Let me share my screen so we have the agenda in front of us.",
+   "gate": "you"
+  },
+  {
+   "segment_id": "client-58180",
+   "stream": "client",
+   "start_ms": 58180,
+   "end_ms": 64540,
+   "text": "Can you see my screen? No. Sorry. That is the wrong way round. Can you see yours? I mean.",
+   "gate": "client"
+  },
+  {
+   "segment_id": "you-64860",
+   "stream": "you",
+   "start_ms": 64860,
+   "end_ms": 69760,
+   "text": "I can see mine, and I am sharing it now. Can you see my screen?",
+   "gate": "you"
+  },
+  {
+   "segment_id": "client-70080",
+   "stream": "client",
+   "start_ms": 70080,
+   "end_ms": 73180,
+   "text": "Yes, it is up. The text is a good size.",
+   "gate": "client"
+  },
+  {
+   "segment_id": "you-73500",
+   "stream": "you",
+   "start_ms": 73500,
+   "end_ms": 85800,
+   "text": "Great. The agenda has four items. First, what you are trying to fix. Second, how we have done this before. Third, how a project would work. Fourth, next steps.",
+   "gate": "you"
+  },
+  {
+   "segment_id": "client-86140",
+   "stream": "client",
+   "start_ms": 86140,
+   "end_ms": 90480,
+   "text": "That works for us. Shall we take 10 minutes at the end for next steps?",
+   "gate": "client"
+  },
+  {
+   "segment_id": "you-90800",
+   "stream": "you",
+   "start_ms": 90800,
+   "end_ms": 95300,
+   "text": "Yes, absolutely. I will keep 10 minutes at the end for that.",
+   "gate": "you"
+  },
+  {
+   "segment_id": "client-95620",
+   "stream": "client",
+   "start_ms": 95620,
+   "end_ms": 107120,
+   "text": "So, as Dana mentioned in the invite, our associates spend far too long on first pass review of contracts. We receive about 400 NDAS a quarter, and every one is read by hand.",
+   "gate": "client"
+  },
+  {
+   "segment_id": "you-107640",
+   "stream": "you",
+   "start_ms": 107640,
+   "end_ms": 113240,
+   "text": "400 a quarter is a serious backlog. And what matters most to you in fixing it?",
+   "gate": "you"
+  },
+  {
+   "segment_id": "client-112560",
+   "stream": "client",
+   "start_ms": 112560,
+   "end_ms": 119800,
+   "text": "Speed matters. Of course. But Marcus is firm that nothing may leave Imanage. No copies in outside storage. Ever.",
+   "gate": "client"
+  },
+  {
+   "segment_id": "you-120120",
+   "stream": "you",
+   "start_ms": 120120,
+   "end_ms": 130540,
+   "text": "Understood. Everything stays inside Imanij. Let me note that down. Let me also tell you what we propose to do. Then I will take your questions as we go.",
+   "gate": "you"
+  },
+  {
+   "segment_id": "you-131040",
+   "stream": "you",
+   "start_ms": 131040,
+   "end_ms": 146580,
+   "text": "We would build a review assistant inside your document system. It reads an incoming agreement. Proposes tracked changes against your own playbook. And every suggestion shows the playbook clause behind it. Your people accept or reject each change.",
+   "gate": "you"
+  },
+  {
+   "segment_id": "client-146900",
+   "stream": "client",
+   "start_ms": 146900,
+   "end_ms": 152060,
+   "text": "that is roughly what we had in mind. Before we go further, let me ask about the team.",
+   "gate": "client"
+  },
+  {
+   "segment_id": "client-152560",
+   "stream": "client",
+   "start_ms": 152560,
+   "end_ms": 155820,
+   "text": "What does a senior engineer cost per month? Offshore.",
+   "gate": "client"
+  },
+  {
+   "segment_id": "you-158020",
+   "stream": "you",
+   "start_ms": 158020,
+   "end_ms": 168160,
+   "text": "A senior engineer working offshore from Bengaluru is $5,200 a month. The on-site rate is higher. But most of the team would be offshore.",
+   "gate": "you"
+  },
+  {
+   "segment_id": "client-168480",
+   "stream": "client",
+   "start_ms": 168480,
+   "end_ms": 171180,
+   "text": "Okay, that is about what we expected.",
+   "gate": "client"
+  },
+  {
+   "segment_id": "client-171680",
+   "stream": "client",
+   "start_ms": 171680,
+   "end_ms": 174120,
+   "text": "How quickly could you have a team working on this?",
+   "gate": "client"
+  },
+  {
+   "segment_id": "you-176340",
+   "stream": "you",
+   "start_ms": 176340,
+   "end_ms": 188400,
+   "text": "A pod of up to 6 people can start within 2 weeks of signing. If you needed 20 people, that takes 4 weeks. If we agree in time, we could begin on the 15th of November.",
+   "gate": "you"
+  },
+  {
+   "segment_id": "client-188700",
+   "stream": "client",
+   "start_ms": 188700,
+   "end_ms": 193640,
+   "text": "the 15th of november would suit us we close our budget cycle just before that",
+   "gate": "client"
+  },
+  {
+   "segment_id": "client-194140",
+   "stream": "client",
+   "start_ms": 194140,
+   "end_ms": 196040,
+   "text": "Who owns the code you write for us?",
+   "gate": "client"
+  },
+  {
+   "segment_id": "you-198260",
+   "stream": "you",
+   "start_ms": 198260,
+   "end_ms": 213140,
+   "text": "Before that, one thing on Imanage, because I think it decides the architecture. We would run the whole assistant inside your Imanage environment. So no document is copied anywhere outside it. Is that how Marcus pictures it?",
+   "gate": "you"
+  },
+  {
+   "segment_id": "client-213440",
+   "stream": "client",
+   "start_ms": 213440,
+   "end_ms": 217480,
+   "text": "Yes, that is exactly the picture. Nothing outside Imanage.",
+   "gate": "client"
+  },
+  {
+   "segment_id": "you-217800",
+   "stream": "you",
+   "start_ms": 217800,
+   "end_ms": 220320,
+   "text": "Good, then we are aligned on that.",
+   "gate": "you"
+  },
+  {
+   "segment_id": "client-220640",
+   "stream": "client",
+   "start_ms": 220640,
+   "end_ms": 224120,
+   "text": "If something breaks at night, how fast do you respond?",
+   "gate": "client"
+  },
+  {
+   "segment_id": "you-226340",
+   "stream": "you",
+   "start_ms": 226340,
+   "end_ms": 237440,
+   "text": "We run a support rota that covers your hours. So a serious fault at night reaches a person quickly and not a queue. I will send the full support terms in writing after the call.",
+   "gate": "you"
+  },
+  {
+   "segment_id": "client-236740",
+   "stream": "client",
+   "start_ms": 236740,
+   "end_ms": 239460,
+   "text": "That is fine. As long as it is written down.",
+   "gate": "client"
+  },
+  {
+   "segment_id": "you-239780",
+   "stream": "you",
+   "start_ms": 239780,
+   "end_ms": 243920,
+   "text": "it will be. Let me move on to the work we have done in your field.",
+   "gate": "you"
+  },
+  {
+   "segment_id": "client-244240",
+   "stream": "client",
+   "start_ms": 244240,
+   "end_ms": 247640,
+   "text": "Have you automated redline review for a law firm before?",
+   "gate": "client"
+  },
+  {
+   "segment_id": "you-249840",
+   "stream": "you",
+   "start_ms": 249840,
+   "end_ms": 266240,
+   "text": "Yes. For a mid-size law firm we built a redline assistant that proposes tracked changes against the firm's playbook. First pass review went from about 3 hours to 40 minutes per agreement. And most of the proposed changes were accepted without edits.",
+   "gate": "you"
+  },
+  {
+   "segment_id": "client-266560",
+   "stream": "client",
+   "start_ms": 266560,
+   "end_ms": 271660,
+   "text": "that is encouraging our partners are cautious about anything that sounds like a black box",
+   "gate": "client"
+  },
+  {
+   "segment_id": "you-272000",
+   "stream": "you",
+   "start_ms": 272000,
+   "end_ms": 281620,
+   "text": "We also learned a lesson there. We split the playbook into one entry per clause position before the pilot started, which saved weeks of work on matching.",
+   "gate": "you"
+  },
+  {
+   "segment_id": "client-281940",
+   "stream": "client",
+   "start_ms": 281940,
+   "end_ms": 288420,
+   "text": "Our playbook is a single long document, so that is useful to know. Marcus can tell you how it is organized.",
+   "gate": "client"
+  },
+  {
+   "segment_id": "client-288920",
+   "stream": "client",
+   "start_ms": 288920,
+   "end_ms": 292300,
+   "text": "How do you stop the model inventing clauses in a contract?",
+   "gate": "client"
+  },
+  {
+   "segment_id": "you-294560",
+   "stream": "you",
+   "start_ms": 294560,
+   "end_ms": 309380,
+   "text": "You keep the model tied to the text in front of it. Make it point to the exact clause it used for every suggestion. And have a person accept or reject every change. If it cannot point to a clause, it should say so instead of guessing.",
+   "gate": "you"
+  },
+  {
+   "segment_id": "client-309700",
+   "stream": "client",
+   "start_ms": 309700,
+   "end_ms": 316160,
+   "text": "Good. That is the answer the partners want to hear. Is it alright if I send you our playbook after this call?",
+   "gate": "client"
+  },
+  {
+   "segment_id": "you-316500",
+   "stream": "you",
+   "start_ms": 316500,
+   "end_ms": 320760,
+   "text": "Please do, I will keep it inside the secure folder we agreed",
+   "gate": "you"
+  },
+  {
+   "segment_id": "client-321080",
+   "stream": "client",
+   "start_ms": 321080,
+   "end_ms": 323880,
+   "text": "would you cap liability at 12 months of fees?",
+   "gate": "client"
+  },
+  {
+   "segment_id": "you-326120",
+   "stream": "you",
+   "start_ms": 326120,
+   "end_ms": 335000,
+   "text": "That is one for the contract discussion. We are open to a cap. And our lawyers will want to see your draft before we agree anything.",
+   "gate": "you"
+  },
+  {
+   "segment_id": "client-335320",
+   "stream": "client",
+   "start_ms": 335320,
+   "end_ms": 338440,
+   "text": "Fair enough. We will send our draft with the playbook.",
+   "gate": "client"
+  },
+  {
+   "segment_id": "client-338940",
+   "stream": "client",
+   "start_ms": 338940,
+   "end_ms": 341800,
+   "text": "Ballpark. What would the whole project cost us?",
+   "gate": "client"
+  },
+  {
+   "segment_id": "you-344020",
+   "stream": "you",
+   "start_ms": 344020,
+   "end_ms": 352220,
+   "text": "I would rather not guess. We would scope that properly in a paid discovery phase, and then give you a fixed price you can hold us to.",
+   "gate": "you"
+  },
+  {
+   "segment_id": "client-352520",
+   "stream": "client",
+   "start_ms": 352520,
+   "end_ms": 356240,
+   "text": "That is reasonable. Dana will want to see the discovery plan.",
+   "gate": "client"
+  },
+  {
+   "segment_id": "you-356540",
+   "stream": "you",
+   "start_ms": 356540,
+   "end_ms": 368600,
+   "text": "Good. Let me use the last minutes for next steps. I will send the support terms and a discovery plan. You send the playbook and your draft contract. And we meet again next week.",
+   "gate": "you"
+  },
+  {
+   "segment_id": "client-368940",
+   "stream": "client",
+   "start_ms": 368940,
+   "end_ms": 371020,
+   "text": "Does Thursday work for the follow-up?",
+   "gate": "client"
+  },
+  {
+   "segment_id": "you-371340",
+   "stream": "you",
+   "start_ms": 371340,
+   "end_ms": 374580,
+   "text": "Thursday works. I will send the invite today.",
+   "gate": "you"
+  },
+  {
+   "segment_id": "client-374880",
+   "stream": "client",
+   "start_ms": 374880,
+   "end_ms": 377580,
+   "text": "Thank you both. This was a useful call.",
+   "gate": "client"
+  },
+  {
+   "segment_id": "you-377900",
+   "stream": "you",
+   "start_ms": 377900,
+   "end_ms": 382460,
+   "text": "Thank you, Dana. Thank you, Marcus. Speak on Thursday.",
+   "gate": "you"
+  }
+ ],
+ "assists": [
+  {
+   "assist_id": "fe17ef1d77ec45cdb89183508229facf",
+   "segment_id": "client-152560",
+   "question": "that is roughly what we had in mind. Before we go further, let me ask about the team. What does a senior engineer cost per month? Offshore.",
+   "answer": "A senior engineer costs 5,200 per month when working offshore.",
+   "kind": "library",
+   "from_brief": false,
+   "citations": [
+    {
+     "kind": "firm",
+     "title": "Rate card FY2026",
+     "client": null,
+     "doc_id": "3",
+     "chunk_id": "3-1"
+    }
+   ],
+   "first_words_ms": 1013,
+   "full_ms": 1438
+  },
+  {
+   "assist_id": "57493d8edcb84073bb22f460fa223b31",
+   "segment_id": "client-171680",
+   "question": "Okay, that is about what we expected. How quickly could you have a team working on this?",
+   "answer": "Our team can have a team working on your project within 10 working days of starting, with a two-week overlap at our cost.",
+   "kind": "library",
+   "from_brief": false,
+   "citations": [
+    {
+     "kind": "firm",
+     "title": "Delivery FAQ",
+     "client": null,
+     "doc_id": "2",
+     "chunk_id": "2-1"
+    }
+   ],
+   "first_words_ms": 151,
+   "full_ms": 867
+  },
+  {
+   "assist_id": "84ab037c8e0d40f59f3afab5acf69d05",
+   "segment_id": "client-194140",
+   "question": "Who owns the code you write for us?",
+   "answer": "The client owns all deliverables and code written for them on payment.",
+   "kind": "library",
+   "from_brief": false,
+   "citations": [
+    {
+     "kind": "firm",
+     "title": "Delivery FAQ",
+     "client": null,
+     "doc_id": "2",
+     "chunk_id": "2-2"
+    }
+   ],
+   "first_words_ms": 123,
+   "full_ms": 485
+  },
+  {
+   "assist_id": "58d087149c094d508bcdd50c60443543",
+   "segment_id": "client-220640",
+   "question": "If something breaks at night, how fast do you respond?",
+   "answer": "30 minutes.",
+   "kind": "library",
+   "from_brief": false,
+   "citations": [
+    {
+     "kind": "firm",
+     "title": "Delivery FAQ",
+     "client": null,
+     "doc_id": "2",
+     "chunk_id": "2-4"
+    }
+   ],
+   "first_words_ms": 273,
+   "full_ms": 273
+  },
+  {
+   "assist_id": "ca48de5cfb344142a9cbd1fc4727d3e2",
+   "segment_id": "client-244240",
+   "question": "Have you automated redline review for a law firm before?",
+   "answer": "Yes, we have automated redline review for a law firm before. This includes a redline assistant inside the firm's existing document system. The service was implemented for Calloway & Marsh, a law firm.",
+   "kind": "library",
+   "from_brief": false,
+   "citations": [
+    {
+     "kind": "client",
+     "title": "Case study: Calloway & Marsh",
+     "client": "Calloway & Marsh",
+     "doc_id": "11",
+     "chunk_id": "11-2"
+    },
+    {
+     "kind": "firm",
+     "title": "Capabilities",
+     "client": null,
+     "doc_id": "1",
+     "chunk_id": "1-4"
+    }
+   ],
+   "first_words_ms": 135,
+   "full_ms": 1264
+  },
+  {
+   "assist_id": "281a14bb38734705ae9a6608e33ece18",
+   "segment_id": "client-288920",
+   "question": "Our playbook is a single long document, so that is useful to know. Marcus can tell you how it is organized. How do you stop the model inventing clauses in a contract?",
+   "answer": "Ground the model in the actual document and have it cite the exact text for every clause it reports. Then check each citation against the source, since a clause with no matching passage is a sign of invention.",
+   "kind": "general",
+   "from_brief": false,
+   "citations": [],
+   "first_words_ms": null,
+   "full_ms": null
+  },
+  {
+   "assist_id": "77bacc960d7248a98c6e121f549ac61f",
+   "segment_id": "client-321080",
+   "question": "would you cap liability at 12 months of fees?",
+   "answer": "",
+   "kind": "not_in_material",
+   "from_brief": false,
+   "citations": [],
+   "first_words_ms": null,
+   "full_ms": 141
+  },
+  {
+   "assist_id": "18c7a6cf668f45ae8c9ed6ea508f3eb1",
+   "segment_id": "client-338940",
+   "question": "Fair enough. We will send our draft with the playbook. Ballpark. What would the whole project cost us?",
+   "answer": "",
+   "kind": "not_in_material",
+   "from_brief": false,
+   "citations": [],
+   "first_words_ms": null,
+   "full_ms": 260
+  }
+ ]
+}

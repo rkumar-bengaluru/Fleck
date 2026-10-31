@@ -27,7 +27,7 @@ def build_demo_brief(c, event_title: str = "Presales: demo prospect") -> int:
 
 
 def test_targets():
-    from stack_replay import create_meeting, gate_lines, helper_env, log_counts, print_rows, score, sign_in, start_replay, stop, \
+    from stack_replay import LOOP_MS, create_meeting, gate_lines, helper_env, log_counts, print_rows, score, sign_in, start_replay, stop, \
         used_scores, wait_ready
     runs = int(os.environ.get("FLECK_TARGET_RUNS", "3"))
     tag = os.environ.get("FLECK_TARGET_TAG", time.strftime("%H%M"))
@@ -46,6 +46,8 @@ def test_targets():
         rows, extra = score(m)
         print(f"--- run {i + 1} meeting {mid}: {log_counts(log.read_text())}")
         print_rows(rows, extra, used_scores(mid))
+        minutes = LOOP_MS // 60_000
+        assert len(extra) <= max(1, minutes // 10), [x["question"] for x in extra]  # false triggers: spec 5, 1 per 10 min
         pooled += rows
         wrong += [f"run {i + 1} {r['id']}" for r in rows if not (r["triggered"] and r["ok"])]
     lines, ok = gate_lines(pooled)

@@ -142,7 +142,7 @@ def score(m: dict, loops: int = 1) -> tuple[list[dict], list[dict]]:
                 cls = {"general": "claude", "not_in_material": "not_in_material"}.get(a["kind"], "library")
                 row |= {"ok": ok, "kind": a["kind"], "docs": docs, "first": first, "done": a["full_ms"], "cls": cls,
                         "late": a["late"], "from_brief": a["from_brief"], "assist_id": a["assist_id"], "question": a["question"],
-                        "answer": a["answer"]}
+                        "answer": a["answer"], "rejected": a["rejected"] or []}
             rows.append(row)
     return rows, extra
 

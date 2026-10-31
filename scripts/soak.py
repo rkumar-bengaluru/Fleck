@@ -116,7 +116,8 @@ def main() -> int:
                                   capture_output=True, text=True, check=True).stdout.strip() or 0)
     expect = {q["id"]: q["expect"] for q in REF["questions"]}
     bad = [r for r in rows if r["triggered"] and not r["ok"]]
-    timed_out = [r for r in bad if r["kind"] == "not_in_material" and expect[r["id"]] != "not_in_material"][:timeouts]
+    # each excused row is matched to its own Claude timeout (the assist's `rejected` carries it), not by count
+    timed_out = [r for r in bad if r["kind"] == "not_in_material" and expect[r["id"]] != "not_in_material" and "timeout" in r["rejected"]]
     wrong = [f"loop {r['loop']} {r['id']} ({r['kind']})" for r in bad if r not in timed_out]
     timed_out = [f"loop {r['loop']} {r['id']}" for r in timed_out]
     late = [f"loop {r['loop']} {r['id']} first {r['first']} ms" for r in rows if r.get("late")]
@@ -127,6 +128,8 @@ def main() -> int:
         f"helper memory (footprint) growth {growth:.0f} MB < 300 MB (from {base:.0f} MB to peak {max(foot, default=0):.0f} MB)": growth < 300,
         f"every question in every loop ({len(rows)}) triggered: missed {missed or 'none'}": not missed,
         f"every outcome as expected: wrong {wrong or 'none'}": not wrong,
+        f"every excused timeout ({len(timed_out)}) is traced in llm_calls ({timeouts})": len(timed_out) <= timeouts,
+        f"false triggers ({len(extra)}) at most 1 per 10 min (spec 5)": len(extra) <= max(1, int(a.minutes // 10)),
         f"breaker never opened ({counts['breaker_opened']})": counts["breaker_opened"] == 0,
         f"rules fallback never decided ({counts['rules_fallbacks']})": counts["rules_fallbacks"] == 0,
     }

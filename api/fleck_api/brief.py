@@ -125,6 +125,25 @@ def _safe(text: str, people: list[str], client_names: list[str]) -> str:
     return redact_clients(redact_people(_DIGITS.sub("", text), people, ignore_case=True), client_names)
 
 
+_PERSONAL = {"gmail", "googlemail", "outlook", "hotmail", "live", "yahoo", "icloud", "me", "proton", "protonmail"}
+_GENERIC = {"co", "com", "org", "net", "ac", "gov", "edu"}
+
+
+def guest_companies(attendees: list[dict], my_domain: str) -> list[str]:
+    """Company names from the outside guests' email domains, as web's domainStem: orion-freight.co.uk -> "Orion Freight".
+    redact_clients then also takes each distinctive word ("Orion"). Public mail domains (gmail, outlook) give none."""
+    out = []
+    for a in attendees:
+        dom = (a.get("email") or "").rpartition("@")[2].lower()
+        labels = dom.split(".")[:-1]  # drop the TLD
+        if len(labels) > 1 and labels[-1] in _GENERIC:
+            labels.pop()  # acme.co.uk
+        if a.get("self") or not labels or dom == my_domain or labels[-1] in _PERSONAL:
+            continue
+        out.append(" ".join(w.capitalize() for w in labels[-1].split("-")))
+    return list(dict.fromkeys(out))
+
+
 @job("build_brief", on_fail=lambda s, payload, error: mark_failed(s, payload, error))
 def build_brief(s: Session, payload: dict) -> None:
     ev = s.get(CalendarEvent, payload["event_id"])
@@ -146,8 +165,10 @@ def build_brief(s: Session, payload: dict) -> None:
     titles = list(s.scalars(select(Document.title).where(Document.client_id == client.id, Document.status == "indexed")
                             .order_by(Document.title))) if client else []
     # the redacted invite (title and description), plus the client's documents when one is linked. Names go first (privacy rule).
-    title = _safe(ev.title, people, names)
-    desc = _safe(ev.description, people, names) if ev.description else None
+    owner = s.get(User, ev.user_id)
+    invite_names = names + guest_companies(ev.attendees, owner.email.rpartition("@")[2].lower() if owner else "")  # a prospect not in the library yet
+    title = _safe(ev.title, people, invite_names)
+    desc = _safe(ev.description, people, invite_names) if ev.description else None
     asked = b.questions
     if asked and datetime.fromisoformat(asked["at"]) > datetime.now(timezone.utc) - QUESTIONS_TTL:
         questions = asked["items"]  # a retry after a failed answer step: Sonnet was already paid for

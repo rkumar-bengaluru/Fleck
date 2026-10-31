@@ -127,6 +127,20 @@ def test_brief_without_client(env, stubbed, monkeypatch):
     assert "No client" in env[0].get(f"/api/events/{eid}/brief").json()["context"]
 
 
+def test_no_client_brief_redacts_the_guests_company(env, stubbed, monkeypatch):
+    """Review 23a I2: a prospect not in the library is named by its guests' email domain; public mail domains name nobody."""
+    sent = Sent(monkeypatch, QS)
+    guests = [{"email": "tom@orion-freight.co.uk", "name": "Tom Reyes"}, {"email": "sam.lee@gmail.com", "name": "Sam Lee"},
+              {"email": "rupak@northbeam.test", "name": "Rupak K", "self": True}]
+    eid = make_event(env, title="Discovery: Orion Freight", client=False, attendees=guests,
+                     description="Orion Freight wants to discuss data residency; ORION's GC joins. Gmail is fine for the deck.")
+    build(env, eid)
+    prompt = sent[0]["messages"][0]["content"]
+    assert "orion" not in prompt.lower() and "Freight" not in prompt and "a client" in prompt
+    assert "Gmail is fine" in prompt and "data residency" in prompt
+    assert brief.guest_companies(guests, "northbeam.test") == ["Orion Freight"]
+
+
 def test_thin_items_listed_separately(env, stubbed, monkeypatch):
     Sent(monkeypatch, QS)
     eid = make_event(env)

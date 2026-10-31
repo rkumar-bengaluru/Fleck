@@ -19,7 +19,7 @@ test("sign in, Today, brief, meeting notes and recording, chat with a transcript
   await expect(page.getByRole("heading", { name: "Brief for Harbourline Legal", level: 1 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "What we know going in" })).toBeVisible();
   await expect(page.getByRole("heading", { name: /Likely questions|Where our material is thin/ }).first()).toBeVisible();
-  await page.screenshot({ path: "../docs/superpowers/screenshots/brief.png", fullPage: true });
+  if (process.env.FLECK_SCREENSHOTS) await page.screenshot({ path: "../docs/superpowers/screenshots/brief.png", fullPage: true });  // the committed one stays put
 
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Meetings", exact: true }).click();
   await page.getByRole("link", { name: TITLE }).first().click();

@@ -220,8 +220,12 @@ def test_citation_markers(chatenv, monkeypatch, reply, text, numbers):
     ("Notice is thirty days [1]. Senior engineers cost $5,200 a month [2].", "Notice is thirty days [1]. Senior engineers cost $5,200 a month [2]."),
     ("Notice is 30 days [1].\n\nSenior engineers cost $9,999 a month [2]. It stays in iManage [1].",
      f"Notice is 30 days [1].\n\nIt stays in iManage [1].\n\n{chat.FIGURE_DROPPED}"),                # figure not in [2]
-    ("Notice is 45 days [1].", f"{chat.FIGURE_DROPPED}\n\nNo sources cited."),                       # wrong figure, nothing left
-    ("Notice is thirty days.", f"{chat.FIGURE_DROPPED}\n\nNo sources cited."),                       # a figure with no citation
+    ("Notice is 45 days [1].", chat.FIGURE_DROPPED),                                                  # wrong figure, nothing left
+    ("Notice is thirty days.", chat.FIGURE_DROPPED),                                                  # a figure with no citation
+    ("Two points:\n\n1. It stays in iManage [1].\n2. Rates are $5,200 a month [2].",                  # a numbered list: markers are not figures
+     "Two points:\n\n1. It stays in iManage [1].\n2. Rates are $5,200 a month [2]."),
+    ("Two points:\n1. It stays in iManage [1].\n2. Rates are $9,999 a month [2].",
+     f"Two points:\n1. It stays in iManage [1].\n\n{chat.FIGURE_DROPPED}"),
     ("At 0:01 they asked about iManage [1].", "At 0:01 they asked about iManage [1]."),                # the cited timestamp counts
 ])
 def test_chat_figures_checked_against_cited_sources(chatenv, monkeypatch, reply, text):

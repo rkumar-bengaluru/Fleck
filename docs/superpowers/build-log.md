@@ -732,3 +732,11 @@ Brief: 8 questions (2 library, 6 `not_in_material`). Again none matched a script
 - Screenshot: docs/superpowers/screenshots/brief.png.
 
 **Runs:** `uv run --all-packages pytest core api gsim helper/tests -q --ignore=helper/tests/mac -m "not ollama and not claude"`: 645 passed, 17 deselected, 1 warning. The warning is a menubar `NSApp` thread in `test_resume`, which predates this task. Vitest: 60 passed. `tsc --noEmit`: clean. The stack is left running with the demo meeting (meeting 1).
+
+### Task 23a fix round 1 (2026-10-31)
+
+- **I1, chat lists.** A leading list marker ("1.", "2)", "-") is taken off each line before the figure check and put back afterwards. A list no longer loses its numbers or gets a false "left out" note. When every sentence is dropped, the answer is the note alone, without "No sources cited." 2 new list cases in `test_chat_figures_checked_against_cited_sources`.
+- **I2, prospect company in the no-client brief.** `brief.guest_companies` takes company names from the outside guests' email domains, using web's `domainStem` rules (orion-freight.co.uk gives "Orion Freight"; gmail, outlook and other public mail give none). `redact_clients` also redacts each distinctive word ("Orion") in the title and description. Test: `test_no_client_brief_redacts_the_guests_company`. Decision 129 now lists the hand-over limits: a person in the invite who is not an attendee, and a company whose people are not guests.
+- **I3, seed_demo.** The replay is killed and the meeting stopped in a `finally`. Any demo meeting that has not failed counts as present, so a re-run exits 0 without making a second one. Checked live: the re-run printed "meeting 1 … is already there (ready)" and exited 0. The kill and stop path was not exercised; that would have put a second meeting on the demo stack.
+- **Minors.** full-journey writes brief.png only when `FLECK_SCREENSHOTS` is set. Decision 147 now mentions `make reset`.
+- **Runs.** `pytest core api -m "not ollama and not claude"`: 443 passed. Vitest: 60 passed. `make up` rebuilt the api, and full-journey.spec.ts passed again on the demo stack.

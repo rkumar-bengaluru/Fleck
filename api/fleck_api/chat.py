@@ -141,15 +141,20 @@ def _markers(text: str, valid: set[int]) -> str:
 FIGURE_DROPPED = "A sentence was left out: its figures are not in the sources it cites."
 
 
+_LIST = re.compile(r"^\s*(?:\d+[.)]|[-*•])\s+")  # "1. ", "2) ", "- ": a list marker, not a sentence or a figure
+
+
 def _checked(text: str, blocks: dict[int, str]) -> str:
     """Decision 134: a sentence whose figures are not in the sources it cites (prompt blocks, headers included, so a
-    cited timestamp counts) is left out, as on the live path. Line breaks are kept."""
+    cited timestamp counts) is left out, as on the live path. Line breaks and list markers are kept."""
     lines, dropped = [], False
     for line in text.split("\n"):
-        keep = [x for x in split_sentences(line)
+        marker = m[0] if (m := _LIST.match(line)) else ""
+        parts = split_sentences(line[len(marker):])
+        keep = [x for x in parts
                 if figures_in_sources(x, [blocks[int(n)] for n in re.findall(r"\[(\d+)\]", x) if int(n) in blocks])]
-        dropped |= len(keep) < len(split_sentences(line))
-        lines.append(" ".join(keep))
+        dropped |= len(keep) < len(parts)
+        lines.append(marker + " ".join(keep) if keep or not parts else "")
     out = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
     return f"{out}\n\n{FIGURE_DROPPED}".strip() if dropped else out
 
@@ -202,7 +207,7 @@ def post_chat(body: ChatIn, _u: User = Depends(current_user), s: Session = Depen
     text = _checked(_markers(msg.text.strip(), valid), {c["n"]: b for b, c in zip(blocks, cites)})
     used = {int(n) for n in re.findall(r"\[(\d+)\]", text)}
     citations = [c for c in cites if c["n"] in used]
-    if cites and not citations:
+    if cites and not citations and not text.endswith(FIGURE_DROPPED):  # the note already says why nothing is cited
         text += "\n\nNo sources cited."
     s.add_all([ChatMessage(thread_id=thread.id, role="user", text=question), ChatMessage(thread_id=thread.id, role="assistant", text=text, citations=citations)])
     s.commit()

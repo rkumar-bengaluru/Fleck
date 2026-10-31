@@ -11,6 +11,7 @@ from fleck_core.retrieval import (TENANT, Embedder, RetrievalError, Retriever, d
                                   weaviate_client)
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from fleck_api.auth import current_user
@@ -114,14 +115,26 @@ def _source(n: int, hit) -> tuple[str, dict]:
     return f"[{n}] Document \"{hit.title}\" ({hit.kind}):\n{hit.text}", {"type": "document", "n": n, "doc_id": hit.doc_id, "label": hit.title}
 
 
-def _thread(s: Session, meeting_id: int | None) -> ChatThread:
-    # shortcut: get-or-create without a unique index, two first questions racing can make two threads; the oldest wins
-    t = s.scalar(select(ChatThread).where(ChatThread.meeting_id == meeting_id) if meeting_id is not None
-                 else select(ChatThread).where(ChatThread.meeting_id.is_(None)).order_by(ChatThread.id).limit(1))
-    if t is None:
-        s.add(t := ChatThread(meeting_id=meeting_id))
-        s.flush()
+def _thread(s: Session, meeting_id: int | None, create: bool = True) -> ChatThread | None:
+    """One thread per meeting and one for Ask-all (unique indexes, migration 0010): a racing insert does nothing and both re-select."""
+    q = select(ChatThread).where(ChatThread.meeting_id == meeting_id if meeting_id is not None else ChatThread.meeting_id.is_(None)).order_by(ChatThread.id).limit(1)
+    t = s.scalar(q)
+    if t is None and create:
+        s.execute(insert(ChatThread).values(meeting_id=meeting_id).on_conflict_do_nothing())
+        s.commit()
+        t = s.scalar(q)
     return t
+
+
+MARKER = re.compile(r"( ?)\[(\d{1,2}(?:\s*,\s*\d{1,2})*)\]")  # 3+ digit numbers such as [2024] are not markers
+
+
+def _markers(text: str, valid: set[int]) -> str:
+    """Rewrite each marker group as [1][2] with the valid numbers only; a group with none left disappears."""
+    def fix(g):
+        keep = "".join(f"[{n}]" for n in dict.fromkeys(int(x) for x in re.findall(r"\d+", g[2])) if n in valid)
+        return g[1] + keep if keep else ""
+    return MARKER.sub(fix, text)
 
 
 def _history(s: Session, thread_id: int) -> list[ChatMessage]:
@@ -135,7 +148,8 @@ class ChatIn(BaseModel):
 
 @router.get("/chat")
 def get_chat(meeting_id: int | None = None, _u: User = Depends(current_user), s: Session = Depends(get_session)):
-    return [{"role": m.role, "text": m.text, "citations": m.citations} for m in _history(s, _thread(s, meeting_id).id)]
+    t = _thread(s, meeting_id, create=False)  # reading makes no thread
+    return [{"role": m.role, "text": m.text, "citations": m.citations} for m in _history(s, t.id)] if t else []
 
 
 @router.post("/chat")
@@ -160,17 +174,19 @@ def post_chat(body: ChatIn, _u: User = Depends(current_user), s: Session = Depen
         passages = []
     blocks, cites = zip(*(_source(n, h) for n, h in enumerate([*hits, *passages], 1))) if hits or passages else ((), ())
     thread = _thread(s, body.meeting_id)
-    past = _history(s, thread.id)[-HISTORY:]
+    past = _history(s, thread.id)[-HISTORY:]  # earlier [n] belong to earlier sources: they are removed before the history goes back
     prompt = "<sources>\n" + "\n\n".join(blocks) + f"\n</sources>\n\n<question>\n{question}\n</question>"
     try:
-        msg = claude_call("chat", [{"role": m.role, "content": m.text} for m in past] + [{"role": "user", "content": prompt}],
+        msg = claude_call("chat", [{"role": m.role, "content": _markers(m.text, set())} for m in past] + [{"role": "user", "content": prompt}],
                           get_settings().claude_model, body.meeting_id, session=s, system=PROMPT.read_text(), max_tokens=2000)
     except Exception:  # claude_call traced the failure; the key and the API's message stay out of the reply
         raise HTTPException(502, "Claude could not answer. Try again.")
     valid = {c["n"] for c in cites}
-    text = re.sub(r"\s*\[(\d+)\]", lambda g: g.group(0) if int(g[1]) in valid else "", msg.text.strip())
+    text = _markers(msg.text.strip(), valid)
     used = {int(n) for n in re.findall(r"\[(\d+)\]", text)}
     citations = [c for c in cites if c["n"] in used]
+    if cites and not citations:
+        text += "\n\nNo sources cited."
     s.add_all([ChatMessage(thread_id=thread.id, role="user", text=question), ChatMessage(thread_id=thread.id, role="assistant", text=text, citations=citations)])
     s.commit()
     return {"text": text, "citations": citations}

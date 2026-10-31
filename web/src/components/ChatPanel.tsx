@@ -15,9 +15,10 @@ export default function ChatPanel({ meetingId }: { meetingId: number | null }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
   const end = useRef<HTMLDivElement>(null);
   const label = meetingId === null ? "Ask across meetings" : "Ask about this meeting";
-  useEffect(() => { api<Message[]>(`/api/chat${meetingId === null ? "" : `?meeting_id=${meetingId}`}`).then(m => setMessages(m ?? [])).catch(() => setFailed(true)); }, [meetingId]);
+  useEffect(() => { api<Message[]>(`/api/chat${meetingId === null ? "" : `?meeting_id=${meetingId}`}`).then(m => setMessages(m ?? [])).catch(() => setLoadFailed(true)); }, [meetingId]);
   useEffect(() => { end.current?.scrollIntoView?.({ block: "nearest" }); }, [messages, busy]);
 
   async function ask(e: React.FormEvent) {
@@ -53,6 +54,7 @@ export default function ChatPanel({ meetingId }: { meetingId: number | null }) {
         {busy && <p className="muted" role="status">Thinking…</p>}
         <div ref={end} />
       </div>
+      {loadFailed && <p className="error" role="alert">Couldn't load the earlier messages.</p>}
       {failed && <p className="error" role="alert">Couldn't get an answer. Try again.</p>}
       <form className="chat-form" onSubmit={ask}>
         <input aria-label={label} placeholder={label} value={text} onChange={e => setText(e.target.value)} />

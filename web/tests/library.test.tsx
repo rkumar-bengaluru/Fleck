@@ -36,9 +36,26 @@ test("search and kind filter go to the api; upload needs a client for past work"
   fireEvent.change(screen.getByRole("combobox", { name: "Kind" }), { target: { value: "reference" } });
   await waitFor(() => expect(calls.some(c => c.url === "/api/library/documents?kind=reference")).toBe(true));
   fireEvent.change(screen.getByRole("searchbox", { name: "Search the library" }), { target: { value: "rate" } });
+  expect(calls.some(c => c.url.includes("q=rate"))).toBe(false);  // debounced
   await waitFor(() => expect(calls.some(c => c.url === "/api/library/documents?kind=reference&q=rate")).toBe(true));
   fireEvent.click(screen.getByRole("button", { name: "Add documents" }));
   const dialog = await screen.findByRole("dialog", { name: "Add documents" });
   fireEvent.change(within(dialog).getByRole("combobox", { name: "Kind of document" }), { target: { value: "client" } });
   expect(within(dialog).getByRole("combobox", { name: "Client" })).toBeTruthy();
+});
+
+test("the dialog takes focus, keeps Tab inside and closes on Escape", async () => {
+  render(<MemoryRouter><Library /></MemoryRouter>);
+  await screen.findByText("Doc 1");
+  const opener = screen.getByRole("button", { name: "Add documents" });
+  fireEvent.click(opener);
+  const dialog = await screen.findByRole("dialog", { name: "Add documents" });
+  await waitFor(() => expect(document.activeElement?.id).toBe("files"));
+  const upload = within(dialog).getByRole("button", { name: "Upload" });
+  upload.focus();
+  fireEvent.keyDown(upload, { key: "Tab" });
+  expect(document.activeElement?.id).toBe("files");
+  fireEvent.keyDown(dialog, { key: "Escape" });
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(document.activeElement).toBe(opener);
 });

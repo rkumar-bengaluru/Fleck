@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from fleck_api.auth import current_user
 from fleck_api.db import get_session
 from fleck_api.devices import current_device, user_or_device
-from fleck_api.jobs import enqueue
+from fleck_api.jobs import enqueue, enqueue_once
 from fleck_api.library import _minio
 from fleck_api.models import Assist, AudioChunk, Brief, BriefItem, CalendarEvent, Client, Device, LlmCall, Meeting, Note, Segment, Summary, User
 from fleck_api.realtime import hub
@@ -125,10 +125,12 @@ class NotesIn(BaseModel):
 
 @router.put("/meetings/{meeting_id}/notes", status_code=204)
 def put_notes(meeting_id: int, body: NotesIn, u: User = Depends(current_user), s: Session = Depends(get_session)):
-    _meeting(s, meeting_id)
+    m = _meeting(s, meeting_id)
     s.execute(insert(Note).values(meeting_id=meeting_id, text=body.text, updated_by=u.id).on_conflict_do_update(
         index_elements=[Note.meeting_id], set_={"text": body.text, "updated_by": u.id, "updated_at": datetime.now(timezone.utc)}))
     s.commit()
+    if m.status == "ready":  # the chat index holds the note lines
+        enqueue_once(s, "index_meeting", {"meeting_id": meeting_id})
 
 
 class ClientIn(BaseModel):

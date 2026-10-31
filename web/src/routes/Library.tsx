@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, setTitle, type ClientRef } from "../api";
 
@@ -21,7 +21,17 @@ function AddDialog({ onClose, onDone }: { onClose: () => void; onDone: (close: b
   const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
   useEffect(() => { api<ClientRef[]>("/api/clients").then(setClients).catch(() => {}); }, []);
+  useEffect(() => document.getElementById("files")?.focus(), []);
+  // aria-modal: Escape closes, Tab stays inside
+  function keys(e: React.KeyboardEvent) {
+    if (e.key === "Escape") { e.stopPropagation(); onClose(); return; }
+    if (e.key !== "Tab") return;
+    const f = Array.from(box.current!.querySelectorAll<HTMLElement>("input, select, button:not([disabled])"));
+    const at = f.indexOf(document.activeElement as HTMLElement);
+    if (e.shiftKey && at <= 0) { e.preventDefault(); f[f.length - 1].focus(); } else if (!e.shiftKey && at === f.length - 1) { e.preventDefault(); f[0].focus(); }
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -47,7 +57,7 @@ function AddDialog({ onClose, onDone }: { onClose: () => void; onDone: (close: b
     }
   }
   return (
-    <div role="dialog" aria-modal="true" aria-label="Add documents" className="after-card dialog">
+    <div ref={box} role="dialog" aria-modal="true" aria-label="Add documents" className="after-card dialog" onKeyDown={keys}>
       <h2>Add documents</h2>
       <form className="dialog-form" onSubmit={submit}>
         <label htmlFor="files">Files</label>
@@ -78,15 +88,20 @@ export default function Library() {
   const [q, setQ] = useState("");
   const [kind, setKind] = useState("");
   const [adding, setAdding] = useState(false);
+  const opener = useRef<HTMLButtonElement>(null);
+  const [dq, setDq] = useState("");  // q after 250 ms of no typing
+  const latest = useRef(0);
   const [error, setError] = useState(false);
   const [params] = useSearchParams();
   const focus = params.get("doc");
   const load = useCallback(() => {
     const qs = new URLSearchParams();
     if (kind) qs.set("kind", kind);
-    if (q) qs.set("q", q);
-    return api<Doc[]>(`/api/library/documents${qs.size ? `?${qs}` : ""}`).then(d => { setDocs(d); setError(false); }).catch(() => setError(true));
-  }, [kind, q]);
+    if (dq) qs.set("q", dq);
+    const mine = ++latest.current;  // a slower, older response must not replace a newer one
+    return api<Doc[]>(`/api/library/documents${qs.size ? `?${qs}` : ""}`).then(d => { if (mine === latest.current) { setDocs(d); setError(false); } }).catch(() => { if (mine === latest.current) setError(true); });
+  }, [kind, dq]);
+  useEffect(() => { const h = setTimeout(() => setDq(q), 250); return () => clearTimeout(h); }, [q]);
   useEffect(() => setTitle("Library"), []);
   useEffect(() => { void load(); }, [load]);
   const busy = docs?.some(d => d.status === "queued" || d.status === "indexing");
@@ -97,9 +112,9 @@ export default function Library() {
     <>
       <header className="page-head">
         <div><h1>Library</h1><p className="subtitle">What Fleck answers from. Shared with everyone on your team.</p></div>
-        <button type="button" className="btn-primary" onClick={() => setAdding(true)}>Add documents</button>
+        <button ref={opener} type="button" className="btn-primary" onClick={() => setAdding(true)}>Add documents</button>
       </header>
-      {adding && <AddDialog onClose={() => setAdding(false)} onDone={close => { if (close) setAdding(false); void load(); }} />}
+      {adding && <AddDialog onClose={() => { setAdding(false); opener.current?.focus(); }} onDone={close => { if (close) { setAdding(false); opener.current?.focus(); } void load(); }} />}
       <div className="lib-filters">
         <input type="search" aria-label="Search the library" placeholder="Search the library" value={q} onChange={e => setQ(e.target.value)} />
         <label htmlFor="lib-kind">Kind</label>

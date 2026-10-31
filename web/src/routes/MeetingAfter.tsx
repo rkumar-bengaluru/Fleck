@@ -41,7 +41,7 @@ export default function MeetingAfter({ id }: { id: string }) {
     setTab("Transcript");
     const a = audio.current;
     if (a && ready) { a.currentTime = t / 1000; a.play().catch(() => {}); }
-  }, [t, ready, d !== null]);  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [t, d !== null]);  // eslint-disable-line react-hooks/exhaustive-deps  (once per t: a later switch to ready must not force the tab)  // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (d) setTitle(d.meeting.title); }, [d?.meeting.title]);  // eslint-disable-line react-hooks/exhaustive-deps
   if (!d) return error ? <p className="error" role="alert">Couldn't load this meeting.</p> : null;
 

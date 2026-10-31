@@ -634,3 +634,7 @@ Check of the Milestone E follow-ups:
 - Added `api/fleck_api/chat.py` (index job, backfill, `POST/GET /api/chat`), `prompts/chat.md`, migration 0009 (document progress), `ChatPanel`, `Library`, `AskAll`, the Chat tab on the after-page, `?t=` seek on the after-page, `web/e2e/chat.spec.ts` (written, not run). Decisions 133-135.
 - Tests first (FAIL: no `fleck_api.chat`, no `ChatPanel`/`Library`), then green. `pytest api core`: 424 passed, including the one real Ollama embedding plus real Sonnet chat test (`ollama` + `claude` marks). Vitest and `tsc --noEmit`: see the Task 21 report. No WAV replay, no Playwright run.
 - Follow-up from the Milestone F critique done: chat calls are traced with `meeting_id`, so the after-page cost includes chat.
+
+### Task 21 fix round 1 (2026-10-31)
+
+- Review Important 1-4 and Minor 2-4, 5 (focus), 6, 8, 9 fixed (decision 136). Skipped: upload retry re-create, upload test depth, relevance gate. `pytest -m "not ollama and not claude"`, Vitest 55, tsc: see commit message.

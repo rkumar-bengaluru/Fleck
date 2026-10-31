@@ -51,3 +51,9 @@ test("a failed answer says so and keeps the question", async () => {
   await screen.findByRole("alert");
   await waitFor(() => expect((screen.getByRole("textbox", { name: "Ask about this meeting" }) as HTMLInputElement).value).toBe("Hello?"));
 });
+
+test("a failed history load has its own message", async () => {
+  vi.mocked(fetch).mockImplementation(async () => new Response("{}", { status: 500 }));
+  open(5);
+  expect((await screen.findByRole("alert")).textContent).toBe("Couldn't load the earlier messages.");
+});

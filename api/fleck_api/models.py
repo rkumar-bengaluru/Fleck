@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (BigInteger, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text,
-                        UniqueConstraint, false, func)
+                        UniqueConstraint, false, func, text)
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -212,6 +212,8 @@ class Summary(Base):
 
 class ChatThread(Base):
     __tablename__ = "chat_threads"
+    __table_args__ = (Index("uq_chat_threads_meeting", "meeting_id", unique=True, postgresql_where=text("meeting_id IS NOT NULL")),
+                      Index("uq_chat_threads_ask_all", text("(true)"), unique=True, postgresql_where=text("meeting_id IS NULL")))
     id: Mapped[int] = _id()
     meeting_id: Mapped[int | None] = _fk("meetings", True)  # null = Ask-all thread
     created_at: Mapped[datetime] = _now()

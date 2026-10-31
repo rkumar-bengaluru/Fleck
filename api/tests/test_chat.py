@@ -160,3 +160,73 @@ def test_real_embedding_and_sonnet_chat(env, monkeypatch):
         assert "iManage" in got["text"] and got["citations"][0]["start_ms"] == 751_000
     finally:
         httpx.delete(f"{WEAVIATE}/v1/schema/{os.environ['FLECK_WEAVIATE_MEETING_COLLECTION']}")
+
+
+def _rows(mid=None):
+    coll = os.environ["FLECK_WEAVIATE_MEETING_COLLECTION"]
+    q = f'{{Get{{{coll}(tenant:"default",limit:100){{meeting_id chunk_id}}}}}}'
+    rows = httpx.post(f"{WEAVIATE}/v1/graphql", json={"query": q}).json()["data"]["Get"][coll]
+    return [r for r in rows if mid is None or r["meeting_id"] == str(mid)]
+
+
+def test_index_meeting_is_idempotent_and_drops_removed_notes(chatenv):
+    mid = ready_meeting(chatenv, "Harbourline call", HARBOUR, notes="- first note\n- second note")
+    assert len(_rows(mid)) == 3 + 2  # 3 transcript windows, 2 note lines
+    with chatenv[2]() as s:
+        chat.index_meeting(s, {"meeting_id": mid})
+        assert len(_rows(mid)) == 5
+        s.scalar(select(Note).where(Note.meeting_id == mid)).text = "- first note"
+        s.commit()
+        chat.index_meeting(s, {"meeting_id": mid})
+    assert len(_rows(mid)) == 4
+
+
+def test_editing_notes_after_ready_reindexes(chatenv):
+    mid = ready_meeting(chatenv, "Harbourline call", HARBOUR)
+    assert chatenv[0].put(f"/api/meetings/{mid}/notes", json={"text": "late note"}).status_code == 204
+    with chatenv[2]() as s:
+        assert s.scalar(select(Job).where(Job.kind == "index_meeting", Job.status == "queued")) is not None
+
+
+def test_history_is_sent_without_citation_markers(chatenv, monkeypatch):
+    sent = Sent(monkeypatch)
+    mid = ready_meeting(chatenv, "Harbourline call", HARBOUR)
+    ask(chatenv, "Where can documents live?", mid)
+    ask(chatenv, "And copies?", mid)
+    history = sent[1]["messages"][:-1]
+    assert history[1]["content"].startswith("Everything stays inside iManage") and "[" not in history[1]["content"]
+
+
+def _reply(monkeypatch, text):
+    monkeypatch.setattr(claude, "_send", lambda body: {"model": "claude-sonnet-5-5", "stop_reason": "end_turn", "usage": {"input_tokens": 1, "output_tokens": 1},
+                                                      "content": [{"type": "text", "text": text}]})
+
+
+@pytest.mark.parametrize("reply,text,numbers", [
+    ("It stays in iManage [9].", "It stays in iManage.\n\nNo sources cited.", []),                 # hallucinated number
+    ("It stays in iManage.", "It stays in iManage.\n\nNo sources cited.", []),                      # no marker
+    ("It stays in iManage [1, 2] since 2024 [2024].", "It stays in iManage [1][2] since 2024 [2024].", [1, 2]),  # a group; a year is not a marker
+    ("It stays in iManage [1][9].", "It stays in iManage [1].", [1]),
+])
+def test_citation_markers(chatenv, monkeypatch, reply, text, numbers):
+    mid = ready_meeting(chatenv, "Harbourline call", [(1_000, "iManage one"), (100_000, "iManage two")])
+    _reply(monkeypatch, reply)
+    got = ask(chatenv, "Where?", mid)
+    assert got["text"] == text and [c["n"] for c in got["citations"]] == numbers
+
+
+def test_answer_without_sources_has_no_markers_and_no_note(chatenv, monkeypatch):
+    chat.ensure_meeting_index()  # nothing indexed yet, as on a fresh install
+    _reply(monkeypatch, "I have nothing on that [1].")
+    got = ask(chatenv, "Anything?", None)
+    assert got == {"text": "I have nothing on that.", "citations": []}
+
+
+def test_threads_are_unique_and_reading_makes_none(chatenv):
+    mid = ready_meeting(chatenv, "Harbourline call", HARBOUR)
+    assert chatenv[0].get(f"/api/chat?meeting_id={mid}").json() == [] and chatenv[0].get("/api/chat").json() == []
+    with chatenv[2]() as s:
+        assert chat._thread(s, mid, create=False) is None
+        a, b = chat._thread(s, mid), chat._thread(s, mid)
+        n1, n2 = chat._thread(s, None), chat._thread(s, None)
+    assert a.id == b.id and n1.id == n2.id

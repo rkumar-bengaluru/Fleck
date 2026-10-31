@@ -638,3 +638,42 @@ Check of the Milestone E follow-ups:
 ### Task 21 fix round 1 (2026-10-31)
 
 - Review Important 1-4 and Minor 2-4, 5 (focus), 6, 8, 9 fixed (decision 136). Skipped: upload retry re-create, upload test depth, relevance gate. `pytest -m "not ollama and not claude"`, Vitest 55, tsc: see commit message.
+
+### Milestone G critique (2026-10-31)
+The critique agent, standing in for rupak.k, reviewed decisions 129–136 (Tasks 19b, 20, 21) and decision 128's updated text. Verdicts are in decisions.md: 1 Agree, 6 Agree with note, 1 Disagree (129). I ran `uv run pytest -m "not ollama and not claude" -q` once: 630 passed, 1 skipped (speakers), 17 deselected, 1 failed. The failure was `test_panel_not_in_share`: `control_hits` was 0, meaning the control shot found no panel even with sharing allowed. `hidden_hits` was also 0, so nothing leaked, but the test proved nothing. The likely cause is the display being asleep or locked while the agent ran; this is not shown to be a product bug. No replays, e2e, Playwright, Ollama tests, Claude tests or app runs were done.
+
+**Decision 128:** I accept the follow-up mark "done: late recheck, Task 19b" for the part about re-classifying rules-decided turns and marking them late (`assists.late`, the "Late" tag). The other half of the Disagree is still open: no replay has run since the 1 s budget, the breaker and the recheck went in, and the 3/8 misses still have no log behind them. That half belongs to Task 22 (below).
+
+**Milestone F follow-ups, checked:**
+- **Task 20, done.** The invite is redacted before Sonnet sees it (attendees and client names in any case, emails, links, dial-in numbers), and `llm_calls` keeps the body that was sent (`test_brief_names_never_reach_claude`). A brief match still needs the classifier and the gate (`test_brief_is_matched_only_after_a_trigger`). The brief cost lands on its event and its first meeting.
+- **Task 21, done.** Chat replaced the placeholder tab (no "later build" text is left in `web/src`). It covers one meeting and all meetings plus the library, with meeting, timestamp and document citations. Every chat call goes into `llm_calls` with its `meeting_id`. `web/e2e/chat.spec.ts` was written but never run.
+
+Top three concerns:
+1. **Question detection has not been replayed since its logic changed three times.** Since the last strict e2e, the classifier has gained the 1 s budget, a circuit breaker, a late recheck on a third thread pool, and turn-keyed Assistant streams. Each piece is unit-tested with fakes. None has run on real Whisper output under load. Until a loaded replay shows 8/8, with breaker openings and late triggers counted, the make-or-break feature is unproven on the current code.
+2. **Ollama still gets work while a meeting is live.** `build_brief` re-queues itself while a meeting records, but only when it starts. `index_meeting`, library indexing and chat embeddings have no guard at all. With back-to-back meetings, an hour of transcript gets embedded on the GPU during the next call. This threatens both the 3 s target and keeping the laptop cool.
+3. **Two code-enforced rules are prompt-only in the new features.** Chat answers' figures are not number-checked (the live and brief paths are). With no client linked, the brief drops the description the spec says it uses, and the row gives no reason.
+
+Follow-ups that must be done before the MVP is done:
+- **Task 22 (targets, local-only, soak):**
+  - Decision 128's open half: at least 3 full replays, one under load, each keeping `helper-replay.log`. Each must reach 8/8 triggers. Report slow calls, breaker openings, rules fallbacks and `Pipeline.rechecks` (late trigger, gave up, superseded), plus each late answer's first words.
+  - Re-run the two-level negative-set and conversation tests through Whisper on the current code (spec §7.2). The last Mac numbers predate decisions 128 and 19b.
+  - Build the demo brief before the replay. Report which questions were answered from the brief, and gate brief first words at 3 s together with library answers (decisions 112, 131).
+  - Recording guard: give `index_meeting` the same re-queue-while-recording guard as decision 132c (and consider library indexing too), or show first words still meet the targets during an index run. Also check that a brief build already running when Record is pressed leaves the live models at keep_alive -1 (`/api/ps`).
+  - Re-run `test_panel_not_in_share` on an awake, unlocked display. It must show `control_hits > 100` and `hidden_hits == 0`.
+  - Still owed from Milestones E and F: decision 112's split gates pooled over at least 3 runs; `off` sends no warm HEAD; the soak samples heat, swap and rules fallbacks and fails on a missed question or an opened breaker; reprint decision 118's used-marker table; a quiet panel marker if the degraded state fires.
+- **Task 23 (demo, guide, hand-over):**
+  - Decision 129: send the redacted description for events with no client too (spec goal 2), with a test, or log why not and amend goal 2.
+  - Decision 130: amend goal 2 to say that a no-client event's brief is built when the user presses Refresh brief; the guide says so.
+  - Decision 134: check the figures in chat answers with `normalize_numbers` against the cited sources, or log the departure.
+  - Run `chat.spec.ts`, or cover chat in `full-journey.spec.ts`, which already asks a chat question. Take a screenshot of the brief page.
+  - The hand-over lists the redaction limits (129), the cross-client library passages in meeting chat (136), and that "Late" answers exist and what they mean.
+  - Amend the spec for decision 123g: a "Not in our material" answer has no closest-document link. This is on top of the Milestone E and F amendment lists.
+
+**Spec-coverage check** (the spec's goals 1–11 and sections 5–9, walked against the code and the logs). The following requirements are delivered by no task, and Tasks 22–23 as planned and the manual checks would not cover them:
+1. **Goal 2: ad-hoc recordings can't be linked to a client in the UI.** `PUT /api/meetings/{id}/client` exists in the api, but nothing in `web/src` calls it. `ClientSelect` appears only on Today's event cards, and the live and after-meeting pages have no client dropdown. A meeting started from "Start recording now" in the menu bar therefore stays unlinked, with no client on its notes. No decision records this. Owner: Task 23. Add `ClientSelect` to the meeting page for meetings without an event, with a Vitest test.
+2. **§7.7: a capture restart is not marked in the transcript.** The helper restarts ScreenCaptureKit and the pipeline gets a `Gap`, but `Recorder` only logs it (`menubar.py`, `log.warning`). Nothing reaches the api, and the transcript shows no gap. No decision records this. Owner: Task 22, since it belongs with the long-meeting checks. Send the gap as a transcript marker (or a segment the after-page shows), with a unit test, or log a decision and amend §7.7.
+3. **Goal 2: a meeting with no client gets a brief from "title and description".** Only the title is used (decision 129, logged but not justified), and the brief is built only on demand (decision 130). Owner: Task 23 (above).
+
+Departures that are logged but still need the spec amended (Task 23, on top of the earlier lists): 123g (no closest-document link), 129 and 130 (the no-client brief), and 128 (the 1 s budget, the breaker, the late recheck and the "Late" tag).
+
+Everything else in goals 1–11, §5–§8 and §9 is either delivered and tested (sign-in and the allow-list, the calendar and event client link, the library and its kinds, the brief, the 5-minute notification and one-click record, the panel with history, the shortcut, saved placement and share exclusion, the summary with verbatim notes, used markers with manual override, chat, number normalisation and validators, pinned models including `qwen3-embedding:4b`, fixed ports, keep_alive, the no-sleep assertion, reconnect and resume) or owned by Task 22 (targets, local-only test, soak), by Task 23 (the demo meeting "Presales: demo prospect", the user guide walk-through, the hand-over note), or by the manual checks (real Google, the Meet and Zoom calls, real echo cancellation).

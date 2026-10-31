@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { AssistEvent, SegmentEvent } from "../src/events";
+import { reduce, type State } from "../src/hooks/useMeetingStream";
 import MeetingLive from "../src/routes/MeetingLive";
 
 class FakeSocket {
@@ -56,7 +57,7 @@ test("test_applies_events_in_order", async () => {
   s.emit(seg("s1", "client", 0, "We had a generic tool last year."));
   s.emit(seg("s2", "you", 5000, "That is common."));
   s.emit(seg("s3", "client", 72_000, "And are they dedicated"  , false));
-  const items = within(screen.getByRole("list", { name: "Live transcript" })).getAllByRole("listitem");
+  const items = within(screen.getByRole("region", { name: "Live transcript" })).getAllByRole("listitem");
   expect(items.map(i => i.textContent)).toEqual([
     expect.stringContaining("We had a generic tool last year."), expect.stringContaining("That is common."), expect.stringContaining("And are they dedicated")]);
   expect(items[0].textContent).toContain("0:00");
@@ -99,7 +100,7 @@ test("test_assist_renders_kind_labels", async () => {
   s.emit(assist({ phase: "done", kind: "library", text: "$5,200 a month offshore.", citations: [rate], first_words_ms: 2400 }));
   expect(screen.getByText("Our material")).toBeTruthy();
   expect(screen.getByText("Rate card FY2026")).toBeTruthy();
-  expect(screen.getByText("$5,200 a month offshore.")).toBeTruthy();
+  expect(screen.getAllByText("$5,200 a month offshore.")).toHaveLength(2);  // the card and the polite announcement
   expect(screen.getByText("First words 2.4 s after the question")).toBeTruthy();
   const ref = { ...rate, title: "Orion MSA", kind: "reference" as const };
   s.emit(assist({ assist_id: "a2", phase: "done", kind: "reference", text: "Their rate was X.", citations: [ref] }));
@@ -109,7 +110,7 @@ test("test_assist_renders_kind_labels", async () => {
   expect(screen.getByText("General knowledge")).toBeTruthy();
   expect(screen.getByText("Not from our material")).toBeTruthy();
   s.emit(assist({ assist_id: "a4", phase: "done", kind: "not_in_material", text: "" }));
-  expect(screen.getByText("Not in our material")).toBeTruthy();
+  expect(screen.getAllByText("Not in our material")).toHaveLength(2);  // the chip and the announcement
 });
 
 test("test_notes_autosave_debounced", async () => {
@@ -131,4 +132,81 @@ test("test_notes_autosave_debounced", async () => {
   } finally {
     vi.useRealTimers();
   }
+});
+
+test("a failed GET after the first snapshot keeps the page and retries; notes keep typing", async () => {
+  const s = await open();
+  fireEvent.change(screen.getByRole("textbox", { name: "My notes" }), { target: { value: "typed" } });
+  const get = vi.mocked(fetch).getMockImplementation()! as (u: string, i?: RequestInit) => Promise<Response>;
+  let fail = true;
+  vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => (fail && url === "/api/meetings/5" ? new Response("{}", { status: 500 }) : get(url, init))));
+  s.close();
+  await waitFor(() => expect(FakeSocket.all.length).toBe(2), { timeout: 3_000 });
+  await new Promise(r => setTimeout(r, 100));
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.getByRole("heading", { name: "Presales: demo prospect" })).toBeTruthy();
+  expect((screen.getByRole("textbox", { name: "My notes" }) as HTMLTextAreaElement).value).toBe("typed");
+  fail = false;
+  const gets = () => (fetch as ReturnType<typeof vi.fn>).mock.calls.filter(c => c[0] === "/api/meetings/5").length;
+  await waitFor(() => expect(gets()).toBeGreaterThan(1), { timeout: 3_000 });  // retried with backoff
+});
+
+test("the transcript is a focusable labelled region and announces finished answers only", async () => {
+  const s = await open();
+  const region = screen.getByRole("region", { name: "Live transcript" });
+  expect(region.getAttribute("tabindex")).toBe("0");
+  s.emit(seg("s2", "client", 1000, "What does a senior engineer cost?"));
+  s.emit(assist({ phase: "thinking" }));
+  const live = region.querySelector("[aria-live=polite]")!;
+  expect(live.textContent).toBe("");
+  s.emit(assist({ phase: "done", kind: "library", text: "$5,200 a month offshore.", citations: [rate] }));
+  expect(live.textContent).toBe("$5,200 a month offshore.");
+});
+
+test("notes are saved when the editor unmounts with a change pending", async () => {
+  await open();
+  fireEvent.change(screen.getByRole("textbox", { name: "My notes" }), { target: { value: "late edit" } });
+  cleanup();
+  await waitFor(() => expect(calls.filter(c => c.method === "PUT").map(c => c.body)).toEqual([JSON.stringify({ text: "late edit" })]));
+});
+
+test("a failed Stop shows an inline error", async () => {
+  await open();
+  const get = vi.mocked(fetch).getMockImplementation()! as (u: string, i?: RequestInit) => Promise<Response>;
+  vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => (init?.method === "POST" ? new Response("{}", { status: 500 }) : get(url, init))));
+  fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+  expect((await screen.findByRole("alert")).textContent).toBe("Couldn't stop the recording. Try again.");
+});
+
+test("auto-scroll follows new lines until the user scrolls up", async () => {
+  const s = await open();
+  const region = screen.getByRole("region", { name: "Live transcript" });
+  const scrollTo = window.HTMLElement.prototype.scrollTo as ReturnType<typeof vi.fn>;
+  Object.defineProperties(region, { scrollHeight: { value: 1000, configurable: true }, clientHeight: { value: 300, configurable: true },
+    scrollTop: { value: 700, configurable: true, writable: true } });
+  scrollTo.mockClear();
+  s.emit(seg("s1", "client", 0, "one"));
+  expect(scrollTo).toHaveBeenCalled();
+  region.scrollTop = 100;
+  fireEvent.scroll(region);
+  scrollTo.mockClear();
+  s.emit(seg("s2", "client", 2000, "two"));
+  expect(scrollTo).not.toHaveBeenCalled();
+});
+
+const empty: State = { meeting: null, notes: null, status: "recording", segments: [], assists: [], error: false };
+test("reducer: sentence removal, superseded card, and a thinking snapshot keeps a streaming card", () => {
+  let st = reduce(empty, { ev: assist({ phase: "thinking" }) });
+  st = reduce(st, { ev: assist({ phase: "sentence", sentence_index: 0, text: "Bad claim." }) });
+  st = reduce(st, { ev: assist({ phase: "sentence", sentence_index: 1, text: "Fine." }) });
+  expect(st.assists[0].text).toBe("Bad claim. Fine.");
+  st = reduce(st, { ev: assist({ phase: "sentence", sentence_index: 0, text: "" }) });  // failed its checks: removed
+  expect(st.assists[0].text).toBe("Fine.");
+  const snap = { meeting: { id: 5, title: "t", status: "recording", started_at: "", attendees: [] }, notes: "", segments: [],
+    assists: [{ assist_id: "a1", segment_id: "s2", question: "q", answer: "", kind: null, citations: [], first_words_ms: null }] };
+  st = reduce(st, { snap });
+  expect(st.assists[0].text).toBe("Fine.");
+  st = reduce(st, { ev: assist({ phase: "thinking", question: "newer" }) });  // same id: superseded
+  expect(st.assists).toHaveLength(1);
+  expect(st.assists[0]).toMatchObject({ question: "newer", text: "", kind: null });
 });

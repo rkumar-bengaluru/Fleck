@@ -7,7 +7,7 @@
 body { margin: 0; background: var(--ground); }
 a { color: var(--teal); } a:hover { color: var(--teal-hover); }
 button, select { font: inherit; }
-a:focus-visible, button:focus-visible, select:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+a:focus-visible, button:focus-visible, select:focus-visible, textarea:focus-visible, .live-scroll:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
 
 .shell { min-height: 100vh; background: var(--ground); font-family: 'Atkinson Hyperlegible Next', system-ui, sans-serif;
   font-variant-numeric: tabular-nums; color: var(--ink); display: flex; flex-wrap: wrap; }
@@ -99,3 +99,4 @@ h1 { margin: 0; font-size: 34px; line-height: 1.15; font-weight: 700; }
 .chip-not_in_material, .chip-thinking { background: var(--rule); color: var(--body); }
 .chip-title { font-size: 14px; }
 .chip-note { font-size: 13px; color: var(--muted); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

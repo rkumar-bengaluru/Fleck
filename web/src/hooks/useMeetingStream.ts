@@ -46,8 +46,10 @@ export function reduce(s: State, a: Action): State {
     const merged = [...segments.map(x => ({ ...x, final: true })), ...keep].sort((x, y) => x.start_ms - y.start_ms);
     const ids = new Set(assists.map(x => x.assist_id));
     const live = s.assists.filter(x => !ids.has(x.assist_id));
-    const cards: Card[] = [...assists.map(x => ({ assist_id: x.assist_id, segment_id: x.segment_id, question: x.question, text: x.answer, kind: x.kind,
-      citations: x.citations, first_words_ms: x.first_words_ms, sentences: {}, delta: {} })), ...live];
+    // a stored card still thinking (kind null) must not blank one already streaming on the socket
+    const cards: Card[] = [...assists.map(x => (x.kind === null && s.assists.find(c => c.assist_id === x.assist_id)) || ({ assist_id: x.assist_id,
+      segment_id: x.segment_id, question: x.question, text: x.answer, kind: x.kind, citations: x.citations, first_words_ms: x.first_words_ms,
+      sentences: {}, delta: {} })), ...live];
     return { meeting, notes: s.notes ?? notes, status: meeting.status, segments: merged, assists: cards, error: false };
   }
   const e = a.ev;
@@ -71,21 +73,27 @@ export function useMeetingStream(id: string): State {
     const connect = () => {
       const queued: FleckEvent[] = [];
       let ready = false;
-      ws = new WebSocket(wsUrl(id));
-      ws.onopen = () => {
+      let stale = false;  // this connection is gone: its GET must not overwrite a newer snapshot
+      const load = (attempt: number) => {
         api<Snapshot>(`/api/meetings/${id}`).then(snap => {
-          if (closed) return;
+          if (closed || stale) return;
           dispatch({ snap });
           ready = true;
           queued.forEach(ev => dispatch({ ev }));
-        }).catch(e => { if (!(e instanceof Unauthorized)) dispatch({ error: true }); });
+        }).catch(e => {
+          if (e instanceof Unauthorized || closed || stale) return;
+          dispatch({ error: true });  // the page shows it only before the first snapshot
+          setTimeout(() => load(attempt + 1), Math.min(1000 * 2 ** attempt, 10_000));
+        });
       };
+      ws = new WebSocket(wsUrl(id));
+      ws.onopen = () => load(0);
       ws.onmessage = m => {
         let ev: FleckEvent;
         try { ev = JSON.parse(m.data); } catch { return; }
         if (ready) dispatch({ ev }); else queued.push(ev);
       };
-      ws.onclose = () => { if (!closed) retry = setTimeout(connect, RECONNECT_MS); };
+      ws.onclose = () => { stale = true; if (!closed) retry = setTimeout(connect, RECONNECT_MS); };
     };
     connect();
     return () => { closed = true; clearTimeout(retry); ws?.close(); };

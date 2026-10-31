@@ -31,11 +31,11 @@ test("replaying the conversation shows the rate-card answer within 10 s of the q
   await page.goto(`/meetings/${meeting.id}`);
   await expect(page.getByRole("heading", { name: "Presales: demo prospect", level: 1 })).toBeVisible();
 
-  const replay = spawn("uv", helper("replay", "fixtures/conversation/conversation.wav", "--meeting", String(meeting.id)), { cwd: ROOT, env });
+  const replay = spawn("uv", helper("replay", "fixtures/conversation/conversation.wav", "--meeting", String(meeting.id)), { cwd: ROOT, env, detached: true });  // own process group: uv's helper child dies with it
   const log: string[] = [];
   replay.stderr.on("data", d => log.push(String(d)));
   try {
-    const transcript = page.getByRole("list", { name: "Live transcript" });
+    const transcript = page.getByRole("region", { name: "Live transcript" });
     await expect(transcript.getByRole("listitem").first()).toBeVisible({ timeout: 90_000 });
     const first = JSON.parse(readFileSync(path.join(ROOT, "fixtures/conversation/reference.json"), "utf8")).turns[0];
     const t0 = Date.now() - first.end_ms;  // the replay's clock: the first line was spoken to its end_ms
@@ -51,6 +51,6 @@ test("replaying the conversation shows the rate-card answer within 10 s of the q
     expect(seconds).toBeLessThan(10);
     await page.screenshot({ path: "../docs/superpowers/screenshots/meeting-live.png", fullPage: true });
   } finally {
-    replay.kill();
+    if (replay.pid) process.kill(-replay.pid);
   }
 });

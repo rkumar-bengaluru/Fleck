@@ -31,7 +31,11 @@ def meeting_dict(s: Session, m: Meeting) -> dict:
     return _row(m, "id", "event_id", "title", "client_id", "recorded_by", "status", "failure_reason", "started_at", "ended_at") | {
         "client_name": client.name if client else None, "attendees": ev.attendees if ev else [],
         # the names the helper must keep out of what it sends to Claude (either side of the call)
-        "people": [a.get("name") or a["email"].split("@")[0].replace(".", " ").replace("_", " ").title() for a in ev.attendees if a.get("email")] if ev else []}
+        "people": people_of(ev) if ev else []}
+
+
+def people_of(ev: CalendarEvent) -> list[str]:
+    return [a.get("name") or a["email"].split("@")[0].replace(".", " ").replace("_", " ").title() for a in ev.attendees if a.get("email")]
 
 
 def _meeting(s: Session, meeting_id: int) -> Meeting:
@@ -92,7 +96,8 @@ def get_meeting(meeting_id: int, _u: User = Depends(user_or_device), s: Session 
                          "full_ms", "rejected", "used", "used_by") for x in s.scalars(select(Assist).where(Assist.meeting_id == m.id).order_by(Assist.id))],
         "notes": note.text if note else "",
         "summary": summary.items if summary else None,
-        "cost_usd": s.scalar(select(func.coalesce(func.sum(LlmCall.cost_usd), 0.0)).where(LlmCall.meeting_id == m.id)),
+        "cost_usd": s.scalar(select(func.coalesce(func.sum(LlmCall.cost_usd), 0.0)).where(
+            LlmCall.meeting_id == m.id if m.event_id is None else (LlmCall.meeting_id == m.id) | (LlmCall.event_id == m.event_id))),  # the event's brief is part of its meeting's cost
         "brief": {"status": brief.status, "items": [_row(i, "topic", "question", "answer", "kind", "citations") for i in items]} if brief else None,
     }
 

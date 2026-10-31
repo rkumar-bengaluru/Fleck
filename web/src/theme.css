@@ -141,3 +141,18 @@ h1 { margin: 0; font-size: 34px; line-height: 1.15; font-weight: 700; }
 .notes-section ul { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; font-size: 16px; line-height: 1.55; }
 .tabpanel { display: flex; flex-direction: column; gap: 16px; }
 .tl-mark:disabled { cursor: default; opacity: .7; }
+
+/* Pre-meeting brief, from docs/superpowers/mockups/WebBrief.dc.html */
+.brief-box { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px 24px; display: flex; flex-direction: column; gap: 8px; }
+.brief-box h2, .brief-head h2 { margin: 0; font-size: 18px; }
+.brief-box p { margin: 0; line-height: 1.55; max-width: 70ch; }
+.brief-thin { border: 1.5px dashed var(--dash); gap: 10px; }
+.brief-likely { display: flex; flex-direction: column; gap: 14px; }
+.brief-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.brief-head h2 { font-size: 22px; }
+.brief-head .subtitle { margin: 0; font-size: 14px; }
+.brief-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+.brief-card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; gap: 8px; }
+.brief-card h3 { margin: 0; font-size: 17px; line-height: 1.35; }
+.brief-card p { margin: 0; font-size: 15px; line-height: 1.5; color: var(--body); }
+.brief-topic { font-size: 13px; color: var(--muted); }

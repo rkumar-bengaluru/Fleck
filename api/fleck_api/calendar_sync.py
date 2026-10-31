@@ -15,7 +15,7 @@ from sqlalchemy import delete, exists, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from fleck_api import auth
+from fleck_api import auth, brief
 from fleck_api.auth import current_user
 from fleck_api.config import setting
 from fleck_api.devices import user_or_device
@@ -170,6 +170,7 @@ def _sync(s: Session, user_id: int, timeout: float | None) -> None:
     s.execute(update(CalendarEvent).where(CalendarEvent.id.in_(gone), used).values(cancelled=True))
     s.execute(delete(CalendarEvent).where(CalendarEvent.id.in_(gone), ~used))
     s.commit()
+    brief.schedule_briefs(s, user_id, _now())
 
 
 @job("sync_calendar")
@@ -257,6 +258,8 @@ def set_event_client(event_id: int, body: EventClient, u: User = Depends(current
         raise HTTPException(404, "client not found")
     e.client_id = body.client_id
     s.commit()
+    if e.client_id:
+        brief.request_build(s, e.id)
     return _row(s, e)
 
 

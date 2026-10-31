@@ -1,7 +1,7 @@
 import logging
 import time
 
-from fleck_api import calendar_sync, library, processing  # noqa: F401  (importing registers the job handlers)
+from fleck_api import brief, calendar_sync, library, processing  # noqa: F401  (importing registers the job handlers)
 from fleck_api.db import session_factory
 from fleck_api.jobs import run_once
 

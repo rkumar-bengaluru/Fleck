@@ -109,3 +109,23 @@ def test_replay_uploads_its_audio_in_10_s_chunks(tmp_path):
     src = cli.UploadingSource(ReplaySource(tmp_path / "a.wav", realtime=False), AudioChunkWriter(tmp_path / "c"), lambda seq, p: sent.append((seq, p.exists())))
     assert len(list(src.frames())) == 1250
     assert sent == [(0, True), (1, True), (2, True)]  # two full chunks and the 5 s tail
+
+
+ITEM = {"question": "What do your people cost?", "answer": "$5,200 a month [1].", "kind": "library",
+        "citations": [{"doc_id": "d1", "chunk_id": "d1-0", "title": "Rate card", "client": None, "kind": "firm"}],
+        "question_vector": [1.0, 0.0]}
+
+
+def test_load_brief_items_for_the_assistant():
+    got = cli.load_brief(lambda path: {"items": [ITEM]} if path == "/api/meetings/7/brief" else pytest.fail(path), "7")
+    assert [(b.question, b.question_vector, b.citations[0].title) for b in got] == [(ITEM["question"], [1.0, 0.0], "Rate card")]
+    m = {"library_clients": [], "client_name": None, "people": []}
+    assert cli.make_assistant(m, "off", got).brief_items == got
+
+
+def test_load_brief_never_stops_a_recording(caplog):
+    def down(path):
+        raise OSError("api down")
+    assert cli.load_brief(down, "7") == []
+    assert cli.load_brief(lambda path: {"items": [{"question": "x"}]}, "7") == []  # a malformed item: no brief, not a crash
+    assert "brief" in caplog.text

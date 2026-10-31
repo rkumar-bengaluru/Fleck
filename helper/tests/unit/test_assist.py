@@ -311,3 +311,13 @@ def test_candidate_warms_claude_with_no_content_and_calls_it_only_after_the_libr
     assert claude.heads and all(content == b"" and "x-api-key" not in h for h, content in claude.heads)
     ev = list(a.handle(trig(), "m1"))
     assert len(claude.requests) == 1 and ev[-1].kind == "general" and [c.status for c in ev[-1].llm] == ["ok"]
+
+
+def test_brief_is_matched_only_after_a_trigger(monkeypatch):
+    """Candidates (prepare) never look at the brief; handle() runs for a Trigger, which the pipeline emits only after
+    the classifier and the gate said it is the client's question (decision 128, Task 20 follow-up b)."""
+    item = BriefItem(question=Q, answer="Yes.", kind="library", citations=[CIT], question_vector=[1.0, 0.0])
+    a = make(brief=[item])
+    monkeypatch.setattr(a, "_brief_match", lambda *x: pytest.fail("brief matched before a trigger"))
+    a.prepare(Q, [1.0, 0.0])
+    time.sleep(0.2)

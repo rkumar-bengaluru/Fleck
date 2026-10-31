@@ -45,11 +45,11 @@ def cost_usd(model: str, input_tokens: int, output_tokens: int) -> float | None:
     return None if p is None else (input_tokens * p["input"] + output_tokens * p["output"]) / 1e6
 
 
-def claude_call(purpose: str, messages: list[dict], model: str, meeting_id: int | None = None, *, session: Session, **kw) -> Message:
+def claude_call(purpose: str, messages: list[dict], model: str, meeting_id: int | None = None, *, session: Session, event_id: int | None = None, **kw) -> Message:
     """kw (system, max_tokens, tools, tool_choice, thinking ...) goes into the request. The llm_calls row is written
     and committed whether the call succeeds or raises (the commit covers the caller's whole session). Never put the API key in anything that is stored."""
     body = {"max_tokens": 4096} | kw | {"model": model, "messages": messages}
-    row = LlmCall(purpose=purpose, model=model, request={k: v for k, v in body.items() if k != "model"}, meeting_id=meeting_id)
+    row = LlmCall(purpose=purpose, model=model, request={k: v for k, v in body.items() if k != "model"}, meeting_id=meeting_id, event_id=event_id)
     t = time.perf_counter()
     try:
         if not setting("ANTHROPIC_API_KEY", ""):

@@ -161,8 +161,8 @@ class Recorder:
         if pipeline_factory is None:
             from fleck_helper.pipeline import Pipeline as pipeline_factory
         if assistant_factory is None:
-            from fleck_helper.cli import make_assistant
-            assistant_factory = lambda m: make_assistant(m, fallback_mode())  # noqa: E731
+            from fleck_helper.cli import load_brief, make_assistant
+            assistant_factory = lambda m: make_assistant(m, fallback_mode(), load_brief(self.api.get, m["id"]))  # noqa: E731
         self.api, self.transport, self.panel, self.power, self.ollama, self.ask = api, transport, panel, power, ollama, ask
         self.pipeline_factory, self.source_factory, self.assistant_factory = pipeline_factory, source_factory, assistant_factory
         self.chunks, self.check_parallel, self.rewarm, self.on_change = Path(chunks), check_parallel, rewarm, on_change

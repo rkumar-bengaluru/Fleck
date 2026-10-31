@@ -174,10 +174,15 @@ class Assist(Base):
 
 class Brief(Base):
     __tablename__ = "briefs"
+    __table_args__ = (UniqueConstraint("event_id"),)
     id: Mapped[int] = _id()
     event_id: Mapped[int] = _fk("calendar_events")
-    status: Mapped[str] = mapped_column(String, default="queued")
+    status: Mapped[str] = mapped_column(String, default="queued")  # queued|building|ready|failed
+    context: Mapped[str | None] = mapped_column(Text)  # "What we know going in", built locally
+    doc_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = _now()
+    updated_at: Mapped[datetime] = _now()  # the page's "Prepared HH:MM"
 
 
 class BriefItem(Base):
@@ -231,6 +236,7 @@ class LlmCall(Base):
     status: Mapped[str] = mapped_column(String, default="ok")
     error: Mapped[str | None] = mapped_column(Text)
     meeting_id: Mapped[int | None] = _fk("meetings", True)
+    event_id: Mapped[int | None] = _fk("calendar_events", True)  # a brief's calls belong to its event
     cost_usd: Mapped[float | None] = mapped_column(Float)
     created_at: Mapped[datetime] = _now()
 

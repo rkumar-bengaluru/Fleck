@@ -1,5 +1,6 @@
 """fleck-helper pair | replay | status | set-claude-key | run."""
 import argparse
+import logging
 import os
 import socket
 import sys
@@ -9,6 +10,8 @@ from pathlib import Path
 
 import httpx
 import keyring
+
+log = logging.getLogger("fleck.cli")
 
 SERVICE, ACCOUNT = "ai.fleck.helper", "device_token"
 CLAUDE_ACCOUNT = "anthropic_api_key"  # the live fallback's key, for an app started from Finder with no .env (decision 123)
@@ -74,14 +77,25 @@ def status() -> None:
     print(f"unsent: {len(list(OUTBOX.glob('*.evt'))) + len(list(OUTBOX.glob('*.chunk'))) if OUTBOX.exists() else 0}")
 
 
-def make_assistant(m: dict, fallback: str):
+def load_brief(get, meeting_id: str) -> list:
+    """The meeting's brief items with their question vectors (`GET /api/meetings/{id}/brief`); `get(path)` returns the
+    JSON. A missing or broken brief means no brief, never a failed recording."""
+    from fleck_core.types import BriefItem
+    try:
+        return [BriefItem(**i) for i in get(f"/api/meetings/{meeting_id}/brief")["items"]]
+    except Exception as e:
+        log.warning("no brief for meeting %s: %r", meeting_id, e)
+        return []
+
+
+def make_assistant(m: dict, fallback: str, brief_items: list = ()):
     """The live Assistant for a meeting (the api's `GET /api/meetings/{id}` "meeting")."""
     from fleck_core.answer import OllamaClient
     from fleck_core.retrieval import Embedder, Retriever
     from fleck_helper.assist import Assistant
     # the meeting's client is redacted like a library client; attendees on either side are "someone" (decision 109a)
     names = m["library_clients"] + ([m["client_name"]] if m["client_name"] else [])
-    return Assistant(Retriever("http://localhost:8080", Embedder("http://localhost:11434")), OllamaClient(), fallback, names, [],
+    return Assistant(Retriever("http://localhost:8080", Embedder("http://localhost:11434")), OllamaClient(), fallback, names, list(brief_items),
                      people=m["people"])
 
 
@@ -113,7 +127,8 @@ def replay(wav: Path, meeting: str, fallback: str) -> None:
     token = load_token() or sys.exit("Not paired: run fleck-helper pair <code>")
     m = httpx.get(f"{api_url()}/api/meetings/{meeting}", headers={"Authorization": f"Bearer {token}"}, timeout=10).raise_for_status().json()["meeting"]
     load_claude_key()  # the keychain's key, as the app does (never logged)
-    assistant = make_assistant(m, fallback)
+    brief = load_brief(lambda path: httpx.get(f"{api_url()}{path}", headers={"Authorization": f"Bearer {token}"}, timeout=10).raise_for_status().json(), meeting)
+    assistant = make_assistant(m, fallback, brief)
     transport = Transport(api_url(), token)
     threads = []
     chunks = tempfile.TemporaryDirectory()  # the transport deletes each chunk once the api has it

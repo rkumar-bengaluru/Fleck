@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
-from fleck_api import auth, calendar_sync, devices, library, meetings, processing, realtime
+from fleck_api import auth, brief, calendar_sync, devices, library, meetings, processing, realtime
 from fleck_api.config import setting
 
 
@@ -47,6 +47,7 @@ def create_app() -> FastAPI:
     app.include_router(calendar_sync.helper_router)
     app.include_router(devices.router)
     app.include_router(meetings.router)
+    app.include_router(brief.router)
     app.include_router(processing.router)
     app.include_router(realtime.router)
 

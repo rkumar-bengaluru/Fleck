@@ -5,19 +5,22 @@ prefill can start before the turn closes (spec 7.1 item 2, decision 103); the Tr
 it closes, and reuses the Candidate's verdict when the text is the same. Classification runs on this loop: at most
 two looks of <= 1 s each per final (decision 128), which LiveSource's queue absorbs (decision 105). Events come out in audio
 order; transcription runs off the loop thread because the transcriber holds You jobs while a Client segment is
-open, and only this loop can close it."""
+open, and only this loop can close it. A turn the rules fallback said no to is classified again off the loop
+(`_recheck`), and if the model then calls it a question a late Trigger joins the output (decision 128)."""
 import logging
+import queue
 import threading
-from collections import deque
+from collections import Counter, deque
 from concurrent.futures import Future
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Iterator
 
 import numpy as np
 
 from fleck_core.events import SegmentEvent
 from fleck_helper.audio import Frame, Gap, Unavailable
-from fleck_helper import question_rules
+from fleck_helper import classify as _clf, question_rules
 from fleck_helper.classify import Embed, classify, digests_ok, live_embed, rules_only, trigger_threshold
 from fleck_helper.gate import drop_bleed_duplicates, gate, noise_floor
 from fleck_helper.vad import MAX_MS, PREROLL_MS, SILENCE_MS, Discard, Final, Open, Segmenter
@@ -25,6 +28,10 @@ from fleck_helper.vad import MAX_MS, PREROLL_MS, SILENCE_MS, Discard, Final, Ope
 MERGE_MS = 600  # same-speaker finals this close are one turn: a client pausing mid-question triggers once
 FLOOR_FRAMES = 500  # the mic noise floor is taken over the last 10 s
 SECOND_LOOK_MIN = 0.1  # under this the whole turn is decisively not a question: no second look (ruled 0.2; the q_ip replay turn scores 0.14)
+# Late recheck: a 5 s look (5x the live budget) on its own threads, given up 30 s after the turn closed
+LATE_TIMEOUT_S = 5.0
+LATE_GIVE_UP_S = 30.0
+LATE_RETRY_S = 1.0
 log = logging.getLogger(__name__)
 
 
@@ -38,6 +45,7 @@ class Trigger:
     # Client turns with no You speech between them share a turn_id: a later Trigger with the same turn_id replaces
     # the earlier answer (one card per turn, decision 104)
     turn_id: int = field(default=0, compare=False)
+    late: bool = field(default=False, compare=False)  # from the off-loop recheck, after the rules said no
 
 
 @dataclass(frozen=True)
@@ -107,12 +115,15 @@ class Pipeline:
                 log.warning("embedder warm-up failed: %r", e)
                 self.degraded = True
         self.fallbacks = 0  # classify calls the rules decided this run (embedder down, slow, or wrong digest)
+        self.rechecks = Counter()  # late rechecks this run: "started", then one outcome each (logged)
+        self._late, self._stop = queue.SimpleQueue(), threading.Event()
+        self._closed, self._triggered = 0, {}  # turns closed so far; turn_id -> index of the turn it last triggered on
         segs = {"you": Segmenter("you"), "client": Segmenter("client")}
         # (t_ms, you, client) per frame: the longest segment plus the silence that ends it
         self._rms = deque(maxlen=(MAX_MS + SILENCE_MS + PREROLL_MS) // 20 + 10)
         self._out: deque = deque()  # _Seg | _Turn | Gap | Unavailable, in audio order
         self._turn, self._client_open, self._recent_client = _Turn(), False, deque(maxlen=8)
-        self._turn_no, self._last_verdict = 0, ((), None)  # (texts, verdict) of the latest classification
+        self._turn_no, self._last_verdict = 0, ((), None, False)  # (texts, verdict, rules decided) of the latest classification
         for item in source.frames():
             if isinstance(item, Frame):
                 self._rms.append((item.t_ms, _rms(item.you), _rms(item.client)))
@@ -136,7 +147,11 @@ class Pipeline:
                 self._handle(stream, ev)
         self._close_turn()
         yield from self._ready(block=True)
-        log.info("question classifier: %d rules fallbacks this run", self.fallbacks)
+        self._stop.set()  # the meeting is over: a late answer has nowhere to go
+        if left := self.rechecks["started"] - sum(n for k, n in self.rechecks.items() if k != "started"):
+            self.rechecks["stopped"] += left
+            log.info("late recheck: %d still waiting when the run ended", left)
+        log.info("question classifier: %d rules fallbacks, late rechecks %s this run", self.fallbacks, dict(self.rechecks))
 
     def _handle(self, stream, ev, cut=False):
         if isinstance(ev, Open) and stream == "client":
@@ -167,6 +182,7 @@ class Pipeline:
             self._turn = _Turn()
 
     def _ready(self, block: bool):
+        yield from self._late_results()
         while self._out:
             head = self._out[0]
             pending = head if isinstance(head, _Turn) else [head] if isinstance(head, _Seg) else []
@@ -185,39 +201,89 @@ class Pipeline:
                     yield ev
                 if head.turn is not None and head.gate == "client" and ev.text:
                     # the turn so far, up to this segment (its earlier segments came out before it)
-                    v = self._verdict(head.turn[: head.turn.index(head) + 1])
+                    v, _ = self._verdict(head.turn[: head.turn.index(head) + 1])
                     if v:
                         yield Candidate(ev.segment_id, v.question, v.embedding)
             elif isinstance(head, _Turn):
-                v = self._verdict(head)
+                self._closed += 1
+                v, fell = self._verdict(head)
                 if v:
+                    self._triggered[head.turn_id] = self._closed
                     yield Trigger(head[-1].final.segment_id, v.question, head[-1].final.end_ms, v.embedding, head.turn_id)
+                elif fell and self.embed is not rules_only:  # rules_only: the digest is wrong, the model can't judge
+                    self._start_recheck(head)
             else:
                 yield head
 
     def _verdict(self, segs):
-        """The turn's verdict if it triggers, else None. The same texts as last time reuse that verdict, so a turn
-        whose Candidate came at its last final is not classified twice."""
+        """(the turn's verdict if it triggers, else None; whether the rules fallback decided it). The same texts as
+        last time reuse that verdict, so a turn whose Candidate came at its last final is not classified twice."""
+        texts = self._texts(segs)
+        if not texts:
+            return None, False
+        if texts != self._last_verdict[0]:
+            self._last_verdict = (texts, *self._decide(texts, self._classify))
+        return self._last_verdict[1:]
+
+    @staticmethod
+    def _texts(segs) -> tuple[str, ...]:
         # only client-gated segments supply text, so the question sentence is always clean client speech;
         # an overlapped segment elsewhere in the turn is left out, it doesn't veto the turn
-        texts = tuple(t for s in segs if s.gate == "client" and (t := s.text().strip()))
-        if not texts:
-            return None
-        if texts == self._last_verdict[0]:
-            return self._last_verdict[1]
+        return tuple(t for s in segs if s.gate == "client" and (t := s.text().strip()))
+
+    def _decide(self, texts, look):
+        """(the verdict if `texts` trigger, else None; whether the rules fallback decided any look)."""
         # a full stop after a segment Whisper left unpunctuated, so "…just before that" doesn't glue onto the
         # next segment's "Who owns…?"; none after a cut-off one, so "How quickly could you" + "start?" stays whole
         text = " ".join(t if t[-1] in ".?!" or question_rules.is_fragment(question_rules._norm(t)) else t + "."
                         for t in texts)
         hit = lambda v: v.is_question and v.confidence >= self.min_confidence  # noqa: E731
-        v = self._classify(text)
-        if not hit(v) and len(texts) > 1 and v.confidence >= SECOND_LOOK_MIN:
+        looks = [look(text)]
+        if not hit(looks[0]) and len(texts) > 1 and looks[0].confidence >= SECOND_LOOK_MIN:
             # statements before a pause dilute the turn ("…just before that. Who owns the code?"), so the
             # last segment gets its own look; still one trigger per turn. Not when the whole turn is plainly
             # logistics ("I shared the deck in the chat. Can you open it on your side?" scores 0.00)
-            v = self._classify(texts[-1])
-        self._last_verdict = (texts, v if hit(v) else None)
-        return self._last_verdict[1]
+            looks.append(look(texts[-1]))
+        return (looks[-1] if hit(looks[-1]) else None), any(v.reason.startswith("rules fallback") for v in looks)
+
+    def _start_recheck(self, turn: _Turn):
+        """The rules said no while the embedder was down or slow: ask the model again on a thread of its own, so
+        the loop never waits; its outcome comes back through `_late`."""
+        info = (turn.turn_id, self._closed, turn[-1].final.segment_id, turn[-1].final.end_ms)
+        self.rechecks["started"] += 1
+        log.info("late recheck: turn %d (segment %s) rules said no; re-classifying off the loop", info[0], info[2])
+        threading.Thread(target=self._recheck, args=(self._texts(turn), info), daemon=True).start()
+
+    def _recheck(self, texts, info):
+        embed = self.embed or partial(live_embed, timeout=LATE_TIMEOUT_S, late=True)
+        look = lambda t: classify(t, "client", embed)  # noqa: E731
+        give_up, tries = _clf._clock() + LATE_GIVE_UP_S, 0
+        while True:
+            # an open breaker means a live look just timed out: wait it out rather than add to the load
+            pause = max(_clf._open_until - _clf._clock(), LATE_RETRY_S if tries else 0.0)
+            if _clf._clock() + pause >= give_up:
+                return self._late.put((info, "gave up", None))
+            if self._stop.wait(pause):
+                return
+            tries += 1
+            v, fell = self._decide(texts, look)
+            if not fell:
+                return self._late.put((info, "late trigger" if v else "not a question", v))
+
+    def _late_results(self):
+        """Recheck outcomes, counted and logged on the loop thread; a late Trigger comes out here, between events."""
+        while True:
+            try:
+                (turn_id, idx, segment_id, end_ms), outcome, v = self._late.get_nowait()
+            except queue.Empty:
+                return
+            if v and self._triggered.get(turn_id, 0) > idx:
+                outcome, v = "superseded", None  # its turn already has a newer answer
+            self.rechecks[outcome] += 1
+            log.info("late recheck: turn %d (segment %s): %s", turn_id, segment_id, outcome)
+            if v:
+                self._triggered[turn_id] = idx
+                yield Trigger(segment_id, v.question, end_ms, v.embedding, turn_id, late=True)
 
     def _classify(self, text):
         v = classify(text, "client", self.embed)

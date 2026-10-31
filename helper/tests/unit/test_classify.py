@@ -306,3 +306,15 @@ def test_warm_up_has_its_own_pool_and_ignores_the_breaker(embed_stub):
     clf._open_until = embed_stub.now + 10
     assert clf.live_embed("warm up", timeout=30, warm=True) == ([0.1], [0.2])  # not blocked by an open breaker
     assert clf._warm_pool is not clf._pool
+
+
+def test_late_recheck_has_its_own_pool_and_never_touches_the_breaker(embed_stub):
+    clf._open_until = embed_stub.now + 10
+    assert clf.live_embed("Who owns the code?", timeout=5, late=True) == ([0.1], [0.2])
+    assert clf._open_until == embed_stub.now + 10  # a 5 s success says nothing about the 1 s live budget
+    clf._open_until = 0.0
+    embed_stub.delay = 0.3
+    with pytest.raises(TimeoutError):
+        clf.live_embed("Who owns the code?", timeout=0.1, late=True)
+    assert clf._open_until == 0.0
+    assert clf._late_pool not in (clf._pool, clf._warm_pool)

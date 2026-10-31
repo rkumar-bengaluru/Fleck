@@ -199,3 +199,13 @@ test("a chat citation link opens the transcript at that time and seeks the audio
   await waitFor(() => expect(document.querySelector("audio")!.currentTime).toBe(120.5));
   expect(screen.getByText("Line 2").closest("li")!.getAttribute("aria-current")).toBe("true");
 });
+
+test("an ad-hoc meeting shows its linked client after the meeting and can unlink it", async () => {
+  state.meeting = { ...state.meeting, event_id: null, client_id: 3, client_name: "Harbourline Legal" };
+  await open();
+  const select = screen.getByRole("combobox", { name: "Client" }) as HTMLSelectElement;
+  expect(select.value).toBe("3");
+  fireEvent.change(select, { target: { value: "none" } });
+  await waitFor(() => expect(calls.find(c => c.method === "PUT")).toMatchObject({ url: "/api/meetings/5/client", body: JSON.stringify({ client_id: null }) }));
+  await waitFor(() => expect(select.value).toBe("none"));
+});

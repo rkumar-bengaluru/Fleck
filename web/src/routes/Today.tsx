@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, browserZone, domain, HttpError, setTitle, Unauthorized, type CalendarEvent, type CalendarStatus, type ClientRef, type Device, type Me } from "../api";
-import ClientSelect from "../components/ClientSelect";
+import ClientSelect, { Failed, useClients } from "../components/ClientSelect";
 
 const CONNECTED_MS = 60_000;
 const time = (iso: string) => new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
@@ -68,24 +68,6 @@ export function MeetingCard({ event, clients, me, next, now, onChange }: {
       </div>
     </article>
   );
-}
-
-function Failed({ what, retry }: { what: string; retry: () => void }) {
-  return <p className="error" role="alert">Couldn't load your {what}.<button type="button" className="btn" onClick={retry}>Retry</button></p>;
-}
-
-/** Library clients: null while loading, so no "New client" is offered for a name that already exists. */
-function useClients() {
-  const [clients, setClients] = useState<ClientRef[] | null>(null);
-  const [failed, setFailed] = useState(false);
-  const load = () => {
-    setFailed(false);
-    api<ClientRef[]>("/api/clients").then(cs => setClients(cs.filter(c => !c.reference_only))).catch(e => { if (!(e instanceof Unauthorized)) setFailed(true); });
-  };
-  useEffect(load, []);
-  const add = (c?: ClientRef) => c && setClients(cs => [...(cs ?? []), c].sort((a, b) => a.name.localeCompare(b.name)));
-  const error = failed ? <Failed what="clients" retry={load} /> : null;
-  return [clients, add, error] as const;
 }
 
 export default function Today({ me }: { me: Me }) {

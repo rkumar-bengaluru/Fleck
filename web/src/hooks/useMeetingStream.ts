@@ -1,10 +1,11 @@
 import { useEffect, useReducer } from "react";
 import { api, Unauthorized, type Attendee } from "../api";
 import type { AssistView } from "../components/AssistCard";
+import type { MeetingRef } from "../components/ClientSelect";
 import type { Seg } from "../components/Transcript";
 import type { AssistEvent, Citation, FleckEvent } from "../events";
 
-export interface MeetingInfo { id: number; title: string; status: string; started_at: string; attendees: Attendee[] }
+export interface MeetingInfo extends MeetingRef { status: string; started_at: string; attendees: Attendee[] }
 interface Snapshot {
   meeting: MeetingInfo; notes: string;
   segments: Omit<Seg, "final">[];

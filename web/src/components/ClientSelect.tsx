@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { api, domain, type CalendarEvent, type ClientRef } from "../api";
+import { useEffect, useState } from "react";
+import { api, domain, Unauthorized, type CalendarEvent, type ClientRef } from "../api";
 
 const NONE = "none", NEW = "new";
 
@@ -7,7 +7,7 @@ const PERSONAL = new Set(["gmail", "googlemail", "outlook", "hotmail", "live", "
 const GENERIC = new Set(["co", "com", "org", "net", "ac", "gov", "edu"]);
 
 /** The guests' company from their email domain: harbourline.test -> "Harbourline", orion-freight.co.uk -> "Orion Freight". */
-export function domainStem(event: CalendarEvent, myDomain: string): string | null {
+export function domainStem(event: Pick<CalendarEvent, "attendees">, myDomain: string): string | null {
   for (const a of event.attendees) {
     const labels = domain(a.email).split(".").slice(0, -1);  // drop the TLD
     if (labels.length > 1 && GENERIC.has(labels[labels.length - 1])) labels.pop();  // acme.co.uk
@@ -19,23 +19,26 @@ export function domainStem(event: CalendarEvent, myDomain: string): string | nul
 }
 
 /** Name for "New client: …": the title after its colon ("Discovery: Orion Freight"), else the domain stem. */
-export function newClientName(event: CalendarEvent, myDomain: string): string | null {
+export function newClientName(event: Pick<CalendarEvent, "title" | "attendees">, myDomain: string): string | null {
   const i = event.title.lastIndexOf(":");
   const fromTitle = i >= 0 ? event.title.slice(i + 1).trim() : "";
   return fromTitle || domainStem(event, myDomain);
 }
 
 /** An existing client whose name starts with the guests' domain stem (harbourline -> Harbourline Legal). */
-export function suggestedExisting(event: CalendarEvent, myDomain: string, clients: ClientRef[]): ClientRef | null {
+export function suggestedExisting(event: Pick<CalendarEvent, "attendees">, myDomain: string, clients: ClientRef[]): ClientRef | null {
   const stem = domainStem(event, myDomain)?.toLowerCase();
   return (stem && stem.length >= 3 && clients.find(c => c.name.toLowerCase().startsWith(stem))) || null;
 }
 
-export const isExternal = (e: CalendarEvent, myDomain: string) => e.attendees.some(a => !a.self && domain(a.email) !== myDomain);
+export const isExternal = (e: Pick<CalendarEvent, "attendees">, myDomain: string) => e.attendees.some(a => !a.self && domain(a.email) !== myDomain);
 
-export default function ClientSelect({ event, clients, myDomain, onChange }: {
-  event: CalendarEvent; clients: ClientRef[] | null; myDomain: string;  // null while the client list loads
-  onChange: (e: CalendarEvent, created?: ClientRef) => void;
+type Linkable = Pick<CalendarEvent, "id" | "title" | "attendees" | "client">;
+
+export default function ClientSelect<E extends Linkable>({ event, clients, myDomain, onChange, path }: {
+  event: E; clients: ClientRef[] | null; myDomain: string;  // null while the client list loads
+  onChange: (e: E, created?: ClientRef) => void;
+  path?: string;  // where the PUT goes: the event's client by default, or a meeting's (which answers 204)
 }) {
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -60,7 +63,8 @@ export default function ClientSelect({ event, clients, myDomain, onChange }: {
         created = await api<ClientRef>("/api/clients", { method: "POST", body: { name: newName } });
         clientId = created.id;
       }
-      onChange(await api<CalendarEvent>(`/api/events/${event.id}/client`, { method: "PUT", body: { client_id: clientId } }), created);
+      const saved = await api<E | undefined>(path ?? `/api/events/${event.id}/client`, { method: "PUT", body: { client_id: clientId } });
+      onChange(saved ?? { ...event, client: clientId === null ? null : created ?? list.find(c => c.id === clientId) ?? null }, created);
     } catch {
       setFailed(true);  // the select snaps back to the saved value; a 401 has already gone to sign-in
     } finally {
@@ -84,5 +88,39 @@ export default function ClientSelect({ event, clients, myDomain, onChange }: {
       {unset && !failed && <span className="hint">Link a client for a fuller brief.</span>}
       {failed && <span className="error" role="alert">Couldn't save the client. Try again.</span>}
     </>
+  );
+}
+
+export function Failed({ what, retry }: { what: string; retry: () => void }) {
+  return <p className="error" role="alert">Couldn't load your {what}.<button type="button" className="btn" onClick={retry}>Retry</button></p>;
+}
+
+/** Library clients: null while loading, so no "New client" is offered for a name that already exists. */
+export function useClients() {
+  const [clients, setClients] = useState<ClientRef[] | null>(null);
+  const [failed, setFailed] = useState(false);
+  const load = () => {
+    setFailed(false);
+    api<ClientRef[]>("/api/clients").then(cs => setClients(cs.filter(c => !c.reference_only))).catch(e => { if (!(e instanceof Unauthorized)) setFailed(true); });
+  };
+  useEffect(load, []);
+  const add = (c?: ClientRef) => c && setClients(cs => [...(cs ?? []), c].sort((a, b) => a.name.localeCompare(b.name)));
+  const error = failed ? <Failed what="clients" retry={load} /> : null;
+  return [clients, add, error] as const;
+}
+
+export interface MeetingRef { id: number; title: string; event_id: number | null; client_id: number | null; client_name: string | null }
+
+/** Client of a meeting with no calendar event (an ad-hoc recording): the same select, saved on the meeting.
+ * An event's meeting takes its client from the event (Today, brief), so callers render this only when event_id is null. */
+export function MeetingClient({ meeting }: { meeting: MeetingRef }) {
+  const [clients, addClient, error] = useClients();
+  const [m, setM] = useState({ id: meeting.id, title: meeting.title, attendees: [],
+    client: meeting.client_id === null ? null : { id: meeting.client_id, name: meeting.client_name ?? "" } } as Linkable);
+  return (
+    <div className="actions meeting-client">
+      <ClientSelect event={m} clients={clients} myDomain="" path={`/api/meetings/${meeting.id}/client`} onChange={(e, c) => { addClient(c); setM(e); }} />
+      {error}
+    </div>
   );
 }

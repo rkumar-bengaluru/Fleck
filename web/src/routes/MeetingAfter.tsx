@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, setTitle } from "../api";
 import ChatPanel from "../components/ChatPanel";
+import { MeetingClient, type MeetingRef } from "../components/ClientSelect";
 import HelpedList, { type Helped } from "../components/HelpedList";
 import RecordingTimeline from "../components/RecordingTimeline";
 import SummaryNotes, { type Section } from "../components/SummaryNotes";
@@ -10,7 +11,7 @@ import type { Citation } from "../events";
 import type { Kind } from "../components/SourceChip";
 
 interface Detail {
-  meeting: { id: number; title: string; status: string; failure_reason: string | null; started_at: string; ended_at: string | null; recorded_by_name: string };
+  meeting: MeetingRef & { status: string; failure_reason: string | null; started_at: string; ended_at: string | null; recorded_by_name: string };
   segments: (Line & { end_ms: number })[];
   assists: { assist_id: string; segment_id: string; question: string; answer: string; kind: Kind; citations: Citation[]; used: boolean | null; used_by: string | null; late?: boolean }[];
   summary: Section[] | null;
@@ -68,6 +69,7 @@ export default function MeetingAfter({ id }: { id: string }) {
         </div>
         <span className="muted">Claude cost ${d.cost_usd.toFixed(2)}</span>
       </header>
+      {m.event_id === null && <MeetingClient meeting={m} />}
       {m.status === "ready" && <RecordingTimeline src={`/api/meetings/${id}/recording`} audio={audio} totalMs={span || Math.max(0, ...d.segments.map(s => s.end_ms))}
         markers={items.map(a => ({ id: a.assist_id, at_ms: a.at_ms, kind: a.kind }))} canSeek={canSeek} onSeek={seek} onBroken={() => setBroken(true)} />}
       <div role="tablist" aria-label="Meeting views" className="tabs">

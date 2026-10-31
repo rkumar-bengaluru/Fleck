@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api, setTitle } from "../api";
 import MeetingAfter from "./MeetingAfter";
+import { MeetingClient } from "../components/ClientSelect";
 import NotesEditor from "../components/NotesEditor";
 import Transcript from "../components/Transcript";
 import { useMeetingStream } from "../hooks/useMeetingStream";
@@ -34,6 +35,7 @@ export default function MeetingLive() {
           onClick={() => { setStopping(true); setStopFailed(false); api(`/api/meetings/${id}/stop`, { method: "POST" }).catch(() => { setStopping(false); setStopFailed(true); }); }}>Stop</button>
         {stopFailed && <span className="error" role="alert">Couldn't stop the recording. Try again.</span>}
       </header>
+      {meeting.event_id === null && <MeetingClient meeting={meeting} />}
       <div className="live-grid">
         <NotesEditor meetingId={id} initial={notes ?? ""} />
         <section className="live-card">

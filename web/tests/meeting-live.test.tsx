@@ -210,7 +210,7 @@ test("reducer: sentence removal, superseded card, and a thinking snapshot keeps 
   expect(st.assists[0].text).toBe("Bad claim. Fine.");
   st = reduce(st, { ev: assist({ phase: "sentence", sentence_index: 0, text: "" }) });  // failed its checks: removed
   expect(st.assists[0].text).toBe("Fine.");
-  const snap = { meeting: { id: 5, title: "t", status: "recording", started_at: "", attendees: [] }, notes: "", segments: [],
+  const snap = { meeting: { id: 5, title: "t", event_id: 1, client_id: null, client_name: null, status: "recording", started_at: "", attendees: [] }, notes: "", segments: [],
     assists: [{ assist_id: "a1", segment_id: "s2", question: "q", answer: "", kind: null, citations: [], first_words_ms: null }] };
   st = reduce(st, { snap });
   expect(st.assists[0].text).toBe("Fine.");
@@ -227,4 +227,26 @@ test("a late answer is tagged until a newer answer for its turn replaces it", as
   expect(within(card).getByText("Late")).toBeTruthy();
   s.emit(assist({ phase: "thinking" }));  // a newer Trigger for the same turn
   expect(within(card).queryByText("Late")).toBeNull();
+});
+
+test("an ad-hoc meeting (no event) links a client from the live page", async () => {
+  state.meeting = { ...state.meeting, event_id: null, client_id: null, client_name: null };
+  const f = fetch as unknown as ReturnType<typeof vi.fn>;
+  const base = f.getMockImplementation() as (u: string, i?: RequestInit) => Promise<Response>;
+  f.mockImplementation(async (url: string, init?: RequestInit) => url === "/api/clients"
+    ? (calls.push({ method: "GET", url }), new Response(JSON.stringify([{ id: 3, name: "Harbourline Legal" }, { id: 9, name: "Old contract", reference_only: true }]), { status: 200 }))
+    : base(url, init));
+  await open();
+  const select = await screen.findByRole("combobox", { name: "Client" });
+  await screen.findByRole("option", { name: "Harbourline Legal" });
+  expect(screen.queryByRole("option", { name: "Old contract" })).toBeNull();
+  fireEvent.change(select, { target: { value: "3" } });
+  await waitFor(() => expect(calls.find(c => c.method === "PUT")).toMatchObject({ url: "/api/meetings/5/client", body: JSON.stringify({ client_id: 3 }) }));
+  await waitFor(() => expect((select as HTMLSelectElement).value).toBe("3"));
+});
+
+test("a meeting from a calendar event shows no client select on the meeting page", async () => {
+  state.meeting = { ...state.meeting, event_id: 1, client_id: null, client_name: null };
+  await open();
+  expect(screen.queryByRole("combobox", { name: "Client" })).toBeNull();
 });

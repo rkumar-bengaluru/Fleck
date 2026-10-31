@@ -231,9 +231,10 @@ class Recorder:
         except Exception as e:
             log.warning("stop for meeting %s not sent: %r", mid, e)
 
-    def stop(self, notify_api: bool = True) -> None:
+    def stop(self, notify_api: bool = True, meeting_id: str | None = None) -> None:
+        """`meeting_id`: stop only if that meeting is the one recording (a finished meeting thread never stops the next)."""
         with self._lock:
-            if not self.recording:
+            if not self.recording or (meeting_id is not None and meeting_id != self.recording):
                 return
             mid, th = self.recording, self._thread
             self.recording = self.started_at = None
@@ -293,9 +294,12 @@ class Recorder:
             assistant = self.assistant_factory(m)
             writer = AudioChunkWriter(self.chunks / mid)
             state = self._state()
-            writer.seq = state.get("next_seq", 0) if state.get("meeting_id") == mid else 0  # a resumed meeting goes on
+            seq = state.get("next_seq", 0) if state.get("meeting_id") == mid else 0  # a resumed meeting goes on
+            # the chunk being written when Fleck crashed is never uploaded but stays on disk: skip its number, so the
+            # timeline never steps back over segments already sent.
+            # shortcut: that cut-short chunk counts as a full 10 s (the api fills a missing seq the same way)
+            writer.seq = seq + 1 if (writer.dir / f"chunk-{seq:05d}.wav").exists() else seq
             self._save_state(mid, writer.seq)
-            # shortcut: a chunk cut short by a crash still counts as a full 10 s (the api fills missing seqs the same way)
 
             def upload(seq, path):
                 self.transport.upload_chunk(mid, seq, path)
@@ -321,7 +325,7 @@ class Recorder:
         finally:
             self._set_degraded(False)
             if not stop.is_set():  # a crash or a source that ended: release everything as Stop does
-                self.stop()
+                self.stop(meeting_id=mid)
 
 
 def _ask(text: str) -> bool:
@@ -333,15 +337,17 @@ def _ask(text: str) -> bool:
     box, done = [], threading.Event()
 
     def ask():
-        NSApp.activateIgnoringOtherApps_(True)  # a menu-bar app's alert would open behind the call
-        box.append(rumps.alert(title="Fleck", message=text, ok="Resume", cancel="Start new") == 1)
-        done.set()
+        try:
+            NSApp.activateIgnoringOtherApps_(True)  # a menu-bar app's alert would open behind the call
+            box.append(rumps.alert(title="Fleck", message=text, ok="Resume", cancel="Start new") == 1)
+        finally:  # a failing alert must not leave `start` waiting forever with the recorder's lock held
+            done.set()
     if NSThread.isMainThread():
         ask()
     else:
         AppHelper.callAfter(ask)
         done.wait()
-    return box[0]
+    return bool(box and box[0])  # no answer counts as "Start new"
 
 
 def _bg(fn, *args, **kw) -> None:

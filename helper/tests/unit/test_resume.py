@@ -296,3 +296,50 @@ def test_degraded_detection_reaches_the_menu(make):
     r.stop()
     r.wait(5)
     assert r.degraded is False  # cleared with the recording
+
+
+def test_resume_skips_the_chunk_cut_short_by_the_crash(make, tmp_path):
+    api = FakeApi([{"id": 41, "status": "recording", "recorded_by": 5, "title": "Presales"}])
+    _crashed_mid_meeting(tmp_path, next_seq=3)
+    (tmp_path / "41").mkdir()
+    (tmp_path / "41" / "chunk-00003.wav").write_bytes(b"RIFF")  # being written at the crash, never uploaded
+    r = make(api)
+    r.start()
+    assert _until(lambda: r.transport.sent)
+    r.stop()
+    r.wait(5)
+    assert r.transport.chunks[0] == ("41", 4)
+    assert FakePipeline.first_t["41"] == 40_000  # after the partial chunk, never back over segments already sent
+
+
+def test_a_finished_meeting_thread_never_stops_the_next_meeting(make):
+    r = make()
+    r.start()
+    r.stop(meeting_id="999")  # what a late crash path of an earlier meeting does
+    assert r.recording == "101" and r.power.held == 1
+    r.stop(meeting_id="101")
+    assert r.recording is None
+    r.wait(5)
+
+
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")  # the alert's error, on purpose
+def test_a_failing_resume_prompt_answers_start_new(monkeypatch):
+    import sys
+
+    import rumps
+    from PyObjCTools import AppHelper
+
+    from fleck_helper import menubar
+    if sys.platform != "darwin":
+        pytest.skip("AppKit")
+
+    def boom(**kw):
+        raise RuntimeError("alert failed")
+    monkeypatch.setattr(rumps, "alert", boom)
+    # no run loop in a test: run it on another thread, as the main thread would (its error never reaches the waiter)
+    monkeypatch.setattr(AppHelper, "callAfter", lambda fn, *a: threading.Thread(target=fn, args=a, daemon=True).start())
+    out = []
+    th = threading.Thread(target=lambda: out.append(menubar._ask("Resume?")), daemon=True)  # off the main thread
+    th.start()
+    th.join(5)
+    assert out == [False]  # answered, not hung

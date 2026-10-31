@@ -559,3 +559,7 @@ Follow-ups that must be done before the MVP is done:
 - `compute_used_markers` counts overlap (decision 127). Test `a-over` added (failed before). Scores on the stored replay (`test_used_markers_match_script`, matches reference.json): q_rate 0.883 True, q_start 0.586 True, q_ip 0.411 False, q_sla 0.372 False, q_case 0.708 True, q_general 0.736 True, q_liability 0.0 False, q_price 0.0 False (threshold 0.52).
 - e2e now asserts: every reference question has an assist, the q_ip row reads "Not used, auto", toggling gives "Used, by hand", it survives reload. Run 3 passed (6.7 min). Suites: api 136 passed, ollama processing test 1 passed, helper test_cli 8, Vitest 31.
 - Task 19 fix round 1 (1629b62): used markers count overlap (decision 127); strict e2e passed on run 3 with 8 of 8 assists; replay loads the Claude key; replay stderr saved. Controller (decision 128): classifier live budget 1 s, over 300 ms logged as slow; the run-1 misses are attributed to the 300 ms deadline under load (likely, unproven; Task 22 measures). helper unit 167 + 1 new test pass.
+
+### Task 18 re-review follow-up (2026-10-31)
+
+- N1: on resume, a chunk number whose cut-short file is still on disk is skipped, so the timeline never steps back over segments already sent. N2: `_ask` sets `done` in a `finally` and a failed prompt counts as "Start new". N3: the crash path's `stop(meeting_id=…)` never stops another meeting. One unit test each; N4–N7 parked.

@@ -350,6 +350,9 @@ class _MacCapture:
             ok, err = inp.setVoiceProcessingEnabled_error_(True, None)
             if not ok:
                 raise RuntimeError(f"voice processing: {err}")
+            # voice processing ducks every other app (the call, a video) by default; keep their volume (decision 163)
+            inp.setVoiceProcessingOtherAudioDuckingConfiguration_(AV.AVAudioVoiceProcessingOtherAudioDuckingConfiguration(
+                False, AV.AVAudioVoiceProcessingOtherAudioDuckingLevelMin))
             rs = Resampler(int(inp.outputFormatForBus_(0).sampleRate()))  # re-read on every (re)start: routes change it
 
             def tap(buf, when):

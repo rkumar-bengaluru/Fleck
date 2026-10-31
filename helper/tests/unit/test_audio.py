@@ -235,11 +235,12 @@ def test_control_messages_survive_queue_overflow(monkeypatch):
 
 
 class _FakeEngine:
-    running, starting, max_starting, lock = set(), [0], [0], threading.Lock()
+    running, starting, max_starting, lock, ducking = set(), [0], [0], threading.Lock(), []
 
     def __init__(self):
         node = types.SimpleNamespace(
             setVoiceProcessingEnabled_error_=lambda on, e: (True, None),
+            setVoiceProcessingOtherAudioDuckingConfiguration_=self.ducking.append,
             outputFormatForBus_=lambda b: types.SimpleNamespace(sampleRate=lambda: 48000.0),
             installTapOnBus_bufferSize_format_block_=lambda *a: None, removeTapOnBus_=lambda b: None)
         self.inputNode = lambda: node
@@ -262,10 +263,13 @@ class _FakeEngine:
 def fake_av(monkeypatch):
     _FakeEngine.running.clear()
     _FakeEngine.max_starting[0] = 0
+    _FakeEngine.ducking.clear()
     engine_cls = types.SimpleNamespace(alloc=lambda: types.SimpleNamespace(init=_FakeEngine))
     center = types.SimpleNamespace(addObserverForName_object_queue_usingBlock_=lambda *a: object(), removeObserver_=lambda o: None)
     monkeypatch.setitem(sys.modules, "AVFoundation", types.SimpleNamespace(
-        AVAudioEngine=engine_cls, AVAudioEngineConfigurationChangeNotification="change", AVAudioTime=None))
+        AVAudioEngine=engine_cls, AVAudioEngineConfigurationChangeNotification="change", AVAudioTime=None,
+        AVAudioVoiceProcessingOtherAudioDuckingConfiguration=lambda advanced, level: (advanced, level),
+        AVAudioVoiceProcessingOtherAudioDuckingLevelMin=10))
     monkeypatch.setitem(sys.modules, "Foundation", types.SimpleNamespace(
         NSNotificationCenter=types.SimpleNamespace(defaultCenter=lambda: center)))
     return _FakeEngine
@@ -284,6 +288,7 @@ def test_mic_route_change_burst_restarts_once_at_a_time(fake_av):
     for _ in range(5):
         cap._on_config_change(None)
     assert pushed == [("interrupted", "you")] * 5  # sent at notification time
+    assert fake_av.ducking[0] == (False, 10)  # the call and other apps keep their volume (decision 163)
     _settle(lambda: not cap._mic_restarting)
     assert fake_av.max_starting[0] == 1 and len(fake_av.running) == 1 and cap.engine in fake_av.running
     cap.stop()

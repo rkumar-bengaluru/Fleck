@@ -277,3 +277,12 @@ def test_an_abandoned_recording_does_not_block_indexing(chatenv, monkeypatch):
         chat.index_meeting(s, {"meeting_id": mid})
         assert s.scalar(select(Job).where(Job.kind == "index_meeting", Job.status == "queued")) is None
     assert len(_rows(mid)) == 3
+
+
+def test_list_items_are_checked_against_their_lead_ins_sources():
+    """Task 23b walk-through: "From [1]:" then "- Senior engineer: 5,200" lost every rate (decision 145)."""
+    blocks = {1: "Senior engineer · Offshore (Bengaluru): 5,200\nEngineer · Offshore (Bengaluru): 3,900", 2: "UX designer · Offshore (Bengaluru): 5,000"}
+    text = "Rates by role.\n\nFrom [1]:\n- Senior engineer: 5,200\n- Engineer: 3,900\n\nFrom [2]:\n- UX designer: 5,000\n- Tech lead: 6,900"
+    assert chat._checked(text, blocks) == ("Rates by role.\n\nFrom [1]:\n- Senior engineer: 5,200\n- Engineer: 3,900\n\nFrom [2]:\n- UX designer: 5,000"
+                                           f"\n\n{chat.FIGURE_DROPPED}")
+    assert chat._checked("Notes.\n- Engineer: 3,900", blocks) == f"Notes.\n\n{chat.FIGURE_DROPPED}"  # no lead-in citation: still dropped

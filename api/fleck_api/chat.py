@@ -146,13 +146,16 @@ _LIST = re.compile(r"^\s*(?:\d+[.)]|[-*•])\s+")  # "1. ", "2) ", "- ": a list 
 
 def _checked(text: str, blocks: dict[int, str]) -> str:
     """Decision 134: a sentence whose figures are not in the sources it cites (prompt blocks, headers included, so a
-    cited timestamp counts) is left out, as on the live path. Line breaks and list markers are kept."""
-    lines, dropped = [], False
+    cited timestamp counts) is left out, as on the live path. Line breaks and list markers are kept. A list item with no
+    marker of its own is checked against its lead-in's sources ("From [1]:", decision 145)."""
+    lines, dropped, lead = [], False, []
     for line in text.split("\n"):
         marker = m[0] if (m := _LIST.match(line)) else ""
+        if not marker and line.strip():
+            lead = re.findall(r"\[(\d+)\]", line) if line.rstrip().endswith(":") else []
         parts = split_sentences(line[len(marker):])
         keep = [x for x in parts
-                if figures_in_sources(x, [blocks[int(n)] for n in re.findall(r"\[(\d+)\]", x) if int(n) in blocks])]
+                if figures_in_sources(x, [blocks[int(n)] for n in re.findall(r"\[(\d+)\]", x) or (lead if marker else []) if int(n) in blocks])]
         dropped |= len(keep) < len(parts)
         lines.append(marker + " ".join(keep) if keep or not parts else "")
     out = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()

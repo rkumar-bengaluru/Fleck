@@ -15,6 +15,18 @@ from stack_replay import ORIGIN, ROOT, build_brief, create_meeting, helper_env, 
 
 TITLE, CLIENT = "Presales: demo prospect", "Harbourline Legal"
 
+
+def replay_and_stop(c, env: dict, mid: int, log: Path) -> None:
+    p = start_replay(env, mid, log)
+    try:
+        if p.wait() != 0:
+            raise SystemExit(f"seed-demo: replay failed:\n{log.read_text()[-3000:]}")
+    finally:  # never leave the meeting `recording`: that holds back every brief and indexing job (decision 137)
+        if p.poll() is None:
+            os.killpg(p.pid, signal.SIGTERM)  # its own session: Ctrl-C does not reach it
+        stop(c, mid)
+
+
 if __name__ == "__main__":
     c = sign_in()
     if done := [m for m in c.get("/api/meetings").json() if m["title"] == TITLE and m["status"] != "failed"]:
@@ -36,14 +48,7 @@ if __name__ == "__main__":
     mid = create_meeting(c, TITLE, event["id"])
     log = ROOT / "web/test-results/seed-demo/helper-replay.log"
     print(f"replaying conversation.wav into meeting {mid} (about 7 min; helper log {log.relative_to(ROOT)})")
-    p = start_replay(env, mid, log)
-    try:
-        if p.wait() != 0:
-            raise SystemExit(f"seed-demo: replay failed:\n{log.read_text()[-3000:]}")
-    finally:  # never leave the meeting `recording`: that holds back every brief and indexing job (decision 137)
-        if p.poll() is None:
-            os.killpg(p.pid, signal.SIGTERM)  # its own session: Ctrl-C does not reach it
-        stop(c, mid)
+    replay_and_stop(c, env, mid, log)
     m = wait_ready(c, mid)
     if m["meeting"]["status"] != "ready":
         raise SystemExit(f"seed-demo: meeting {mid} {m['meeting']['status']}: {m['meeting']['failure_reason']}")

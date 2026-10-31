@@ -1,0 +1,153 @@
+"""Meetings: create (from the web or the helper), the live record, audio chunks, notes (spec 7.6)."""
+import io
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.orm import Session
+
+from fleck_api.auth import current_user
+from fleck_api.db import get_session
+from fleck_api.devices import user_or_device
+from fleck_api.library import _minio
+from fleck_api.models import Assist, AudioChunk, Brief, BriefItem, CalendarEvent, Client, Meeting, Note, Segment, Summary, User
+from fleck_api.realtime import hub
+
+router = APIRouter(prefix="/api")
+BUCKET = "fleck-recordings"
+MAX_CHUNK = 64 * 1024 * 1024
+
+
+def _row(o, *cols) -> dict:
+    return {c: getattr(o, c) for c in cols}
+
+
+def meeting_dict(s: Session, m: Meeting) -> dict:
+    ev = s.get(CalendarEvent, m.event_id) if m.event_id else None
+    client = s.get(Client, m.client_id) if m.client_id else None
+    return _row(m, "id", "event_id", "title", "client_id", "recorded_by", "status", "failure_reason", "started_at", "ended_at") | {
+        "client_name": client.name if client else None, "attendees": ev.attendees if ev else [],
+        # the names the helper must keep out of what it sends to Claude (either side of the call)
+        "people": [a.get("name") or a["email"].split("@")[0].replace(".", " ") for a in ev.attendees if a.get("email")] if ev else []}
+
+
+def _meeting(s: Session, meeting_id: int) -> Meeting:
+    if (m := s.get(Meeting, meeting_id)) is None:
+        raise HTTPException(404, "meeting not found")
+    return m
+
+
+class MeetingIn(BaseModel):
+    event_id: int | None = None
+    title: str | None = None
+    start_helper: bool = False
+
+
+@router.post("/meetings")
+async def create_meeting(body: MeetingIn, u: User = Depends(user_or_device), s: Session = Depends(get_session)):
+    ev = s.get(CalendarEvent, body.event_id) if body.event_id else None
+    if body.event_id and (ev is None or ev.user_id != u.id):
+        raise HTTPException(404, "event not found")
+    m = Meeting(event_id=body.event_id, title=body.title or (ev.title if ev else "Untitled meeting"),
+                client_id=ev.client_id if ev else None, recorded_by=u.id)
+    s.add(m)
+    s.flush()
+    out = meeting_dict(s, m)
+    if body.start_helper:
+        start = {"type": "start", "meeting_id": str(m.id), "event_id": body.event_id, "client_name": out["client_name"],
+                 "people": out["people"]}
+        if not await hub.to_helper(u.id, start):
+            s.rollback()
+            raise HTTPException(409, "Desktop app not connected")
+    s.commit()
+    return out
+
+
+@router.get("/meetings")
+def list_meetings(_u: User = Depends(current_user), s: Session = Depends(get_session)):
+    return [meeting_dict(s, m) for m in s.scalars(select(Meeting).order_by(Meeting.started_at.desc(), Meeting.id.desc()))]
+
+
+@router.get("/meetings/{meeting_id}")
+def get_meeting(meeting_id: int, _u: User = Depends(user_or_device), s: Session = Depends(get_session)):
+    m = _meeting(s, meeting_id)
+    note = s.scalar(select(Note).where(Note.meeting_id == m.id))
+    summary = s.scalar(select(Summary).where(Summary.meeting_id == m.id).order_by(Summary.version.desc()))
+    brief = s.scalar(select(Brief).where(Brief.event_id == m.event_id)) if m.event_id else None
+    items = list(s.scalars(select(BriefItem).where(BriefItem.brief_id == brief.id).order_by(BriefItem.id))) if brief else []
+    return {
+        "meeting": meeting_dict(s, m) | {"library_clients": list(s.scalars(select(Client.name).order_by(Client.name)))},
+        "segments": [_row(x, "segment_id", "stream", "start_ms", "end_ms", "text", "gate")
+                     for x in s.scalars(select(Segment).where(Segment.meeting_id == m.id).order_by(Segment.start_ms, Segment.id))],
+        "assists": [_row(x, "assist_id", "segment_id", "question", "answer", "kind", "from_brief", "citations", "first_words_ms",
+                         "full_ms", "rejected", "used", "used_by") for x in s.scalars(select(Assist).where(Assist.meeting_id == m.id).order_by(Assist.id))],
+        "notes": note.text if note else "",
+        "summary": summary.items if summary else None,
+        "brief": {"status": brief.status, "items": [_row(i, "topic", "question", "answer", "kind", "citations") for i in items]} if brief else None,
+    }
+
+
+@router.put("/meetings/{meeting_id}/audio/{seq}", status_code=204)
+async def put_audio(meeting_id: int, seq: int, request: Request, _u: User = Depends(user_or_device), s: Session = Depends(get_session)):
+    _meeting(s, meeting_id)
+    data = await request.body()
+    if not data or len(data) > MAX_CHUNK:
+        raise HTTPException(400, "empty or oversized audio chunk")
+    key = f"meetings/{meeting_id}/{seq:06d}.wav"
+    mc = _minio()
+    if not mc.bucket_exists(BUCKET):
+        mc.make_bucket(BUCKET)
+    mc.put_object(BUCKET, key, io.BytesIO(data), len(data), content_type="audio/wav")  # same key: a resend overwrites
+    s.execute(insert(AudioChunk).values(meeting_id=meeting_id, seq=seq, blob_key=key).on_conflict_do_nothing())
+    s.commit()
+
+
+class NotesIn(BaseModel):
+    text: str
+
+
+@router.put("/meetings/{meeting_id}/notes", status_code=204)
+def put_notes(meeting_id: int, body: NotesIn, u: User = Depends(current_user), s: Session = Depends(get_session)):
+    _meeting(s, meeting_id)
+    s.execute(insert(Note).values(meeting_id=meeting_id, text=body.text, updated_by=u.id).on_conflict_do_update(
+        index_elements=[Note.meeting_id], set_={"text": body.text, "updated_by": u.id, "updated_at": datetime.now(timezone.utc)}))
+    s.commit()
+
+
+class ClientIn(BaseModel):
+    client_id: int | None
+
+
+@router.put("/meetings/{meeting_id}/client", status_code=204)
+def put_client(meeting_id: int, body: ClientIn, _u: User = Depends(current_user), s: Session = Depends(get_session)):
+    m = _meeting(s, meeting_id)
+    if body.client_id is not None and s.get(Client, body.client_id) is None:
+        raise HTTPException(404, "client not found")
+    m.client_id = body.client_id
+    s.commit()
+
+
+@router.post("/meetings/{meeting_id}/stop", status_code=204)
+async def stop_meeting(meeting_id: int, u: User = Depends(current_user), s: Session = Depends(get_session)):
+    m = _meeting(s, meeting_id)
+    if m.status == "recording":
+        m.status, m.ended_at = "processing", datetime.now(timezone.utc)
+        s.commit()
+        await hub.to_browsers(m.id, {"type": "meeting_state", "meeting_id": str(m.id), "status": m.status})
+    await hub.to_helper(m.recorded_by or u.id, {"type": "stop", "meeting_id": str(m.id)})
+
+
+class UsedIn(BaseModel):
+    used: bool
+
+
+@router.patch("/assists/{assist_id}")
+def patch_assist(assist_id: str, body: UsedIn, _u: User = Depends(current_user), s: Session = Depends(get_session)):
+    a = s.scalar(select(Assist).where(Assist.assist_id == assist_id))
+    if a is None:
+        raise HTTPException(404, "assist not found")
+    a.used, a.used_by = body.used, "manual"
+    s.commit()
+    return _row(a, "assist_id", "used", "used_by")

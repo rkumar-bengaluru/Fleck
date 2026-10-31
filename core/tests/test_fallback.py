@@ -157,6 +157,16 @@ def test_question_only(turn, ask):
     assert question_only(turn, ["Larkspur Retail Group"]) == ask
 
 
+@pytest.mark.parametrize("turn, gone", [
+    ("Marcus, how would you handle this for Harbourline Legal?", ["Harbourline", "Marcus"]),
+    ("Could Priya on our side own the migration?", ["Priya"]),
+    ("Does Shah's team on your side agree, Marcus Webb?", ["Shah", "Marcus", "Webb"]),
+])
+def test_question_only_redacts_attendees_and_meeting_client(turn, gone):
+    ask = question_only(turn, ["Larkspur Retail Group", "Harbourline Legal"], ["Marcus Webb", "Priya Shah"])
+    assert not any(g in ask for g in gone), ask
+
+
 def test_cancel_ends_with_a_discarded_result():
     cancel = threading.Event()
 

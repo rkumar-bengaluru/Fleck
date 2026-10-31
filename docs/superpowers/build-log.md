@@ -476,3 +476,10 @@ Follow-ups that must be done before the MVP is done:
   - Amend the spec where the build departed from it: the §7.2.2 gate formula, the §7.2.3 classifier on the GPU, and the §7.1 item 2 start on finals.
   - Merge the duplicate row 91.
   - The hand-over lists the known limits: q_liability never shows a Reference contract answer (decision 101), the second card in a split turn carries only its own half (decision 104), and the open number-check gaps (decision 100).
+
+## Task 15: pairing, helper transport, meeting storage and realtime (2026-10-31)
+
+- Tests written first (api: `test_meetings.py`, `test_realtime.py`; helper: `test_transport.py`, `test_cli.py`; core and helper: the Marcus / Priya / Harbourline redaction tests), then `devices.py`, `meetings.py`, `realtime.py`, `transport.py`, `cli.py`. New dependencies: `keyring`, `websockets` (helper), `websockets` (api).
+- The realtime tests hung at first, for two reasons: Starlette's TestClient gives each websocket its own event loop unless the client is entered with `with client`, and a browser socket that connects after the helper's send misses it. The fix is `with client` in the tests and the `meeting_state` greeting a test waits for. A Core insert's `rowcount` was not 1 after `ON CONFLICT DO NOTHING`; the dedup reads `RETURNING id` instead.
+- `uv run pytest -m "not ollama" -q`: 498 passed, 1 failed (`test_every_api_route_is_guarded`: `/api/devices/pair` is open by design), fixed by exempting it; that file then 17 passed. No WAV replay, no e2e, nothing touched in the real keychain (a `MemoryKeyring` backend in `test_cli.py`).
+- Not done here: `fleck-helper run` (Task 18), brief items in `replay` (the meeting detail carries no question vectors), the web client's use of the websocket.

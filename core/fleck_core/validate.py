@@ -119,6 +119,14 @@ def redact_clients(text: str, client_names: list[str]) -> str:
     return text
 
 
+def redact_people(text: str, people: list[str]) -> str:
+    """Each attendee's full name and first/last name (3+ letters) becomes "someone"."""
+    words = {w for p in people for w in [p, *re.findall(r"[^\W\d_]{3,}", p)]}
+    for w in sorted(words, key=len, reverse=True):
+        text = re.sub(rf"\b{re.escape(w)}(?:['’]s)?\b", "someone", text, flags=re.I)
+    return text
+
+
 def _periods(norm: str) -> set[str]:
     known = {_PERIODS[(a or b).lower()] for a, b in _PERIOD_WORD.findall(norm)}
     # any other "per <noun>" ("per seat", "per sprint") is a rate period too and must be stated by the passage

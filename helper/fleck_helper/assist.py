@@ -70,10 +70,13 @@ class _Live:
 
 class Assistant:
     def __init__(self, retriever, ollama, fallback_mode: Literal["claude", "off"], client_names: list[str],
-                 brief_items: list[BriefItem], claude=None):
-        """`claude` is an httpx client for the Messages API (tests pass a MockTransport one); None uses the default."""
+                 brief_items: list[BriefItem], claude=None, people: list[str] = ()):
+        """`claude` is an httpx client for the Messages API (tests pass a MockTransport one); None uses the default.
+        `people` are the meeting's attendees (either side); the meeting's client name goes in `client_names`. Neither
+        reaches Claude (decision 109a)."""
         self.retriever, self.ollama, self.fallback_mode = retriever, ollama, fallback_mode
         self.client_names, self.brief_items, self.claude = client_names, brief_items, claude
+        self.people = list(people)
         self._lock = threading.Lock()
         self._prepared: _Prepared | None = None
         self._live: _Live | None = None
@@ -225,7 +228,7 @@ class Assistant:
                                  first_words_ms=u.first_words_ms, full_ms=u.full_ms, rejected=u.check.reasons)
                         return
             why = ["none"]
-        yield from self._fallback(ev, question_only(trig.question, self.client_names), why, ms, q_end, cancel)
+        yield from self._fallback(ev, question_only(trig.question, self.client_names, self.people), why, ms, q_end, cancel)
 
     def _brief_match(self, question: str, vector):
         """(the best brief item at or over BRIEF_MIN_COSINE or None, the question's search vector or None)."""

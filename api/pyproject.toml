@@ -15,6 +15,7 @@ dependencies = [
     "minio>=7.2.20",
     "python-multipart>=0.0.32",
     "cryptography>=46",
+    "websockets>=17.4",
 ]
 
 [build-system]

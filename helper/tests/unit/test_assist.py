@@ -143,6 +143,19 @@ def test_fallback_off_gives_not_in_material():
     assert claude.requests == []
 
 
+@pytest.mark.parametrize("question, gone", [
+    ("Marcus, how would you handle this for Harbourline Legal?", ["Harbourline", "Marcus"]),
+    ("Could Priya on our side own the migration?", ["Priya"]),
+])
+def test_meeting_names_never_reach_claude(question, gone):
+    claude = FakeClaude()
+    a = Assistant(FakeRetriever(passages=()), FakeOllama(), "claude", ["Larkspur Retail Group", "Harbourline Legal"], [],
+                  claude=claude.client, people=["Marcus Webb", "Priya Shah"])
+    list(a.handle(trig(question), "m1"))
+    [req] = claude.requests
+    assert not any(g in json.dumps(req) for g in gone), req
+
+
 def test_blocked_fallback_not_retried():
     claude = FakeClaude("Typically about $150 per hour for this kind of work.")
     ev = list(make(ollama=FakeOllama(("NONE",)), claude=claude).handle(trig(), "m1"))

@@ -16,7 +16,12 @@ dependencies = [
     "py2app; sys_platform == 'darwin'",
     "webrtcvad-wheels>=2.0.14",
     "numpy>=2.5.4",
+    "keyring>=25.7.0",
+    "websockets>=17.4",
 ]
+
+[project.scripts]
+fleck-helper = "fleck_helper.cli:main"
 
 [build-system]
 requires = ["hatchling"]

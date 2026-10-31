@@ -14,7 +14,7 @@ from fleck_api.main import create_app
 from fleck_api.models import CalendarEvent, GoogleToken, Job, User, UserSession
 from fleck_gsim.app import create_app as gsim_app
 
-EXEMPT = {"/api/health", "/api/auth/login", "/api/auth/callback"}
+EXEMPT = {"/api/health", "/api/auth/login", "/api/auth/callback", "/api/devices/pair"}  # pair: the one-time code is the credential
 
 
 @pytest.fixture

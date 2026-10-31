@@ -18,7 +18,7 @@ import httpx
 
 from .answer import _NUMBER_WORD_TAIL, Delta, Sentence
 from .numbers import CODES, extract_figures
-from .validate import check_fallback, name_words, redact_clients, split_sentences
+from .validate import check_fallback, name_words, redact_clients, redact_people, split_sentences
 
 TIMEOUT_S = 5.0  # wall clock for the whole call; past it the answer is "Not in our material"
 URL = "https://api.anthropic.com/v1/messages"
@@ -35,12 +35,13 @@ SLICE_S = 0.05  # how often a waiting stream checks its cancel event
 _RISKY = re.compile(rf"\d|%|[$€£¥₹]|\bper\b|/|\b(?:{CODES})\b", re.I)  # a figure, money or a rate could follow: hold the sentence
 
 
-def question_only(turn: str, client_names: list[str]) -> str:
+def question_only(turn: str, client_names: list[str], people: list[str] = ()) -> str:
     """What may go to Claude: the turn's sentences ending in "?" (else its last sentence), a leading vocative
-    dropped from each, and library client names replaced by "a client". Statements around the question stay home."""
+    dropped from each, client names (the library's and the meeting's) replaced by "a client" and the meeting's
+    attendees by "someone". Statements around the question stay home."""
     sents = split_sentences(turn) or [turn.strip()]
     asks = [s for s in sents if s.endswith("?")] or sents[-1:]
-    return redact_clients(" ".join(_VOCATIVE.sub("", s) for s in asks), client_names)
+    return redact_clients(redact_people(" ".join(_VOCATIVE.sub("", s) for s in asks), people), client_names)
 
 
 def warm(http: httpx.Client | None = None) -> None:

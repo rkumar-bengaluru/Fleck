@@ -20,7 +20,7 @@ from fleck_api.auth import current_user
 from fleck_api.config import setting
 from fleck_api.db import get_session
 from fleck_api.jobs import enqueue_once, job
-from fleck_api.models import Brief, CalendarEvent, Client, Device, GoogleToken, Job, Meeting, User
+from fleck_api.models import Brief, CalendarEvent, Client, GoogleToken, Job, Meeting, User
 
 log = logging.getLogger("fleck.calendar")
 _HOST_END = r"(?![\w-]|\.[\w-])"  # zoom.us, not zoom.us.evil.test
@@ -264,10 +264,3 @@ def calendar_status(u: User = Depends(current_user), s: Session = Depends(get_se
     return {"connected": s.scalar(select(GoogleToken.id).where(GoogleToken.user_id == u.id)) is not None,
             "syncing": s.scalar(select(Job.id).where(Job.kind == "sync_calendar", Job.payload == {"user_id": u.id},
                                                      Job.status.in_(("queued", "running"))).limit(1)) is not None}
-
-
-# shortcut: list-only devices endpoint for the Today pill; Task 15 (pairing) moves it to devices.py and extends it.
-@router.get("/devices")
-def list_devices(u: User = Depends(current_user), s: Session = Depends(get_session)):
-    return [{"id": d.id, "name": d.name, "last_seen": d.last_seen}
-            for d in s.scalars(select(Device).where(Device.user_id == u.id).order_by(Device.id))]

@@ -21,7 +21,7 @@ from fleck_api.config import get_settings, setting
 from fleck_api.db import get_session
 from fleck_api.devices import user_or_device
 from fleck_api.jobs import enqueue, enqueue_once, job, wait_for_recording
-from fleck_api.meetings import _meeting, people_of
+from fleck_api.meetings import _meeting, guest_companies, people_of
 from fleck_api.models import Brief, BriefItem, CalendarEvent, Client, Document, Job, LlmCall, Meeting, User
 
 log = logging.getLogger("fleck.brief")
@@ -123,25 +123,6 @@ def _safe(text: str, people: list[str], client_names: list[str]) -> str:
     "someone" whatever their case (typed text, unlike the live transcript), client names "a client"."""
     text = _EMAIL.sub("someone", _URL.sub("", text))
     return redact_clients(redact_people(_DIGITS.sub("", text), people, ignore_case=True), client_names)
-
-
-_PERSONAL = {"gmail", "googlemail", "outlook", "hotmail", "live", "yahoo", "icloud", "me", "proton", "protonmail"}
-_GENERIC = {"co", "com", "org", "net", "ac", "gov", "edu"}
-
-
-def guest_companies(attendees: list[dict], my_domain: str) -> list[str]:
-    """Company names from the outside guests' email domains, as web's domainStem: orion-freight.co.uk -> "Orion Freight".
-    redact_clients then also takes each distinctive word ("Orion"). Public mail domains (gmail, outlook) give none."""
-    out = []
-    for a in attendees:
-        dom = (a.get("email") or "").rpartition("@")[2].lower()
-        labels = dom.split(".")[:-1]  # drop the TLD
-        if len(labels) > 1 and labels[-1] in _GENERIC:
-            labels.pop()  # acme.co.uk
-        if a.get("self") or not labels or dom == my_domain or labels[-1] in _PERSONAL:
-            continue
-        out.append(" ".join(w.capitalize() for w in labels[-1].split("-")))
-    return list(dict.fromkeys(out))
 
 
 @job("build_brief", on_fail=lambda s, payload, error: mark_failed(s, payload, error))

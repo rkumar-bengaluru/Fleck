@@ -2,7 +2,7 @@
 import logging
 
 from fleck_helper import menubar
-from fleck_helper.menubar import parallel_slots, status_lines
+from fleck_helper.menubar import fallback_line, fallback_mode, parallel_slots, status_lines
 
 PS = """\
 78379 ollama serve
@@ -33,3 +33,11 @@ def test_parallel_warning_logged_not_changed(monkeypatch, caplog):
     with caplog.at_level(logging.WARNING):
         menubar.check_parallel()
     assert caplog.text == ""
+
+
+def test_fallback_mode_is_off_when_the_api_or_the_app_says_off(monkeypatch):
+    monkeypatch.delenv("FLECK_LIVE_FALLBACK", raising=False)
+    assert fallback_mode() == "claude" and fallback_mode("claude") == "claude" and fallback_mode("off") == "off"
+    monkeypatch.setenv("FLECK_LIVE_FALLBACK", "off")
+    assert fallback_mode("claude") == "off"
+    assert fallback_line("off") == "General knowledge answers: off" and fallback_line("claude") == "General knowledge answers: on"

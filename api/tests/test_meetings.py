@@ -159,3 +159,25 @@ def test_retry_needs_a_signed_in_user(env):
     mid = client.post("/api/meetings", json={"title": "x"}, headers=pair(env)).json()["id"]
     client.cookies.clear()
     assert client.post(f"/api/meetings/{mid}/retry").status_code == 401
+
+
+def test_the_helper_gets_the_fallback_switch_and_the_guests_company(env, monkeypatch):
+    """.env's FLECK_LIVE_FALLBACK reaches the helper app (which never reads .env), and a prospect not in the library
+    is redacted from the live fallback as the brief redacts it."""
+    from fleck_api.config import get_settings
+    client, _, make = env
+    auth = pair(env)
+    with make() as s:
+        e = s.scalars(select(CalendarEvent)).first()
+        e.attendees = e.attendees + [{"email": "kim@orion-freight.com", "name": "Kim"}]
+        s.commit()
+        event_id = e.id
+    mid = client.post("/api/meetings", json={"event_id": event_id}, headers=auth).json()["id"]
+    monkeypatch.setenv("FLECK_LIVE_FALLBACK", "off")
+    get_settings.cache_clear()
+    try:
+        m = client.get(f"/api/meetings/{mid}", headers=auth).json()["meeting"]
+        assert m["live_fallback"] == "off" and client.get("/api/me", headers=auth).json()["live_fallback"] == "off"
+        assert "Orion Freight" in m["library_clients"] and "Northbeam" not in m["library_clients"]
+    finally:
+        get_settings.cache_clear()

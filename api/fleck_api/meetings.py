@@ -9,6 +9,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from fleck_api.auth import current_user
+from fleck_api.config import get_settings
 from fleck_api.db import get_session
 from fleck_api.devices import current_device, user_or_device
 from fleck_api.jobs import enqueue, enqueue_once
@@ -38,6 +39,25 @@ def people_of(ev: CalendarEvent) -> list[str]:
     return [a.get("name") or a["email"].split("@")[0].replace(".", " ").replace("_", " ").title() for a in ev.attendees if a.get("email")]
 
 
+_PERSONAL = {"gmail", "googlemail", "outlook", "hotmail", "live", "yahoo", "icloud", "me", "proton", "protonmail"}
+_GENERIC = {"co", "com", "org", "net", "ac", "gov", "edu"}
+
+
+def guest_companies(attendees: list[dict], my_domain: str) -> list[str]:
+    """Company names from the outside guests' email domains, as web's domainStem: orion-freight.co.uk -> "Orion Freight".
+    redact_clients then also takes each distinctive word ("Orion"). Public mail domains (gmail, outlook) give none."""
+    out = []
+    for a in attendees:
+        dom = (a.get("email") or "").rpartition("@")[2].lower()
+        labels = dom.split(".")[:-1]  # drop the TLD
+        if len(labels) > 1 and labels[-1] in _GENERIC:
+            labels.pop()  # acme.co.uk
+        if a.get("self") or not labels or dom == my_domain or labels[-1] in _PERSONAL:
+            continue
+        out.append(" ".join(w.capitalize() for w in labels[-1].split("-")))
+    return list(dict.fromkeys(out))
+
+
 def _meeting(s: Session, meeting_id: int) -> Meeting:
     if (m := s.get(Meeting, meeting_id)) is None:
         raise HTTPException(404, "meeting not found")
@@ -52,7 +72,7 @@ class MeetingIn(BaseModel):
 
 @router.get("/me")
 def me(u: User = Depends(user_or_device)):  # the helper's "Connected as" too
-    return {"id": u.id, "email": u.email, "name": u.name}
+    return {"id": u.id, "email": u.email, "name": u.name, "live_fallback": get_settings().live_fallback}
 
 
 @router.post("/meetings")
@@ -89,8 +109,14 @@ def get_meeting(meeting_id: int, _u: User = Depends(user_or_device), s: Session 
     brief = s.scalar(select(Brief).where(Brief.event_id == m.event_id)) if m.event_id else None
     first_meeting = s.scalar(select(func.min(Meeting.id)).where(Meeting.event_id == m.event_id)) if m.event_id else None
     items = list(s.scalars(select(BriefItem).where(BriefItem.brief_id == brief.id).order_by(BriefItem.id))) if brief else []
+    rec = s.get(User, m.recorded_by) if m.recorded_by else None
+    ev = s.get(CalendarEvent, m.event_id) if m.event_id else None
     return {
-        "meeting": meeting_dict(s, m) | {"recorded_by_name": ((u := s.get(User, m.recorded_by)).name or u.email) if m.recorded_by else "", "library_clients": list(s.scalars(select(Client.name).order_by(Client.name)))},
+        "meeting": meeting_dict(s, m) | {"recorded_by_name": (rec.name or rec.email) if rec else "",
+                                         # a prospect not in the library yet is redacted from the live fallback too, as in the brief
+                                         "library_clients": list(s.scalars(select(Client.name).order_by(Client.name)))
+                                         + (guest_companies(ev.attendees, rec.email.rpartition("@")[2].lower() if rec else "") if ev else []),
+                                         "live_fallback": get_settings().live_fallback},  # .env's switch reaches the helper app
         "segments": [_row(x, "segment_id", "stream", "start_ms", "end_ms", "text", "gate")
                      for x in s.scalars(select(Segment).where(Segment.meeting_id == m.id).order_by(Segment.start_ms, Segment.id))],
         "assists": [_row(x, "assist_id", "segment_id", "question", "answer", "kind", "from_brief", "late", "citations", "first_words_ms",

@@ -137,6 +137,14 @@ def test_load_brief_items_for_the_assistant():
     assert cli.make_assistant(m, "off", got).brief_items == got
 
 
+def test_the_apis_off_switch_reaches_the_assistant():
+    """.env's FLECK_LIVE_FALLBACK=off reaches the app through the meeting: no Claude call, no warm-up HEAD."""
+    m = {"library_clients": [], "client_name": None, "people": [], "live_fallback": "off"}
+    assert cli.make_assistant(m, "claude").fallback_mode == "off"
+    assert cli.make_assistant(m | {"live_fallback": "claude"}, "claude").fallback_mode == "claude"
+    assert cli.make_assistant(m | {"live_fallback": "claude"}, "off").fallback_mode == "off"  # the helper's own off holds
+
+
 def test_load_brief_never_stops_a_recording(caplog):
     def down(path):
         raise OSError("api down")

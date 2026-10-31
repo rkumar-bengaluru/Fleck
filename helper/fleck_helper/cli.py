@@ -105,6 +105,8 @@ def make_assistant(m: dict, fallback: str, brief_items: list = ()):
     from fleck_helper.assist import Assistant
     # the meeting's client is redacted like a library client; attendees on either side are "someone" (decision 109a)
     names = m["library_clients"] + ([m["client_name"]] if m["client_name"] else [])
+    # the api's switch (.env's FLECK_LIVE_FALLBACK) wins when it says off: an app opened from Finder never sees .env
+    fallback = "off" if m.get("live_fallback") == "off" else fallback
     return Assistant(Retriever("http://localhost:8080", Embedder("http://localhost:11434")), OllamaClient(), fallback, names, list(brief_items),
                      people=m["people"])
 

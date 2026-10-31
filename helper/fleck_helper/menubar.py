@@ -29,6 +29,10 @@ LOG = Path.home() / "Library/Logs/Fleck/helper.log"
 log = logging.getLogger("fleck.app")
 
 
+def fallback_line(fallback_mode: str) -> str:
+    return f"General knowledge answers: {'on' if fallback_mode == 'claude' else 'off'}"
+
+
 def status_lines(fallback_mode: str, has_key: bool, degraded: bool) -> list[str]:
     """Warnings the menu shows (and the menu-bar title flags)."""
     return ((["No Claude key: general answers are off"] if fallback_mode == "claude" and not has_key else [])
@@ -158,8 +162,9 @@ def default_source():
     return ReplaySource(Path(src.removeprefix("replay:"))) if src.startswith("replay:") else LiveSource()
 
 
-def fallback_mode() -> str:
-    return os.environ.get("FLECK_LIVE_FALLBACK", "claude")
+def fallback_mode(api_mode: str | None = None) -> str:
+    """Off when the helper's own environment or the api (`/api/me`, .env's FLECK_LIVE_FALLBACK) says off."""
+    return "off" if "off" in (os.environ.get("FLECK_LIVE_FALLBACK"), api_mode) else "claude"
 
 
 class Recorder:
@@ -383,7 +388,7 @@ def _app_class():
             super().__init__("Fleck", title="Fleck", quit_button=None)
             self.api, self.recorder, self.panel, self.scheduler = api, recorder, panel, scheduler
             self.has_key, self.web_url = has_key, web_url.rstrip("/")
-            self.events, self.who = [], "Not connected"
+            self.events, self.who, self.api_fallback = [], "Not connected", None
             if recorder:
                 recorder.on_change = lambda: AppHelper.callAfter(self.rebuild)
             panel.on_visibility = lambda visible: AppHelper.callAfter(self.rebuild)
@@ -399,7 +404,8 @@ def _app_class():
             if self.recorder is None:
                 return
             try:
-                self.who = f"Connected as {self.api.get('/api/me')['email']}"
+                me = self.api.get('/api/me')
+                self.who, self.api_fallback = f"Connected as {me['email']}", me.get("live_fallback")
                 self.events = [e for e in self.api.get("/api/events?range=today") if not e.get("cancelled")]
                 if self.scheduler:
                     self.scheduler.schedule(self.events)
@@ -409,7 +415,7 @@ def _app_class():
             AppHelper.callAfter(self.rebuild)
 
         def _warnings(self):
-            return status_lines(fallback_mode(), self.has_key, bool(self.recorder and self.recorder.degraded))
+            return status_lines(fallback_mode(self.api_fallback), self.has_key, bool(self.recorder and self.recorder.degraded))
 
         def _tick(self, _):
             r = self.recorder
@@ -447,6 +453,7 @@ def _app_class():
             items.append(rumps.MenuItem("Start recording now", callback=(lambda _: _bg(r.start)) if r and not r.recording else None))
             items.append(rumps.MenuItem("Open Fleck", callback=lambda _: webbrowser.open(self.web_url)))
             items.append(None)
+            items.append(rumps.MenuItem(fallback_line(fallback_mode(self.api_fallback))))
             items += [rumps.MenuItem(f"⚠ {w}") for w in self._warnings()]
             items.append(rumps.MenuItem(self.who if r else "Not paired: run fleck-helper pair <code>"))
             items.append(rumps.MenuItem("Quit Fleck", callback=self._quit))

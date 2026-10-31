@@ -455,3 +455,24 @@ Live §8 questions (title, kind, nearest-vector distance):
   - Win 1 (decision 109 b) withdrawn and its code and tests removed: Claude is called only after the library route came up empty. The no-content HEAD warm (decision 110) stays.
   - Tests: not ollama and helper unit only, no replays.
 - Task 14 fix round 4 (290a84c + controller tweak): meta lead-ins kept and cut ("According to the documents, X" shows "X"), "source code" no longer a source noun, no half words in the fallback, Win 1 withdrawn (109b). Controller tightened `_META` so "It is in scope [1]." stays an answer. `pytest -m "not ollama"`: 481 passed. e2e 1 run after the Win 1 revert: library first words max 2002 ms (done 2425), Claude first words max 2374 ms (started ~1.2–1.4 s after the question's end), not_in_material 1316 ms; spec 8 outcomes all as expected. Task 14 closed.
+
+### Milestone E critique (2026-10-31)
+Critique agent standing in for rupak.k, on decisions 89 and 91–112 (Tasks 11–14). Verdicts are in decisions.md: 6 Agree, 17 Agree with note, 1 Disagree (109a). The withdrawal of 109b was right: Claude is called only after the library came up empty, and after the revert Claude's first words peaked at 2.37 s against the 5 s gate. No replays were run for this critique.
+
+Top three concerns:
+1. **Names still reach Claude.** `fallback.question_only` redacts library clients and a leading "Name, " only. Probed: "Marcus, how would you handle this for Harbourline Legal?" sends "how would you handle this for Harbourline Legal?", and "Could Priya on our side own the migration? …" goes as is. The rule is the client's question text and never names, so the meeting's own client and the people on the call must be redacted too.
+2. **Question detection is proven only on synthetic audio.** The held-out result is strong: 190/196 recall and 2/191 false triggers on typed text. But every replay uses `say` voices. The bleed gate's margin is thin (fixture bleed about 0.25× against a 0.3 cap). ScreenCaptureKit has never run on hardware. The second-look threshold of 0.1 was fitted to one fixture turn. When the embedder is slow or down, the rules fallback catches 29/200, which in effect switches detection off, and nothing tells the salesperson.
+3. **Heat and memory over an hour.** The classifier moved from CPU to the GPU (qwen3-embedding:4b, +2.9 GB). A 4b embed and a prefill run on every client final, and the Mac already showed 17.6 GB of swap. Qwen's cold first token drifted from 1.11 s to 1.8 s under that pressure. The soak plan measures latency drift and RSS, but not heat, swap or throttling.
+
+Follow-ups that must be done before the MVP is done:
+- **Task 15:** the helper receives the meeting's linked client name and its calendar attendees' names, and `question_only` redacts them, along with the library client list from the api. Include a unit test with the two probe lines above.
+- **Task 18:** run the live speaker check of the gate (`FLECK_GATE_BLEED_MAX`) on real echo cancellation and ScreenCaptureKit, and record the bleed ratio. The panel or menu bar shows a visible state while the rules fallback decides. Check `OLLAMA_NUM_PARALLEL` at warm-up and log a warning if it is not 1 (decision 98).
+- **Task 22:**
+  - `test_targets` uses decision 112's split gates (library and brief first words ≤ 3 s and done ≤ 6 s, Claude first words ≤ 5 s), pooled over ≥ 3 runs. The plan text still says one 3 s gate.
+  - `test_local_only` also proves that `off` sends no warm HEAD (decision 110).
+  - The soak samples thermal state, swap and the rules-fallback count. It fails if p95 drifts by more than 20% or the rules fallback fires.
+  - Score the classifier on held-out multi-sentence turns, from Whisper output where possible, to check the second-look threshold.
+- **Task 23:**
+  - Amend the spec where the build departed from it: the §7.2.2 gate formula, the §7.2.3 classifier on the GPU, and the §7.1 item 2 start on finals.
+  - Merge the duplicate row 91.
+  - The hand-over lists the known limits: q_liability never shows a Reference contract answer (decision 101), the second card in a split turn carries only its own half (decision 104), and the open number-check gaps (decision 100).

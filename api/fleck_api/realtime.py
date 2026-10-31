@@ -1,6 +1,7 @@
 """Live traffic (spec 7.6): the helper's websocket in, browsers' websockets out. One api process, so the hub is in memory."""
 import logging
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 
 from fastapi import APIRouter, Cookie, Depends, WebSocket, WebSocketDisconnect
@@ -10,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from fleck_api.auth import current_user
+from fleck_api.auth import allowed_origins, current_user
 from fleck_api.db import get_session
 from fleck_api.devices import device_from_header
 from fleck_api.models import Assist, LlmCall, Meeting, Segment
@@ -31,8 +32,6 @@ class Hub:
     def __init__(self):
         self.browsers: dict[int, set[WebSocket]] = {}
         self.helpers: list[_Helper] = []
-        # sentences of answers in progress, by assist_id then index. Kept across helper reconnects; lost if the api restarts
-        self.sentences: dict[str, dict[int, str]] = {}
 
     def connected_device_ids(self) -> set[int]:
         return {h.device_id for h in self.helpers}
@@ -59,17 +58,23 @@ hub = Hub()
 
 
 @router.websocket("/meetings/{meeting_id}")
-async def browser_ws(ws: WebSocket, meeting_id: int, fleck_session: str | None = Cookie(None), s: Session = Depends(get_session)):
-    try:
-        current_user(fleck_session, s)
-    except Exception:
+async def browser_ws(ws: WebSocket, meeting_id: int, fleck_session: str | None = Cookie(None)):
+    origin = ws.headers.get("origin")
+    if origin is not None and origin.rstrip("/") not in allowed_origins():
         await ws.close(1008)
         return
+    with contextmanager(ws.app.dependency_overrides.get(get_session, get_session))() as s:  # short: a socket open for the whole meeting must not hold a pooled connection
+        try:
+            current_user(fleck_session, s)
+        except Exception:
+            await ws.close(1008)
+            return
+        m = s.get(Meeting, meeting_id)
+        status = m.status if m else "unknown"
     await ws.accept()
     hub.browsers.setdefault(meeting_id, set()).add(ws)
-    m = s.get(Meeting, meeting_id)
     # the client then fetches GET /api/meetings/{id} and applies events: this one says it is subscribed
-    await ws.send_json({"type": "meeting_state", "meeting_id": str(meeting_id), "status": m.status if m else "unknown"})
+    await ws.send_json({"type": "meeting_state", "meeting_id": str(meeting_id), "status": status})
     try:
         while True:
             await ws.receive_text()  # nothing is expected; this notices the disconnect
@@ -99,7 +104,11 @@ async def helper_ws(ws: WebSocket, s: Session = Depends(get_session)):
                 await ws.send_json({"type": "ack"})
                 continue
             if isinstance(ev, (SegmentEvent, AssistEvent)):
-                await _handle(s, device.user_id, ev)
+                try:
+                    await _handle(s, device.user_id, ev)
+                except Exception:  # acked anyway, or the helper resends it first on every reconnect and the outbox wedges
+                    s.rollback()
+                    log.exception("event %s %s rejected", ev.type, getattr(ev, "segment_id", ""))
             await ws.send_json({"type": "ack"})  # one per message, duplicates and junk included: the helper resends what is unacked
     except WebSocketDisconnect:
         pass
@@ -133,18 +142,18 @@ def _store_segment(s: Session, mid: int, ev: SegmentEvent) -> bool:
 
 def _store_assist(s: Session, mid: int, ev: AssistEvent) -> bool:
     a = s.scalar(select(Assist).where(Assist.assist_id == ev.assist_id))
+    if a is not None and a.kind is not None:
+        return False  # finished (kind is set by done): a resend of any phase changes nothing
     if ev.phase == "thinking":
-        hub.sentences[ev.assist_id] = {}
         if a is None:
             a = Assist(meeting_id=mid, assist_id=ev.assist_id)
             s.add(a)
         # a newer answer for the same turn replaces the card
         a.segment_id, a.question, a.answer, a.kind = ev.segment_id, ev.question, "", None
     elif ev.phase == "done":
-        if a is None or a.kind is not None:
-            return False  # no card to finish, or already finished: a resend
-        parts = hub.sentences.pop(ev.assist_id, {})
-        a.answer = "" if ev.kind == "not_in_material" else " ".join(parts[i] for i in sorted(parts))
+        if a is None:
+            return False
+        a.answer = ev.text  # the helper puts the whole shown answer here ("" for not_in_material)
         a.kind, a.from_brief = ev.kind or "not_in_material", ev.from_brief
         a.citations = [c.model_dump(mode="json") for c in ev.citations]
         a.first_words_ms, a.full_ms, a.rejected = ev.first_words_ms, ev.full_ms, ev.rejected
@@ -152,7 +161,5 @@ def _store_assist(s: Session, mid: int, ev: AssistEvent) -> bool:
             s.add(LlmCall(purpose=c.purpose, model=c.model, request={"text": c.request}, response={"text": c.response},
                           input_tokens=c.input_tokens, output_tokens=c.output_tokens, latency_ms=c.latency_ms,
                           status=c.status, error=c.error, meeting_id=mid))
-    elif ev.phase == "sentence" and ev.sentence_index is not None:
-        hub.sentences.setdefault(ev.assist_id, {})[ev.sentence_index] = ev.text
     s.commit()
     return True

@@ -123,6 +123,7 @@ def test_empty_library_falls_back():
     [call] = done.llm
     assert call.status == "ok" and call.purpose == "live_fallback" and call.request == Q
     assert claude.requests[0]["messages"] == [{"role": "user", "content": Q}]  # the question text only
+    assert done.text == claude.text  # the api stores the answer from done
 
 
 @pytest.mark.parametrize("error, reason", [(RetrievalError("weaviate down"), "retrieval_error"),

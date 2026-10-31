@@ -120,10 +120,12 @@ def redact_clients(text: str, client_names: list[str]) -> str:
 
 
 def redact_people(text: str, people: list[str]) -> str:
-    """Each attendee's full name and first/last name (3+ letters) becomes "someone"."""
-    words = {w for p in people for w in [p, *re.findall(r"[^\W\d_]{3,}", p)]}
+    """Each attendee's full name and each word of it becomes "someone", matched case-sensitively as written (Whisper
+    capitalises names; "max file size" stays). A name that opens a sentence is redacted even when it is also a word
+    ("Will you...?"): privacy over answer quality. "Priya's" becomes "someone's"; "Priyas" is a known limit."""
+    words = {w for p in people for w in [p, *re.findall(r"[^\W\d_]+", p)]}
     for w in sorted(words, key=len, reverse=True):
-        text = re.sub(rf"\b{re.escape(w)}(?:['’]s)?\b", "someone", text, flags=re.I)
+        text = re.sub(rf"\b{re.escape(w)}(?=(?:['’]s)?\b)", "someone", text)
     return text
 
 

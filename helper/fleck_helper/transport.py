@@ -68,6 +68,8 @@ class Transport:
                     self._session(ws)
             except (OSError, WebSocketException, httpx.HTTPError, TimeoutError) as e:
                 log.info("api link down (%s); retrying in %.1f s", type(e).__name__, delay)
+            except Exception:  # a bug (say in on_message) must not end delivery for the rest of the meeting
+                log.exception("transport error; retrying in %.1f s", delay)
             self._stop.wait(delay)
             delay = min(delay * 2, MAX_BACKOFF_S)
 
@@ -111,7 +113,9 @@ class Transport:
     def _upload(self, item: Path) -> None:
         job = json.loads(item.read_text())
         path = Path(job["path"])
-        if path.exists():
+        if not path.exists():
+            log.warning("chunk %s/%s: %s is gone; dropped", job["meeting_id"], job["seq"], path)
+        else:
             r = httpx.put(f"{self.api_url}/api/meetings/{job['meeting_id']}/audio/{job['seq']}", content=path.read_bytes(),
                           headers={"Authorization": f"Bearer {self.token}", "Content-Type": "audio/wav"}, timeout=30)
             if r.status_code >= 500 or r.status_code in (401, 429):

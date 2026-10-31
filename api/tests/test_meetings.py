@@ -73,3 +73,16 @@ def test_meeting_detail_notes_client_and_assist_used(env):
     assert d["notes"] == "hello" and d["assists"][0]["used_by"] == "manual" and d["segments"] == []
     assert [x["id"] for x in client.get("/api/meetings").json()] == [mid]
     assert client.get("/api/meetings/9999").status_code == 404
+
+
+def test_audio_put_is_for_the_recording_device_only(env):
+    client, gs, _ = env
+    mine = pair(env)
+    mid = client.post("/api/meetings", json={"title": "Mine"}, headers=mine).json()["id"]
+    assert client.put(f"/api/meetings/{mid}/audio/0", content=WAV).status_code == 401  # a cookie is not enough
+    client.cookies.clear()
+    _sign_in(client, gs, "priya@northbeam.test")
+    code = client.post("/api/devices/pairing-code").json()["code"]
+    token = client.post("/api/devices/pair", json={"code": code, "name": "Priya's Mac"}).json()["device_token"]
+    r = client.put(f"/api/meetings/{mid}/audio/0", content=WAV, headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 403

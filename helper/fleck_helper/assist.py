@@ -153,8 +153,14 @@ class Assistant:
 
         def work():
             events = self._answer(trigger, meeting_id, live.assist_id, prep, start_wall, live.cancel)
+            shown: dict[int, str] = {}  # what the card shows, by sentence index; the api stores it from `done`
             try:
                 for e in events:
+                    if e.phase == "sentence" and e.sentence_index is not None:
+                        shown[e.sentence_index] = e.text
+                    elif e.phase == "done":
+                        text = "" if e.kind == "not_in_material" else " ".join(t for _, t in sorted(shown.items()) if t)
+                        e = e.model_copy(update={"text": text})
                     q.put(e)
                     if live.cancel.is_set():
                         return

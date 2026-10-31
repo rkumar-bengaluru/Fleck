@@ -10,9 +10,9 @@ from sqlalchemy.orm import Session
 
 from fleck_api.auth import current_user
 from fleck_api.db import get_session
-from fleck_api.devices import user_or_device
+from fleck_api.devices import current_device, user_or_device
 from fleck_api.library import _minio
-from fleck_api.models import Assist, AudioChunk, Brief, BriefItem, CalendarEvent, Client, Meeting, Note, Segment, Summary, User
+from fleck_api.models import Assist, AudioChunk, Brief, BriefItem, CalendarEvent, Client, Device, Meeting, Note, Segment, Summary, User
 from fleck_api.realtime import hub
 
 router = APIRouter(prefix="/api")
@@ -55,13 +55,14 @@ async def create_meeting(body: MeetingIn, u: User = Depends(user_or_device), s: 
     s.add(m)
     s.flush()
     out = meeting_dict(s, m)
+    s.commit()  # before `start`: the helper may fetch the meeting or send events at once
     if body.start_helper:
         start = {"type": "start", "meeting_id": str(m.id), "event_id": body.event_id, "client_name": out["client_name"],
                  "people": out["people"]}
         if not await hub.to_helper(u.id, start):
-            s.rollback()
+            s.delete(m)
+            s.commit()
             raise HTTPException(409, "Desktop app not connected")
-    s.commit()
     return out
 
 
@@ -90,8 +91,9 @@ def get_meeting(meeting_id: int, _u: User = Depends(user_or_device), s: Session 
 
 
 @router.put("/meetings/{meeting_id}/audio/{seq}", status_code=204)
-async def put_audio(meeting_id: int, seq: int, request: Request, _u: User = Depends(user_or_device), s: Session = Depends(get_session)):
-    _meeting(s, meeting_id)
+async def put_audio(meeting_id: int, seq: int, request: Request, d: Device = Depends(current_device), s: Session = Depends(get_session)):
+    if _meeting(s, meeting_id).recorded_by != d.user_id:
+        raise HTTPException(403, "not your meeting")
     data = await request.body()
     if not data or len(data) > MAX_CHUNK:
         raise HTTPException(400, "empty or oversized audio chunk")

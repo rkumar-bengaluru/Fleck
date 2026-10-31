@@ -72,7 +72,7 @@ def test_assist_stored_once_on_done(env):
            "output_tokens": 2, "latency_ms": 5, "status": "ok"}
     with browser_of(client, mid) as browser, helper_of(client, auth) as helper:
         for e in (assist(mid, "thinking"), assist(mid, "sentence", sentence_index=0, text="Yes.", kind="general"),
-                  assist(mid, "done", kind="general", llm=[llm], full_ms=40),
+                  assist(mid, "done", kind="general", text="Yes.", llm=[llm], full_ms=40),
                   assist(mid, "done", kind="general", llm=[llm], full_ms=40)):
             helper.send_json(e)
         helper.send_json(seg(mid, 9))
@@ -82,6 +82,38 @@ def test_assist_stored_once_on_done(env):
         a = s.scalar(select(Assist))
         assert (a.answer, a.kind, a.full_ms) == ("Yes.", "general", 40)
         assert s.scalar(select(func.count()).select_from(LlmCall)) == 1
+
+
+def test_resent_answer_does_not_reopen_a_finished_card(env):
+    client, _, make = env
+    auth = pair(env)
+    mid = new_meeting(client, auth)
+    llm = {"purpose": "live_fallback", "model": "m", "request": "Can you?", "response": "Yes.", "input_tokens": 1,
+           "output_tokens": 2, "latency_ms": 5, "status": "ok"}
+    answer = [assist(mid, "thinking"), assist(mid, "sentence", sentence_index=0, text="Yes.", kind="general"),
+              assist(mid, "done", kind="general", text="Yes.", llm=[llm])]
+    with browser_of(client, mid) as browser, helper_of(client, auth) as helper:
+        for e in answer + answer:  # the acks were lost: everything comes again
+            helper.send_json(e)
+        helper.send_json(seg(mid, 9))
+        assert [browser.receive_json()["phase"] for _ in range(3)] == ["thinking", "sentence", "done"]
+        assert browser.receive_json()["segment_id"] == "c-9"  # nothing of the resend was relayed
+    with make() as s:
+        assert s.scalar(select(func.count()).select_from(LlmCall)) == 1
+        assert s.scalar(select(Assist.answer)) == "Yes."
+
+
+def test_event_that_fails_to_store_is_acked_and_the_socket_stays(env):
+    client, _, make = env
+    auth = pair(env)
+    mid = new_meeting(client, auth)
+    with helper_of(client, auth) as helper:
+        helper.send_json(seg(mid, 1, text="a\x00b"))  # NUL: postgres refuses it
+        assert helper.receive_json() == {"type": "ack"}
+        helper.send_json(seg(mid, 2))
+        assert helper.receive_json() == {"type": "ack"}
+    with make() as s:
+        assert s.scalar(select(Segment.segment_id)) == "c-2"
 
 
 def test_browser_ws_receives_helper_events(env):
@@ -124,10 +156,15 @@ def test_other_session_without_cookie_rejected(env):
     client, _, _ = env
     auth = pair(env)
     mid = new_meeting(client, auth)
+    sign_in_cookie = dict(client.cookies)
     client.cookies.clear()
     assert client.get(f"/api/meetings/{mid}").status_code == 401
     with pytest.raises(WebSocketDisconnect):
         with client.websocket_connect(f"/api/ws/meetings/{mid}"):
+            pass
+    with pytest.raises(WebSocketDisconnect):  # signed in, but from another site
+        client.cookies.update(sign_in_cookie)
+        with client.websocket_connect(f"/api/ws/meetings/{mid}", headers={"origin": "https://evil.test"}):
             pass
     with pytest.raises(WebSocketDisconnect):
         with client.websocket_connect("/api/ws/helper", headers={"Authorization": "Bearer nope"}):

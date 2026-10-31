@@ -111,11 +111,15 @@ def _fail(error: str) -> RedirectResponse:
     return r
 
 
+def allowed_origins() -> set[str]:
+    return {setting("FLECK_WEB_URL", "http://localhost:5173").rstrip("/"), setting("FLECK_PUBLIC_API_URL", "http://localhost:8000").rstrip("/")}
+
+
 def origin_guard_allowed(request: Request) -> bool:
     """CSRF defence for cookie-authenticated writes: a browser always sends Origin (or Referer) cross-origin."""
     if request.method in ("GET", "HEAD", "OPTIONS") or not request.url.path.startswith("/api") or COOKIE not in request.cookies:
         return True
-    ok = {setting("FLECK_WEB_URL", "http://localhost:5173").rstrip("/"), setting("FLECK_PUBLIC_API_URL", "http://localhost:8000").rstrip("/")}
+    ok = allowed_origins()
     origin = request.headers.get("origin")
     if origin is None and (ref := request.headers.get("referer")):
         u = urlparse(ref)

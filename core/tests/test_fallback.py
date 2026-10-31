@@ -167,6 +167,16 @@ def test_question_only_redacts_attendees_and_meeting_client(turn, gone):
     assert not any(g in ask for g in gone), ask
 
 
+@pytest.mark.parametrize("turn, ask", [
+    ("Did Li's group test it?", "Did someone's group test it?"),
+    ("Priya's team on our side, will they own it?", "someone's team on our side, will they own it?"),
+    ("Will you support SSO?", "someone you support SSO?"),  # opens a sentence: redacted, privacy over quality
+    ("What is the max file size?", "What is the max file size?"),
+])
+def test_question_only_name_words_are_case_sensitive_and_short_names_count(turn, ask):
+    assert question_only(turn, [], ["Wei Li", "Priya Shah", "Will Turner", "Max Ng"]) == ask
+
+
 def test_cancel_ends_with_a_discarded_result():
     cancel = threading.Event()
 

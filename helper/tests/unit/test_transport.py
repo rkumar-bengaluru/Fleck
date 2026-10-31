@@ -52,3 +52,40 @@ def test_unsent_items_survive_a_restart(tmp_path):
     t2.close()
     api.close()
     assert [e["segment_id"] for e in api.got] == ["c-0"]
+
+
+def test_a_failing_on_message_does_not_end_delivery(tmp_path):
+    class Api(FakeApi):
+        first = True
+
+        def _handle(self, ws):
+            if self.first:  # only the first connection greets with a message
+                self.first = False
+                ws.send('{"type": "stop"}')
+            super()._handle(ws)
+
+    api = Api(drop_after=99)
+    calls = []
+
+    def boom(msg):
+        calls.append(msg)
+        raise RuntimeError("bug in the handler")
+
+    t = Transport(api.url, "tok", tmp_path, on_message=boom)
+    deadline = time.time() + 5
+    while not calls and time.time() < deadline:
+        time.sleep(0.05)
+    t.send({"type": "segment", "segment_id": "c-0"})  # after the failure, over the reconnected link
+    while t.pending() and time.time() < deadline + 5:
+        time.sleep(0.05)
+    t.close()
+    api.close()
+    assert t._thread.is_alive() is False and [e["segment_id"] for e in api.got] == ["c-0"]
+
+
+def test_a_missing_chunk_is_logged_and_dropped(tmp_path, caplog):
+    t = Transport("http://127.0.0.1:1", "tok", tmp_path / "box")
+    t.close()
+    t.upload_chunk("7", 0, tmp_path / "gone.wav")
+    t._upload(t._items()[0])
+    assert t.pending() == 0 and "gone.wav" in caplog.text

@@ -483,3 +483,8 @@ Follow-ups that must be done before the MVP is done:
 - The realtime tests hung at first, for two reasons: Starlette's TestClient gives each websocket its own event loop unless the client is entered with `with client`, and a browser socket that connects after the helper's send misses it. The fix is `with client` in the tests and the `meeting_state` greeting a test waits for. A Core insert's `rowcount` was not 1 after `ON CONFLICT DO NOTHING`; the dedup reads `RETURNING id` instead.
 - `uv run pytest -m "not ollama" -q`: 498 passed, 1 failed (`test_every_api_route_is_guarded`: `/api/devices/pair` is open by design), fixed by exempting it; that file then 17 passed. No WAV replay, no e2e, nothing touched in the real keychain (a `MemoryKeyring` backend in `test_cli.py`).
 - Not done here: `fleck-helper run` (Task 18), brief items in `replay` (the meeting detail carries no question vectors), the web client's use of the websocket.
+
+### Task 15 fix round 1 (2026-10-31)
+
+- Review items I1-I6, M1-M3, M9 fixed with a test each (resent answer, audio ownership, `Did Li's group test it?`, failing `on_message`, poison event, missing chunk, foreign Origin). `done.text` now carries the shown answer and `hub.sentences` is gone (events.py unchanged, so no regeneration of web/src/events.ts). Redaction rulings are decision 116; 115(b) and (c) corrected.
+- A browser socket opens a short DB session (honouring `dependency_overrides`) for its checks only.

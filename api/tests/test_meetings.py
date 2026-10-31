@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select, update
 
-from fleck_api.models import Assist, AudioChunk, CalendarEvent, Meeting, PairingCode, User
+from fleck_api.models import Assist, AudioChunk, CalendarEvent, Job, LlmCall, Meeting, PairingCode, User
 from test_auth import _sign_in, env  # noqa: F401  (env is a fixture)
 
 WAV = b"RIFF\x24\x00\x00\x00WAVEfmt " + b"\x00" * 24
@@ -69,7 +69,7 @@ def test_meeting_detail_notes_client_and_assist_used(env):
     r = client.patch("/api/assists/a1", json={"used": True})
     assert r.status_code == 200 and r.json()["used"] is True and r.json()["used_by"] == "manual"
     d = client.get(f"/api/meetings/{mid}").json()
-    assert set(d) == {"meeting", "segments", "assists", "notes", "summary", "brief"}
+    assert set(d) == {"meeting", "segments", "assists", "notes", "summary", "brief", "cost_usd"}
     assert d["notes"] == "hello" and d["assists"][0]["used_by"] == "manual" and d["segments"] == []
     assert [x["id"] for x in client.get("/api/meetings").json()] == [mid]
     assert client.get("/api/meetings/9999").status_code == 404
@@ -109,3 +109,46 @@ def test_the_helper_reads_me_events_meetings_and_stops_with_its_device_token(env
     assert client.get(f"/api/meetings/{m['id']}", headers=auth).json()["meeting"]["status"] == "processing"
     for path in ("/api/me", "/api/events"):
         assert client.get(path, headers={"Authorization": "Bearer nope"}).status_code == 401
+
+
+def test_detail_has_claude_cost_total_and_recorder(env):
+    client, _, make = env
+    pair(env)
+    mid = client.post("/api/meetings", json={"title": "Costly"}).json()["id"]
+    with make() as s:
+        s.add_all([LlmCall(purpose="summary", model="m", meeting_id=mid, cost_usd=0.05), LlmCall(purpose="chat", model="m", meeting_id=mid, cost_usd=0.012),
+                   LlmCall(purpose="other", model="m", meeting_id=mid), LlmCall(purpose="elsewhere", model="m", cost_usd=9)])
+        s.commit()
+    d = client.get(f"/api/meetings/{mid}").json()
+    assert d["cost_usd"] == 0.062 and d["meeting"]["recorded_by_name"]
+    empty = client.post("/api/meetings", json={"title": "Free"}).json()["id"]
+    assert client.get(f"/api/meetings/{empty}").json()["cost_usd"] == 0
+
+
+def test_meetings_list_newest_first(env):
+    client, _, make = env
+    pair(env)
+    a = client.post("/api/meetings", json={"title": "Older"}).json()["id"]
+    b = client.post("/api/meetings", json={"title": "Newer"}).json()["id"]
+    with make() as s:
+        s.get(Meeting, a).started_at = datetime.now(timezone.utc) - timedelta(days=2)
+        s.commit()
+    assert [m["id"] for m in client.get("/api/meetings").json()] == [b, a]
+
+
+def test_retry_requeues_only_a_failed_meeting_once(env):
+    client, _, make = env
+    pair(env)
+    mid = client.post("/api/meetings", json={"title": "Broke"}).json()["id"]
+    assert client.post(f"/api/meetings/{mid}/retry").status_code == 204  # still recording: nothing to retry
+    with make() as s:
+        assert s.get(Meeting, mid).status == "recording" and s.scalar(select(func.count()).select_from(Job).where(Job.kind == "process_meeting")) == 0
+        s.get(Meeting, mid).status, s.get(Meeting, mid).failure_reason = "failed", "boom"
+        s.commit()
+    for _ in range(2):
+        assert client.post(f"/api/meetings/{mid}/retry").status_code == 204
+    with make() as s:
+        m = s.get(Meeting, mid)
+        assert m.status == "processing" and m.failure_reason is None
+        assert s.scalar(select(func.count()).select_from(Job).where(Job.kind == "process_meeting")) == 1
+    assert client.post("/api/meetings/9999/retry").status_code == 404

@@ -13,7 +13,7 @@ from fleck_api.db import get_session
 from fleck_api.devices import current_device, user_or_device
 from fleck_api.jobs import enqueue
 from fleck_api.library import _minio
-from fleck_api.models import Assist, AudioChunk, Brief, BriefItem, CalendarEvent, Client, Device, Meeting, Note, Segment, Summary, User
+from fleck_api.models import Assist, AudioChunk, Brief, BriefItem, CalendarEvent, Client, Device, LlmCall, Meeting, Note, Segment, Summary, User
 from fleck_api.realtime import hub
 
 router = APIRouter(prefix="/api")
@@ -85,13 +85,14 @@ def get_meeting(meeting_id: int, _u: User = Depends(user_or_device), s: Session 
     brief = s.scalar(select(Brief).where(Brief.event_id == m.event_id)) if m.event_id else None
     items = list(s.scalars(select(BriefItem).where(BriefItem.brief_id == brief.id).order_by(BriefItem.id))) if brief else []
     return {
-        "meeting": meeting_dict(s, m) | {"library_clients": list(s.scalars(select(Client.name).order_by(Client.name)))},
+        "meeting": meeting_dict(s, m) | {"recorded_by_name": (s.get(User, m.recorded_by).name or "") if m.recorded_by else "", "library_clients": list(s.scalars(select(Client.name).order_by(Client.name)))},
         "segments": [_row(x, "segment_id", "stream", "start_ms", "end_ms", "text", "gate")
                      for x in s.scalars(select(Segment).where(Segment.meeting_id == m.id).order_by(Segment.start_ms, Segment.id))],
         "assists": [_row(x, "assist_id", "segment_id", "question", "answer", "kind", "from_brief", "citations", "first_words_ms",
                          "full_ms", "rejected", "used", "used_by") for x in s.scalars(select(Assist).where(Assist.meeting_id == m.id).order_by(Assist.id))],
         "notes": note.text if note else "",
         "summary": summary.items if summary else None,
+        "cost_usd": s.scalar(select(func.coalesce(func.sum(LlmCall.cost_usd), 0.0)).where(LlmCall.meeting_id == m.id)),
         "brief": {"status": brief.status, "items": [_row(i, "topic", "question", "answer", "kind", "citations") for i in items]} if brief else None,
     }
 
@@ -151,6 +152,17 @@ async def stop_meeting(meeting_id: int, u: User = Depends(user_or_device), s: Se
         # 15 s for the helper's last chunks to arrive; nothing to wait for when it is offline
         enqueue(s, "process_meeting", {"meeting_id": m.id}, func.now() + timedelta(seconds=15) if sent else None)  # commits both
         await hub.to_browsers(m.id, {"type": "meeting_state", "meeting_id": str(m.id), "status": "processing"})
+    else:
+        s.rollback()
+
+
+@router.post("/meetings/{meeting_id}/retry", status_code=204)
+def retry_meeting(meeting_id: int, _u: User = Depends(current_user), s: Session = Depends(get_session)):
+    _meeting(s, meeting_id)
+    won = s.execute(update(Meeting).where(Meeting.id == meeting_id, Meeting.status == "failed")
+                    .values(status="processing", failure_reason=None).returning(Meeting.id)).first()
+    if won:  # one conditional UPDATE, like Stop: a double click enqueues once
+        enqueue(s, "process_meeting", {"meeting_id": meeting_id})  # commits both
     else:
         s.rollback()
 

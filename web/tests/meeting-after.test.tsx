@@ -1,0 +1,104 @@
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import MeetingAfter from "../src/routes/MeetingAfter";
+
+const rate = { doc_id: "d1", chunk_id: "c1", title: "Rate card FY2026", client: null, kind: "firm" };
+const a = (n: number, o: object = {}) => ({ assist_id: `a${n}`, segment_id: `s${n}`, question: `Question ${n}?`, answer: `Answer ${n}.`, kind: "library",
+  from_brief: false, citations: [rate], first_words_ms: 900, full_ms: 2000, rejected: [], used: true, used_by: "auto", ...o });
+
+let state: any;
+let calls: { method: string; url: string; body?: string }[];
+
+beforeEach(() => {
+  calls = [];
+  state = {
+    meeting: { id: 5, title: "Presales: Harbourline", status: "ready", failure_reason: null, started_at: "2026-10-30T11:00:00Z", ended_at: "2026-10-30T11:44:00Z",
+      recorded_by_name: "Rupak K.", attendees: [] },
+    segments: [1, 2, 3].map(n => ({ segment_id: `s${n}`, stream: n === 2 ? "client" : "you", start_ms: n * 60_000, end_ms: n * 60_000 + 3000, text: `Line ${n}`, gate: null })),
+    assists: [a(1), a(2, { used: false, kind: "general" }), a(3, { used: false, used_by: "manual", kind: "not_in_material", citations: [] })],
+    notes: "", cost_usd: 0.062,
+    summary: [{ heading: "Key points", items: [{ user_text: "Dana owns the NDA backlog", ai_text: "and wants a first pass under an hour." }] }],
+  };
+  vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+    calls.push({ method: init?.method ?? "GET", url, body: init?.body as string | undefined });
+    if (url === "/api/meetings/5") return new Response(JSON.stringify(state), { status: 200 });
+    if (url.startsWith("/api/assists/")) return new Response(JSON.stringify({}), { status: 200 });
+    return new Response(null, { status: 204 });
+  }));
+  window.HTMLMediaElement.prototype.play = vi.fn(async () => {});
+  window.HTMLMediaElement.prototype.pause = vi.fn();
+});
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+const open = async () => {
+  render(<MemoryRouter initialEntries={["/meetings/5"]}><Routes><Route path="/meetings/:id" element={<MeetingAfter id="5" />} /></Routes></MemoryRouter>);
+  await screen.findByRole("heading", { name: "Presales: Harbourline" });
+};
+
+test("header shows the recorder, length and Claude cost", async () => {
+  await open();
+  expect(screen.getByText(/44 min\. Recorded by Rupak K\./)).toBeTruthy();
+  expect(screen.getByText("Claude cost $0.06")).toBeTruthy();
+});
+
+test("test_used_toggle_patches_and_shows_by_hand", async () => {
+  await open();
+  const row = screen.getByRole("article", { name: "Question 2?" });
+  fireEvent.click(within(row).getByRole("button", { name: "Not used, auto" }));
+  await within(row).findByRole("button", { name: "Used, by hand" });
+  expect(calls.find(c => c.url === "/api/assists/a2")).toMatchObject({ method: "PATCH", body: JSON.stringify({ used: true }) });
+  expect(within(screen.getByRole("article", { name: "Question 1?" })).getByRole("button", { name: "Used, auto" })).toBeTruthy();
+  expect(within(screen.getByRole("article", { name: "Question 3?" })).getByRole("button", { name: "Not used, by hand" })).toBeTruthy();
+});
+
+test("test_user_text_and_ai_text_styled_differently", async () => {
+  await open();
+  const mine = screen.getByText("Dana owns the NDA backlog");
+  const claude = screen.getByText("and wants a first pass under an hour.");
+  expect(mine.className).toBe("user-text");
+  expect(claude.className).toBe("ai-text");
+  expect(screen.getByText("Your words")).toBeTruthy();
+  expect(screen.getByText("Added by Claude")).toBeTruthy();
+});
+
+test("test_timeline_marker_per_assist", async () => {
+  await open();
+  const tl = screen.getByRole("group", { name: "Recording timeline" });
+  const marks = within(tl).getAllByRole("button");
+  expect(marks.length).toBe(3);
+  expect(marks[1].getAttribute("aria-label")).toBe("Jump to 2:00, General knowledge");
+  expect(marks[1].className).toContain("tl-general");
+});
+
+test("the Transcript tab lists lines with clickable timestamps; Chat is a placeholder", async () => {
+  await open();
+  fireEvent.click(screen.getByRole("button", { name: "Transcript" }));
+  expect(screen.getByText("Line 2")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Play from 2:00" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Chat" }));
+  expect(screen.getByText("Chat arrives in a later build")).toBeTruthy();
+});
+
+test("processing polls every 3 s until ready", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  state.meeting.status = "processing"; state.summary = null;
+  render(<MemoryRouter><MeetingAfter id="5" /></MemoryRouter>);
+  await screen.findByText("Processing the recording…");
+  state.meeting.status = "ready";
+  await act(async () => { await vi.advanceTimersByTimeAsync(3100); });
+  await waitFor(() => expect(screen.queryByText("Processing the recording…")).toBeNull());
+  const n = calls.length;
+  await act(async () => { await vi.advanceTimersByTimeAsync(7000); });
+  expect(calls.length).toBe(n);  // stopped polling
+});
+
+test("failed shows the reason and Try again re-enqueues", async () => {
+  state.meeting.status = "failed"; state.meeting.failure_reason = "RuntimeError: ffmpeg failed";
+  await open();
+  expect(screen.getByText(/ffmpeg failed/)).toBeTruthy();
+  state.meeting.status = "processing"; state.meeting.failure_reason = null;
+  fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+  await screen.findByText("Processing the recording…");
+  expect(calls.some(c => c.method === "POST" && c.url === "/api/meetings/5/retry")).toBe(true);
+});

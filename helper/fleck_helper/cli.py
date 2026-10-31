@@ -3,6 +3,7 @@ import argparse
 import os
 import socket
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -84,10 +85,28 @@ def make_assistant(m: dict, fallback: str):
                      people=m["people"])
 
 
+class UploadingSource:
+    """Passes a source's frames through and uploads them as 10 s chunks, as a live recording does."""
+
+    def __init__(self, source, writer, upload):
+        self.source, self.writer, self.upload = source, writer, upload
+
+    def frames(self):
+        from fleck_helper.audio import Frame
+        try:
+            for item in self.source.frames():
+                if isinstance(item, Frame) and (done := self.writer.push(item)):
+                    self.upload(*done)
+                yield item
+        finally:
+            if done := self.writer.close():
+                self.upload(*done)
+
+
 def replay(wav: Path, meeting: str, fallback: str) -> None:
     """A WAV through the live path (pipeline, assistant) to the api, as if it were a call."""
     from fleck_core.events import SegmentEvent
-    from fleck_helper.audio import ReplaySource
+    from fleck_helper.audio import AudioChunkWriter, ReplaySource
     from fleck_helper.pipeline import Candidate, Pipeline, Trigger
     from fleck_helper.transport import Transport
 
@@ -96,7 +115,10 @@ def replay(wav: Path, meeting: str, fallback: str) -> None:
     assistant = make_assistant(m, fallback)
     transport = Transport(api_url(), token)
     threads = []
-    for e in Pipeline(meeting).run(ReplaySource(wav, realtime=True)):
+    chunks = tempfile.TemporaryDirectory()  # the transport deletes each chunk once the api has it
+    source = UploadingSource(ReplaySource(wav, realtime=True), AudioChunkWriter(Path(chunks.name)),
+                             lambda seq, path: transport.upload_chunk(meeting, seq, path))
+    for e in Pipeline(meeting).run(source):
         if isinstance(e, SegmentEvent):
             transport.send(e)
         elif isinstance(e, Candidate):
@@ -108,6 +130,7 @@ def replay(wav: Path, meeting: str, fallback: str) -> None:
     while transport.pending():  # let the outbox drain before exiting
         time.sleep(0.1)
     transport.close()
+    chunks.cleanup()
 
 
 def main(argv: list[str] | None = None) -> None:

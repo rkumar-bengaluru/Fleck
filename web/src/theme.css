@@ -100,3 +100,42 @@ h1 { margin: 0; font-size: 34px; line-height: 1.15; font-weight: 700; }
 .chip-title { font-size: 14px; }
 .chip-note { font-size: 13px; color: var(--muted); }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* After the meeting, from docs/superpowers/mockups/WebAfter.dc.html */
+.upcoming-list { list-style: none; margin: 0; }
+.muted { color: var(--muted); font-size: 14px; margin: 0; }
+.after-head { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.after-title { flex: 1; min-width: 220px; }
+.after-title h1 { font-size: 22px; }
+.after-title .subtitle { margin: 0; font-size: 14px; }
+.player { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.play { width: 40px; height: 40px; border-radius: 50%; border: none; background: var(--ink); color: #FFFFFF; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.play:disabled { opacity: .4; cursor: default; }
+.tl-time { font-size: 14px; color: var(--muted); width: 44px; }
+.tl-time.end { text-align: right; }
+.tl-none { font-size: 14px; color: var(--muted); }
+.tl { flex: 1; min-width: 200px; position: relative; height: 36px; }
+.tl-bar, .tl-played { position: absolute; left: 0; top: 16px; height: 4px; border-radius: 2px; background: var(--line); }
+.tl-played { background: var(--dash); }
+.tl-mark { position: absolute; top: 4px; width: 8px; height: 28px; border-radius: 3px; border: none; padding: 0; cursor: pointer; background: var(--teal); }
+.tl-general { background: #C98A16; } .tl-reference { background: #7A5FCC; }
+.tl-not_in_material { background: repeating-linear-gradient(45deg, #6B7682 0 3px, var(--line) 3px 6px); }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
+.tabs button { padding: 10px 14px; border: none; border-bottom: 3px solid transparent; background: none; font: inherit; color: var(--muted); cursor: pointer; }
+.tabs button[aria-current="page"] { border-bottom-color: var(--teal); color: var(--ink); font-weight: 700; }
+.after-card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px 24px; display: flex; flex-direction: column; gap: 14px; margin: 0; }
+.after-card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.after-card h2 { margin: 0; font-size: 20px; }
+.helped { display: grid; grid-template-columns: 56px 1fr auto; gap: 12px; padding: 12px 0; border-top: 1px solid var(--rule); align-items: start; }
+.helped-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.helped-q { font-weight: 700; }
+.helped-a { font-size: 15px; color: var(--body); line-height: 1.5; }
+.link { border: none; background: none; padding: 0; font: inherit; font-size: 14px; color: var(--teal); text-decoration: underline; cursor: pointer; text-align: left; }
+.used { height: 32px; padding: 0 12px; border-radius: 16px; border: 1px solid var(--field); background: var(--card); color: var(--body); font-size: 13px; cursor: pointer; white-space: nowrap; }
+.used.on { border-color: var(--teal); background: var(--teal); color: #FFFFFF; font-weight: 700; }
+.key { display: flex; gap: 14px; font-size: 14px; }
+.user-text { color: var(--ink); font-weight: 700; }
+.key .user-text { font-weight: 700; }
+.ai-text { color: #6B7682; }
+.notes-section h3 { margin: 0 0 6px; font-size: 16px; }
+.notes-section ul { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; font-size: 16px; line-height: 1.55; }

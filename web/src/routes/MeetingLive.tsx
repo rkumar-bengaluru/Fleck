@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api, setTitle } from "../api";
+import MeetingAfter from "./MeetingAfter";
 import NotesEditor from "../components/NotesEditor";
 import Transcript from "../components/Transcript";
 import { useMeetingStream } from "../hooks/useMeetingStream";
@@ -18,7 +19,7 @@ export default function MeetingLive() {
   if (error && !meeting) return <p className="error" role="alert">Couldn't load this meeting.</p>;
   if (!meeting) return null;
   const guests = meeting.attendees.filter(a => !a.self).map(a => a.name || a.email?.split("@")[0] || "Guest");
-  const recording = status === "recording";
+  if (status !== "recording") return <MeetingAfter id={id} />;  // processing, ready or failed (Task 19)
   return (
     <>
       <header className="live-head">
@@ -26,11 +27,9 @@ export default function MeetingLive() {
           <h1>{meeting.title}</h1>
           {guests.length > 0 && <div className="subtitle">{guests.join(", ")}</div>}
         </div>
-        {recording
-          ? <div className="rec"><span className="rec-dot" />Recording {clock(now - new Date(meeting.started_at).getTime())}</div>
-          : <div className="rec off">{status === "processing" ? "Processing" : "Meeting ended"}</div>}
-        {recording && <button type="button" className="btn-stop" disabled={stopping}
-          onClick={() => { setStopping(true); setStopFailed(false); api(`/api/meetings/${id}/stop`, { method: "POST" }).catch(() => { setStopping(false); setStopFailed(true); }); }}>Stop</button>}
+        <div className="rec"><span className="rec-dot" />Recording {clock(now - new Date(meeting.started_at).getTime())}</div>
+        <button type="button" className="btn-stop" disabled={stopping}
+          onClick={() => { setStopping(true); setStopFailed(false); api(`/api/meetings/${id}/stop`, { method: "POST" }).catch(() => { setStopping(false); setStopFailed(true); }); }}>Stop</button>
         {stopFailed && <span className="error" role="alert">Couldn't stop the recording. Try again.</span>}
       </header>
       <div className="live-grid">

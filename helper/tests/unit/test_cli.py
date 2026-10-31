@@ -97,3 +97,15 @@ def test_a_key_saved_after_launch_is_picked_up(kr, monkeypatch):
     assert cli.load_claude_key() is False  # launched without a key: the menu warns
     kr.store[("ai.fleck.helper", "anthropic_api_key")] = "sk-later"  # fleck-helper set-claude-key meanwhile
     assert cli.load_claude_key() is True  # the next menu refresh or recording start clears the warning
+
+
+def test_replay_uploads_its_audio_in_10_s_chunks(tmp_path):
+    import wave
+    from fleck_helper.audio import AudioChunkWriter, ReplaySource
+    with wave.open(str(tmp_path / "a.wav"), "wb") as w:
+        w.setnchannels(2); w.setsampwidth(2); w.setframerate(16000)
+        w.writeframes(b"\x01\x00" * 2 * 16000 * 25)
+    sent = []
+    src = cli.UploadingSource(ReplaySource(tmp_path / "a.wav", realtime=False), AudioChunkWriter(tmp_path / "c"), lambda seq, p: sent.append((seq, p.exists())))
+    assert len(list(src.frames())) == 1250
+    assert sent == [(0, True), (1, True), (2, True)]  # two full chunks and the 5 s tail

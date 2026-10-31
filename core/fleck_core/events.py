@@ -23,8 +23,8 @@ class SegmentEvent(_Event):
 
 
 class LlmCall(_Event):
-    """A Claude call made for this assist (the live fallback), for the api's llm_calls trace. "discarded": a
-    speculative call whose answer was never shown (the library answered, or the question changed)."""
+    """A Claude call made for this assist (the live fallback), for the api's llm_calls trace. "discarded": cut
+    before its end because a newer answer for the same turn superseded it."""
     purpose: str
     model: str
     request: str  # the only text sent: the question
@@ -36,7 +36,6 @@ class LlmCall(_Event):
     error: str | None = None
     started_at: int | None = None  # ms from the question's end to the request (negative: sent before it ended)
     first_text_at: int | None = None  # ms from the question's end to Claude's first text token
-    speculative: bool = False  # started at prepare(), beside the library answer (decision 109)
 
 
 class AssistEvent(_Event):

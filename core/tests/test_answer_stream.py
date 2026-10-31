@@ -330,14 +330,34 @@ def test_bare_number_never_adds_a_second_citation():
     assert [c.title for c in ev[-1].check.citations] == ["Delivery FAQ"]
 
 
-@pytest.mark.parametrize("meta", ["This is from passage [2].", "According to the passages, mixed teams are common [2].",
-                                  "The passage says mixed teams are common [2].", "The passages state this [2].",
+@pytest.mark.parametrize("meta", ["This is from passage [2].", "According to the passages, yes [2].",
+                                  "The source says so [2].", "The passages state this [2].",
+                                  "The passages do not cover this [2].",
                                   "Based on the provided passages, yes [2].", "This comes from the source [2].",
                                   "This is from [2].", "This is mentioned in passage [2]."])
 def test_meta_sentence_is_removed(meta):
     ev = run(["Mixed teams are common [2]. ", meta])
     assert sents(ev) == [(0, "Mixed teams are common.", True, None), (1, "", False, "meta")]
     assert ev[-1].check.ok and "meta" in ev[-1].check.reasons
+
+
+TERMS = Passage(n=1, doc_id="d3", chunk_id="d3-0", title="Delivery FAQ", client=None, kind="firm",
+                text="Delivery FAQ · Terms\nLiability is capped at twelve months of fees. The client owns the IP on "
+                     "payment. Source code escrow terms apply.")
+POD = Passage(n=2, doc_id="d2", chunk_id="d2-1", title="Delivery FAQ", client=None, kind="firm",
+              text="Delivery FAQ · How fast can you start?\nA pod can start within two weeks of signing.")
+
+
+@pytest.mark.parametrize("reply, kept", [
+    ("The document states liability is capped at twelve months of fees [1].", "Liability is capped at twelve months of fees."),
+    ("According to the documents, the client owns the IP on payment [1].", "The client owns the IP on payment."),
+    ("Based on the provided passages, a pod can start within two weeks [2].", "A pod can start within two weeks."),
+    ("The passages show a pod can start within two weeks [2].", "A pod can start within two weeks."),
+    ("It is in the source code escrow terms [2].", "It is in the source code escrow terms."),
+])
+def test_a_meta_lead_in_is_cut_and_the_answer_kept(reply, kept):
+    ev = run([reply], passages=(TERMS, POD))
+    assert sents(ev) == [(0, kept, True, None)] and ev[-1].check.ok
 
 
 def test_meta_only_answer_is_not_in_material():

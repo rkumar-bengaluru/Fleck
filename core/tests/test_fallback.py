@@ -93,6 +93,16 @@ def test_price_split_across_tokens_is_never_shown(chunk):
     assert not ev[-1].ok and "currency" in ev[-1].reasons and "Most firms charge $120" in ev[-1].text
 
 
+@pytest.mark.parametrize("text, never", [("Typically it costs five thousand dollars.", "fi"),
+                                         ("It takes about two lakh rupees.", "two"),
+                                         ("We usually see this.", "W")])
+@pytest.mark.parametrize("chunk", [1, 2, 3])
+def test_half_words_never_flash(text, never, chunk):
+    ev = stream(text, chunk=chunk)
+    seen = [shown(ev[: k + 1], 0) for k in range(len(ev))]  # the panel after each event
+    assert all(never not in t for t in seen) and not ev[-1].ok
+
+
 def test_result_carries_wall_times():
     *_, r = stream("It depends.")
     assert r.started and r.first_text and r.started <= r.first_text <= time.time()

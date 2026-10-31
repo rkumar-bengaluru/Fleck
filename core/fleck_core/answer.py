@@ -83,13 +83,25 @@ _EOS = object()
 _PARTIAL_MARK = re.compile(r"\s*[\[(【][\d,\s]*$")
 _NUMBER_WORD_TAIL = re.compile(r"\s*\b(?:one|two|an?)\s*$", re.I)  # "need one" becomes a figure once "engineer" comes
 # replies that mean NONE: handed to the fallback like NONE itself
-# A sentence about the passages instead of the question ("This is from passage [1].") is never shown (reason "meta")
-_SRC = r"(?:provided |given |above |cited )?(?:passages?|sources?|documents?)"
-_META = re.compile(rf"\b(?:this|that|it) (?:is|comes|was) (?:taken |mentioned |stated )?(?:from|in) (?:the )?{_SRC}"
-                   r"|^\W*(?:this|that|it) (?:is|comes|was) (?:taken |mentioned |stated )?(?:from|in)\W*(?:\[\d+\]\W*)*$"
-                   rf"|\baccording to (?:the )?{_SRC}"
-                   rf"|\b(?:the|this|that) {_SRC} (?:says?|states?|mentions?|shows?|notes?|indicates?|do(?:es)? not)\b"
-                   rf"|\bbased on (?:the )?{_SRC}", re.I)
+# A sentence only about the passages ("This is from passage [1].") is never shown (reason "meta"); a lead-in
+# ("According to the documents, …") is cut off and the rest kept
+_SRC = r"(?:provided |given |above |cited )?(?:passages?|sources?|documents?)\b"
+_META = re.compile(rf"\b(?:this|that|it) (?:is|comes|was) (?:taken |mentioned |stated )?(?:from|in)(?: (?:the )?{_SRC})?"
+                   rf"|\b(?:the|this|that) {_SRC} do(?:es)? not\b", re.I)
+_LEAD_IN = re.compile(rf"^\W*(?:(?:according to|based on) (?:the )?{_SRC}|(?:the|this|that) {_SRC} "
+                      r"(?:says?|states?|mentions?|shows?|notes?|indicates?)(?: that)?)\W*", re.I)
+
+
+def _meta(piece: str) -> str | None:
+    """None when the sentence says nothing beyond where it came from (fewer than 3 other words, markers aside);
+    else the sentence, its lead-in cut off."""
+    m = _META.search(piece)
+    rest = piece[: m.start()] + piece[m.end():] if m else _LEAD_IN.sub("", piece)
+    if (m or rest != piece) and len(re.findall(r"\w+", re.sub(r"\[\d+\]", "", rest))) < 3:
+        return None
+    if m or rest == piece:
+        return piece
+    return rest[:1].upper() + rest[1:]
 # a bare number after these names a passage in prose, it is not a citation
 _NAMES_A_PART = re.compile(r"\b(?:passage|source|document|section|clause|article|page|item|step)s?\W*$", re.I)
 _NONE_FORMS = ("none of the passages", "none of the provided passages", "the passages do not", "the passages don't", "the passages does not",
@@ -192,16 +204,16 @@ def stream_library_answer(question: str, passages: list[Passage], client_names: 
             n -= 1  # "... end. [" or "... end. 1": the citation marker is still arriving
         for piece in pieces[:n]:
             pos = text.index(piece, pos) + len(piece)
-            checked = check_library_answer(piece, passages, client_names, question).sentences
-            sc = checked[0] if checked else None
             first_words = first_words if first_words is not None else ms()
-            if _META.search(piece):  # never shown, never lends or takes a citation
+            if (piece := _meta(piece)) is None:  # never shown, never lends or takes a citation
                 if pending:
                     yield remove(pending[0], "uncited")
                     pending = None
                 yield remove(index, "meta")
                 index, shown, held = index + 1, "", False
                 continue
+            checked = check_library_answer(piece, passages, client_names, question).sentences
+            sc = checked[0] if checked else None
             if not sc or not sc.cited:
                 if pending:  # one level of carry only: the older uncited sentence goes
                     yield remove(pending[0], "uncited")

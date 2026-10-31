@@ -38,7 +38,6 @@ export interface LlmCall {
   error: string | null;
   started_at: number | null;
   first_text_at: number | null;
-  speculative: boolean;
 }
 
 export interface MeetingStateEvent {

@@ -449,3 +449,8 @@ Live §8 questions (title, kind, nearest-vector distance):
   - Latency gates per rupak.k (decision 112; spec 5 amended): library/brief first words p95 <= 3 s and done <= 6 s, Claude first words p95 <= 5 s, "Not in our material" reported, all pooled. `measure_e2e.py --runs N`.
   - Tests: not ollama 468 passed, helper unit 129 passed, both EXIT 0.
   - e2e `--runs 2`: recall 8/8, false triggers 0, §8 all as expected in both runs; pooled library first p95 1.80 s, done p95 2.26 s; Claude first p95 2.17 s; Not in our material 1.23 s. PASS.
+- Fix round 4 (re-review 1):
+  - R1-2: meta removal only for content-free sentences; lead-ins cut and the answer kept; `\b` after the source nouns (decision 111 amended).
+  - R1-1: fallback deltas stop at the last whitespace.
+  - Win 1 (decision 109 b) withdrawn and its code and tests removed: Claude is called only after the library route came up empty. The no-content HEAD warm (decision 110) stays.
+  - Tests: not ollama and helper unit only, no replays.

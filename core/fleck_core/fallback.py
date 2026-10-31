@@ -148,7 +148,8 @@ def stream_fallback(question: str, client_names: list[str], http: httpx.Client |
         if _hold(partial, client_names):
             held = True
             return
-        disp = _NUMBER_WORD_TAIL.sub("", partial)  # "costs one" could become a figure with the next word
+        disp = partial[: len(partial) - len(re.search(r"\S*$", partial)[0])]  # never half a word: "costs fi", "W"
+        disp = _NUMBER_WORD_TAIL.sub("", disp)  # "costs one" could become a figure with the next word
         if len(disp) > len(shown) and disp.startswith(shown):
             yield Delta(index, disp[len(shown):])
             shown = disp

@@ -121,7 +121,7 @@ def test_empty_library_falls_back():
     done = ev[-1]
     assert done.kind == "general" and done.first_words_ms is not None and done.rejected == ["no_passages"]
     [call] = done.llm
-    assert call.status == "ok" and call.purpose == "live_fallback" and call.request == Q and not call.speculative
+    assert call.status == "ok" and call.purpose == "live_fallback" and call.request == Q
     assert claude.requests[0]["messages"] == [{"role": "user", "content": Q}]  # the question text only
 
 
@@ -288,50 +288,12 @@ def test_brief_vector_of_another_length_is_skipped(caplog):
     assert "brief items skipped" in caplog.text
 
 
-REF = Passage(n=1, doc_id="r1", chunk_id="r1-0", title="Photronics outsourcing agreement", client=None, kind="reference",
-              text="Photronics · Liability\nNeither party's liability shall exceed the fees paid in twelve months.")
-
-
-def _speculate(ollama_tokens, claude):
-    a = make(FakeRetriever(passages=(REF,)), FakeOllama(ollama_tokens), claude=claude)
-    a.prepare(Q)
-    time.sleep(0.1)  # Claude starts beside the prefill
-    return list(a.handle(trig(), "m1"))
-
-
-def test_reference_only_retrieval_starts_claude_early_and_shows_it_on_none():
+def test_candidate_warms_claude_with_no_content_and_calls_it_only_after_the_library():
     claude = FakeClaude()
-    ev = _speculate(("NONE",), claude)
-    assert len(claude.requests) == 1 and claude.requests[0]["messages"][0]["content"] == Q  # one call, question only
-    assert ev[-1].kind == "general" and [c.status for c in ev[-1].llm] == ["ok"]
-    assert claude.heads and all(content == b"" and "x-api-key" not in h for h, content in claude.heads)
-    [call] = ev[-1].llm
-    assert call.speculative and call.started_at is not None and call.started_at <= call.first_text_at
-
-
-CASE = Passage(n=1, doc_id="c1", chunk_id="c1-0", title="Case study: Calloway & Marsh", client="Calloway & Marsh",
-               kind="client", text="Case study · What we'd do differently\nSplit the playbook per clause.")
-
-
-def test_client_and_reference_retrieval_also_starts_claude_early():
-    claude = FakeClaude()
-    a = make(FakeRetriever(passages=(CASE, REF)), FakeOllama(("NONE",)), claude=claude)
+    a = make(FakeRetriever(), FakeOllama(("NONE",)), claude=claude)
     a.prepare(Q)
     time.sleep(0.1)
+    assert claude.requests == []  # nothing sent before the library comes up empty
+    assert claude.heads and all(content == b"" and "x-api-key" not in h for h, content in claude.heads)
     ev = list(a.handle(trig(), "m1"))
-    assert len(claude.requests) == 1 and ev[-1].kind == "general" and ev[-1].llm[0].speculative
-
-
-def test_speculative_claude_answer_is_discarded_when_the_library_answers():
-    claude = FakeClaude(delay=3.0)
-    ev = _speculate(("Liability is capped at twelve months of fees [1].",), claude)
-    assert ev[-1].kind == "reference" and not any(e.kind == "general" for e in ev)  # never shown
-    assert [c.status for c in ev[-1].llm] == ["discarded"] and claude.bodies[0].closed.is_set()
-
-
-def test_firm_passages_start_no_early_claude_call():
-    claude = FakeClaude()
-    a = make(FakeRetriever(), FakeOllama(), claude=claude)
-    a.prepare(Q)
-    ev = list(a.handle(trig(), "m1"))
-    assert ev[-1].kind == "library" and claude.requests == [] and ev[-1].llm == []
+    assert len(claude.requests) == 1 and ev[-1].kind == "general" and [c.status for c in ev[-1].llm] == ["ok"]

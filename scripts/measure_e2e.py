@@ -124,7 +124,7 @@ def run(a, ref, expect) -> tuple[list[tuple[str, int, int]], list[str]]:
         print(f"{q['id']:<13} {r['first']:>14} {r['done']:>8}  {'PASS' if ok_kind else 'FAIL':<7}  {r['kind']} "
               f"{r.get('rejected') or ''} claude={[c.status for c in r['llm']]} {r['text'][:90]!r}\n{'':<13} asked: {t.question!r}")
         for call in r["llm"]:
-            print(f"{'':<13} claude {call.status}{' speculative' if call.speculative else ''}: started "
+            print(f"{'':<13} claude {call.status}: started "
                   f"{call.started_at} ms, first text {call.first_text_at} ms (from the question's end)")
     for seg, r in results.items():
         if not any(t and t.segment_id == seg for t in c["triggered"].values()):

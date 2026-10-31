@@ -43,39 +43,11 @@ def _cosine(a, b) -> float:
     return float(a @ b / ((np.linalg.norm(a) * np.linalg.norm(b)) or 1.0))
 
 
-def _llm(r: FallbackResult, ask: str, q_end: float, speculative: bool, status: str | None = None) -> LlmCall:
+def _llm(r: FallbackResult, ask: str, q_end: float) -> LlmCall:
     rel = lambda w: None if w is None else round((w - q_end) * 1000)  # noqa: E731
     return LlmCall(purpose="live_fallback", model=r.model, request=ask, response=r.text or None,
                    input_tokens=r.input_tokens, output_tokens=r.output_tokens, latency_ms=r.latency_ms,
-                   status=status or r.status, error=r.error, started_at=rel(r.started or None),
-                   first_text_at=rel(r.first_text), speculative=speculative)
-
-
-class _Spec:
-    """A Claude fallback started at prepare() beside the library answer (decision 109): its checked sentences wait
-    here, shown only if the library ends in NONE or has no passages; otherwise it is cut and traced "discarded"."""
-
-    def __init__(self, ask: str, client_names: list[str], http):
-        self.ask, self.cancel, self.items = ask, threading.Event(), queue.Queue()
-        threading.Thread(target=self._run, args=(client_names, http), daemon=True).start()
-
-    def _run(self, client_names, http):
-        for x in stream_fallback(self.ask, client_names, http, self.cancel):
-            self.items.put(x)
-
-    def stream(self) -> Iterator[str | FallbackResult]:
-        while not isinstance(x := self.items.get(), FallbackResult):
-            yield x
-        yield x
-
-    def discard(self, q_end: float) -> LlmCall | None:
-        self.cancel.set()
-        try:
-            while not isinstance(x := self.items.get(timeout=1.0), FallbackResult):
-                pass
-        except queue.Empty:
-            return None
-        return None if x.reasons == ["no_api_key"] else _llm(x, self.ask, q_end, True, "discarded")
+                   status=r.status, error=r.error, started_at=rel(r.started or None), first_text_at=rel(r.first_text))
 
 
 @dataclass
@@ -84,7 +56,6 @@ class _Prepared:
     passages: Future = field(default_factory=Future)
     prefilled: threading.Event = field(default_factory=threading.Event)
     dropped: bool = False  # a newer candidate replaced it, or the Trigger's text differs: no prefill
-    spec: _Spec | None = None
 
 
 @dataclass
@@ -106,7 +77,6 @@ class Assistant:
         self._lock = threading.Lock()
         self._prepared: _Prepared | None = None
         self._live: _Live | None = None
-        self._orphans: list[_Spec] = []  # speculative calls of dropped preparations, traced on the next done
 
     def prepare(self, text: str, embedding: list[float] | None = None) -> None:
         """Start search and prefill for a Candidate on a thread; returns at once. A newer call replaces this one."""
@@ -122,9 +92,6 @@ class Assistant:
     def _drop(self, prep: _Prepared) -> None:
         """Under the lock."""
         prep.dropped = True
-        if prep.spec:
-            prep.spec.cancel.set()
-            self._orphans.append(prep.spec)
 
     def _prepare(self, prep: _Prepared, text: str, embedding) -> None:
         try:
@@ -133,12 +100,6 @@ class Assistant:
             except Exception as e:
                 prep.passages.set_exception(e)
                 return
-            ask = question_only(text, self.client_names)
-            if (self.fallback_mode == "claude" and not any(p.kind == "firm" for p in passages)
-                    and not PRICE_ASK.search(ask)):
-                with self._lock:  # no firm passage: the library is likely to say NONE, so Claude starts now, beside it
-                    if not prep.dropped:
-                        prep.spec = _Spec(ask, self.client_names, self.claude)
             prep.passages.set_result(passages)
             if passages and not prep.dropped:
                 prefill(passages, text, self.ollama)
@@ -227,58 +188,44 @@ class Assistant:
         ms = lambda: round((time.time() - q_end) * 1000)  # noqa: E731
         ev = partial(AssistEvent, type="assist", meeting_id=meeting_id, assist_id=assist_id,
                      segment_id=trig.segment_id, question=trig.question)
-        spec = None
-        try:
-            yield ev(phase="thinking")
-            vector = trig.embedding
-            if self.brief_items:
-                item, vector = self._brief_match(trig.question, vector)
-                if item:
-                    if prep:
-                        with self._lock:
-                            self._drop(prep)  # no prefill or Claude call for it now; a running one is traced
-                    t = ms()
-                    yield ev(phase="sentence", sentence_index=0, text=item.answer, citations=item.citations, kind=item.kind)
-                    yield ev(phase="done", kind=item.kind, from_brief=True, citations=item.citations, first_words_ms=t,
-                             full_ms=t, llm=self._traced(spec, q_end))
-                    return
-            try:
+        yield ev(phase="thinking")
+        vector = trig.embedding
+        if self.brief_items:
+            item, vector = self._brief_match(trig.question, vector)
+            if item:
                 if prep:
-                    passages = prep.passages.result(timeout=SEARCH_WAIT_S)
-                    spec = prep.spec
-                    prep.prefilled.wait(PREFILL_WAIT_S)
-                else:  # no candidate, or the final text differs from it: the preparation is dropped
-                    passages = self.retriever.search(trig.question, vector=vector)
-            except Exception as e:
-                timed_out = isinstance(e, (RetrievalTimeout, TimeoutError))
-                log.warning("live search failed: %r", e)
-                yield ev(phase="done", kind="not_in_material", rejected=["retrieval_timeout" if timed_out else "retrieval_error"],
-                         full_ms=ms(), llm=self._traced(spec, q_end))
+                    with self._lock:
+                        self._drop(prep)  # no prefill for it now
+                t = ms()
+                yield ev(phase="sentence", sentence_index=0, text=item.answer, citations=item.citations, kind=item.kind)
+                yield ev(phase="done", kind=item.kind, from_brief=True, citations=item.citations, first_words_ms=t, full_ms=t)
                 return
-            why = ["no_passages"]
-            if passages:
-                for u in stream_library_answer(trig.question, passages, self.client_names, self.ollama, started, q_end):
-                    if isinstance(u, Delta):
-                        yield ev(phase="delta", sentence_index=u.index, text=u.text)
-                    elif isinstance(u, Sentence):
-                        yield ev(phase="sentence", sentence_index=u.index, text=u.text, citations=u.citations)
-                    elif isinstance(u, Done):
-                        if u.check.reasons != ["none"]:  # NONE hands over to the fallback (spec 7.4 rule 1)
-                            yield ev(phase="done", kind=u.check.kind, citations=u.check.citations,
-                                     first_words_ms=u.first_words_ms, full_ms=u.full_ms, rejected=u.check.reasons,
-                                     llm=self._traced(spec, q_end))
-                            return
-                why = ["none"]
-            yield from self._fallback(ev, question_only(trig.question, self.client_names), why, ms, q_end, spec, cancel)
-        finally:
-            if spec:
-                spec.cancel.set()
-
-    def _traced(self, spec: _Spec | None, q_end: float, calls: list[LlmCall] = ()) -> list[LlmCall]:
-        """`calls` plus every speculative call never shown: this one's (cut now) and dropped preparations'."""
-        with self._lock:
-            orphans, self._orphans = self._orphans, []
-        return [*calls, *(c for s in ([spec] if spec else []) + orphans if (c := s.discard(q_end)))]
+        try:
+            if prep:
+                passages = prep.passages.result(timeout=SEARCH_WAIT_S)
+                prep.prefilled.wait(PREFILL_WAIT_S)
+            else:  # no candidate, or the final text differs from it: the preparation is dropped
+                passages = self.retriever.search(trig.question, vector=vector)
+        except Exception as e:
+            timed_out = isinstance(e, (RetrievalTimeout, TimeoutError))
+            log.warning("live search failed: %r", e)
+            yield ev(phase="done", kind="not_in_material",
+                     rejected=["retrieval_timeout" if timed_out else "retrieval_error"], full_ms=ms())
+            return
+        why = ["no_passages"]
+        if passages:
+            for u in stream_library_answer(trig.question, passages, self.client_names, self.ollama, started, q_end):
+                if isinstance(u, Delta):
+                    yield ev(phase="delta", sentence_index=u.index, text=u.text)
+                elif isinstance(u, Sentence):
+                    yield ev(phase="sentence", sentence_index=u.index, text=u.text, citations=u.citations)
+                elif isinstance(u, Done):
+                    if u.check.reasons != ["none"]:  # NONE hands over to the fallback (spec 7.4 rule 1)
+                        yield ev(phase="done", kind=u.check.kind, citations=u.check.citations,
+                                 first_words_ms=u.first_words_ms, full_ms=u.full_ms, rejected=u.check.reasons)
+                        return
+            why = ["none"]
+        yield from self._fallback(ev, question_only(trig.question, self.client_names), why, ms, q_end, cancel)
 
     def _brief_match(self, question: str, vector):
         """(the best brief item at or over BRIEF_MIN_COSINE or None, the question's search vector or None)."""
@@ -295,25 +242,25 @@ class Assistant:
         score, item = max(scored, key=lambda x: x[0], default=(0.0, None))
         return (item if score >= BRIEF_MIN_COSINE else None), vector
 
-    def _fallback(self, ev, ask: str, why: list[str], ms, q_end: float, spec: _Spec | None, cancel):
+    def _fallback(self, ev, ask: str, why: list[str], ms, q_end: float, cancel):
         """Claude Haiku from `ask` (question_only: the question sentences, no client names), labelled kind "general"
         (General knowledge, not from our material) on each delta, sentence and done (decision 102). It streams under the
-        library's hold rules, each sentence replaced once checked (decision 108); a block ends in a not_in_material done that replaces them. Never retried. A price ask
-        never reaches Claude (decision 107)."""
+        library's hold rules, each sentence replaced once checked (decision 108); a block ends in a not_in_material done
+        that replaces them. Called only once the library came up empty; never retried. A price ask never reaches Claude
+        (decision 107)."""
         if self.fallback_mode != "claude" or PRICE_ASK.search(ask):
             extra = ["price_question"] if self.fallback_mode == "claude" else []
-            yield ev(phase="done", kind="not_in_material", rejected=why + extra, full_ms=ms(), llm=self._traced(spec, q_end))
+            yield ev(phase="done", kind="not_in_material", rejected=why + extra, full_ms=ms())
             return
-        first, mine = None, not (spec and spec.ask == ask)
-        for r in stream_fallback(ask, self.client_names, self.claude, cancel) if mine else spec.stream():
+        first = None
+        for r in stream_fallback(ask, self.client_names, self.claude, cancel):
             if isinstance(r, FallbackResult):
                 break
             first = first if first is not None or not r.text else ms()
             yield ev(phase="delta" if isinstance(r, Delta) else "sentence", sentence_index=r.index, text=r.text,
                      kind="general")
-        used = [] if r.reasons == ["no_api_key"] else [_llm(r, ask, q_end, not mine)]
-        rest = self._traced(spec if mine else None, q_end, used)
+        used = [] if r.reasons == ["no_api_key"] else [_llm(r, ask, q_end)]
         if not r.ok:  # replaces any sentence already shown
-            yield ev(phase="done", kind="not_in_material", rejected=why + r.reasons, first_words_ms=first, full_ms=ms(), llm=rest)
+            yield ev(phase="done", kind="not_in_material", rejected=why + r.reasons, first_words_ms=first, full_ms=ms(), llm=used)
             return
-        yield ev(phase="done", kind="general", first_words_ms=first, full_ms=ms(), rejected=why, llm=rest)
+        yield ev(phase="done", kind="general", first_words_ms=first, full_ms=ms(), rejected=why, llm=used)

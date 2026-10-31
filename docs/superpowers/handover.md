@@ -1,6 +1,6 @@
 # Hand-over notes
 
-For rupak.k. Fleck's MVP is built on branch `feat/mvp`. This note says what is running, what was measured, what only you can check, and what is known not to work. Every call made without you is in the [decision log](decisions.md) (decisions 1–147, each with the critique agent's verdict). What happened, run by run, is in the [build log](build-log.md). To use Fleck, follow the [user guide](../user-guide.md).
+For rupak.k. Fleck's MVP is built on branch `feat/mvp`. This note says what is running, what was measured, what only you can check, and what is known not to work. Every call made without you is in the [decision log](decisions.md) (decisions 1–162, each with the critique agent's verdict). What happened, run by run, is in the [build log](build-log.md). To use Fleck, follow the [user guide](../user-guide.md).
 
 ## 1. What's running and where
 
@@ -50,7 +50,7 @@ All from Task 22 on this Mac (M5, 24 GB), with the demo brief built first. Detai
 
 **Under load: 1 replay.** A brief build overlapped the start and an outside `qwen3:4b` generation loop ran alongside. 8/8 triggers and 8/8 outcomes, no late answers, no breaker openings. Latency missed: library first words p95 3.49 s, full answer 3.84 s, Claude first words 4.51 s. Cause: Ollama runs one request at a time, so each live call waited behind the outside generation. Fleck's own background work already waits while a meeting records (decision 137).
 
-**Local only (spec §6).** `test_local_only` passed with `FLECK_LIVE_FALLBACK=off`: no connection left the Mac, and no `huggingface.co` or `anthropic` line in the helper log.
+**Local only (spec §6).** `test_local_only` passed with `FLECK_LIVE_FALLBACK=off`: no connection left the Mac, and no `huggingface.co` or `anthropic` line in the helper log. The helper app now takes the switch from `.env` through the api (decision 150); the menu shows "General knowledge answers: on/off".
 
 **Panel not in a screen share.** Passed at your unlocked Mac: hidden_hits 0, control_hits 9774.
 
@@ -59,7 +59,7 @@ All from Task 22 on this Mac (M5, 24 GB), with the demo brief built first. Detai
 - Memory, by your ruling (decision 143): measured from after loop 1, the footprint grew 50 MB (3015 → 3065 MB). Pass. From 60 s it grew 573 MB, all during the first loop, as MLX filled its cache.
 - Outcomes, by your ruling (decision 143): 0 wrong, with 1 Claude timeout (loop 5, `q_liability`, Haiku hit the 5 s limit). Pass, reported as `claude_timeouts`.
 
-**Used markers (decision 118, threshold 0.52).** Correct on 7 of 8 cards in every run. `q_liability` scored 0.519, 0.526, 0.555 and 0.527 (load run), so it is falsely marked **Used** in 3 of 4 runs.
+**Used markers (decision 118, threshold 0.52, kept by your ruling: decision 159).** Correct on 7 of 8 cards in every run. `q_liability` scored 0.519, 0.526, 0.555 and 0.527 (load run), so it is falsely marked **Used** in 3 of 4 runs.
 
 ## 3. Checks only you can do
 
@@ -98,15 +98,17 @@ The older Task 2b and Task 11 checks are further down `manual-checks.md` (captur
 - The live Claude fallback timed out on 1 of 40 calls in the soaks (2.5%). The card then reads **Not in our material**.
 
 **Chat**
-- Chat drops any sentence whose figures are not in the sources it cites. An honest sentence with an uncited number is dropped too (decision 145).
+- Chat drops any sentence whose figures are not in the sources it cites. An honest sentence with an uncited number is dropped too (decision 145). A list item with no citation of its own is checked against its lead-in's ("From [1]:", decision 158).
 - A meeting's chat can cite another client's library document (decision 136).
 
-**Names reaching Claude (redaction, decisions 113, 116, 129)**
+**What reaches Claude.** After the meeting, the summary and chat send the transcript, the notes and library text to Claude (spec §6), names included. Only the brief and the live fallback are redacted.
+
+**Names reaching Claude from the brief and the live fallback (redaction, decisions 113, 116, 129, 151)**
 - A person who is not an attendee (named in the call or the invite) is not redacted.
 - A name Whisper writes in lower case or misspells is not redacted; the live transcript matches names as written.
 - "Priyas" with no apostrophe is not redacted.
 - Words under 4 letters of a client's name ("ACE") are not redacted.
-- A company is redacted from the invite only if it is a library client or its people are guests with a company email. A company whose people aren't guests, or use public mail, is not.
+- A company is redacted (from the invite and the live fallback) only if it is a library client or its people are guests with a company email. A company whose people aren't guests, or use public mail, is not.
 - An unhyphenated domain gives one word: orionfreight.com gives "Orionfreight", so "Orion Freight" is not redacted.
 - A client linked mid-recording doesn't reach the helper's live redaction (decision 144). The helper already redacts every library client.
 
@@ -115,6 +117,15 @@ The older Task 2b and Task 11 checks are further down `manual-checks.md` (captur
 - Claude prices were checked against the claude-api skill's cached table, not a live page (decision 146).
 - `fleck-helper replay` never unloads the models after it ends. The app does.
 - A meeting left `recording` for over 3 hours stops blocking indexing and briefs (decision 137). One left for less still blocks them until it is stopped.
+- Back-to-back meetings: a job checks for a recording only when it starts (decision 137). The next meeting's brief can still be building when the second recording starts, and shares Ollama with it.
+- After-meeting processing doesn't wait for a recording: with calls back to back, its used-marker embedding runs on Ollama while the next call's first questions are classified (final review M1).
+- A Stop that never reached the api is retried for about 2 minutes, then offered again at the next start (decision 153). A meeting that gets rows after `ready` is processed again, so its summary is rebuilt (one more Claude call).
+- A note save that failed is not retried; an edit after it sends the text again (M3).
+- Record in the web app while a crashed meeting's state file names another meeting leaves that meeting `recording` until it is stopped on its page (M4).
+- Briefs keep answers whose cited document was later deleted or replaced, until the brief is rebuilt (M5).
+- `qwen3-embedding:0.6b` stays loaded after a meeting: post-meeting jobs use `keep_alive: -1` (M7).
+- Device tokens never expire and can't be revoked in the app (M8). Fine for one Mac on localhost; needed before a shared deployment.
+- `make reset` asks you to type RESET (decision 155). It doesn't clear the helper's outbox or state file, which can then land in a new meeting with the same id: quit the helper and empty `~/Library/Application Support/Fleck/outbox` and `recordings/current.json` before a reset.
 - A remote colleague on the call is heard through call audio and treated as **Client** (spec §7.2).
 
 ## 5. Retraining the question classifier

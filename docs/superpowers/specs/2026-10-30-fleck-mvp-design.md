@@ -223,7 +223,7 @@ Each answer Fleck showed is marked **Used** or **Not used** in the notes.
 - **Manual override.** In the notes, each marker shows its value and whether it is automatic or set by hand. One click flips it; a manual value always wins, and recomputing never overwrites it.
 - **Testable.** The test conversation's script marks, for each answered question, whether the salesperson uses the answer. It includes at least one answer that is ignored, and one where the reply is on-topic but doesn't use the answer. The automatic marker must agree with the script on every one of them.
 - **Known limit.** Similarity measures topic, not correctness: a reply on the same subject with a different number can still be marked **Used**. The override covers this.
-- *(Amended: Task 22 measurement.)* The marker does not agree with the script on every answer: `q_liability`'s on-topic reply scores 0.519–0.555, so it reads **Used** in 3 of 4 runs where the script says not used. The threshold was not retuned; the hand-over lists it as a known limit.
+- *(Amended: Task 22 measurement, decision 159.)* The marker does not agree with the script on every answer: `q_liability`'s on-topic reply scores 0.519–0.555, so it reads **Used** in 3 of 4 runs where the script says not used. The threshold was not retuned; the hand-over lists it as a known limit.
 
 ### 7.4 Citations and anti-goal enforcement (rupak.k's rules, with Claude's adjustments marked)
 

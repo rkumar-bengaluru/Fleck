@@ -23,7 +23,7 @@ from fleck_helper.audio import CHUNK_FRAMES, AudioChunkWriter, Frame, Gap, Unava
 from fleck_helper.classify import CLASSIFY_MODEL
 from fleck_helper.pipeline import Candidate, Trigger
 
-STOP_RETRIES = (2, 5, 10, 20, 30, 60)  # seconds between tries of a Stop the api didn't take (~2 min, decision 151)
+STOP_RETRIES = (2, 5, 10, 20, 30, 60)  # seconds between tries of a Stop the api didn't take (~2 min, decision 153)
 MODELS = (ANSWER_MODEL, EMBED_MODEL, CLASSIFY_MODEL)  # loaded while recording, unloaded after (decision 123)
 CHUNKS = Path.home() / "Library/Application Support/Fleck/recordings"
 LOG = Path.home() / "Library/Logs/Fleck/helper.log"

@@ -49,7 +49,7 @@ def wait_for_recording(session: Session, kind: str, payload: dict, delay: timede
 
 def reprocess_late(session: Session, meeting_id: int) -> None:
     """A row that lands after `ready` (a helper that missed the Stop, a backlog) puts the meeting through processing
-    again, so the summary, markers and recording include it (final review I1, decision 151). Rows that land while
+    again, so the summary, markers and recording include it (final review I1, decision 153). Rows that land while
     process_meeting runs are caught by its own recount."""
     if session.execute(update(Meeting).where(Meeting.id == meeting_id, Meeting.status == "ready")
                        .values(status="processing").returning(Meeting.id)).first():

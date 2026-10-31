@@ -108,7 +108,7 @@ async def helper_ws(ws: WebSocket, s: Session = Depends(get_session)):
             if isinstance(ev, (SegmentEvent, AssistEvent)):
                 try:
                     status = await _handle(s, device.user_id, ev)
-                except (OperationalError, InterfaceError):  # the database is down, not the event bad: no ack, so the outbox sends it again (decision 152)
+                except (OperationalError, InterfaceError):  # the database is down, not the event bad: no ack, so the outbox sends it again (decision 154)
                     s.rollback()
                     log.exception("event %s %s not stored; the helper will resend it", ev.type, getattr(ev, "segment_id", ""))
                     await ws.close(1011)
@@ -117,7 +117,7 @@ async def helper_ws(ws: WebSocket, s: Session = Depends(get_session)):
                     s.rollback()
                     log.exception("event %s %s rejected", ev.type, getattr(ev, "segment_id", ""))
                 else:
-                    if status not in (None, "recording"):  # a Stop the helper missed (offline then): stop it now (decision 151)
+                    if status not in (None, "recording"):  # a Stop the helper missed (offline then): stop it now (decision 153)
                         await ws.send_json({"type": "stop", "meeting_id": ev.meeting_id})
             await ws.send_json({"type": "ack"})  # one per message, duplicates and junk included: the helper resends what is unacked
     except WebSocketDisconnect:

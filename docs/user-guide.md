@@ -29,7 +29,9 @@ You need an Apple Silicon Mac with macOS 26.
    - `FLECK_ALLOWED_DOMAINS`: who may sign in. For the simulated Google in step 4, set `FLECK_ALLOWED_DOMAINS=northbeam.test`.
    - `TZ`: your time zone, for example `TZ=Asia/Kolkata`.
    - Leave `FLECK_GOOGLE_MODE=gsim` for now. Step 4b switches to real Google.
-   - `FLECK_LIVE_FALLBACK=claude` sends only the client's question text to Claude when the library has no answer. Set it to `off` to keep the live path fully on your Mac.
+   - `FLECK_LIVE_FALLBACK=claude` sends only the client's question text to Claude when the library has no answer, with attendees' and clients' names taken out. Set it to `off` to keep the live path fully on your Mac. The helper app gets this setting from Fleck when you record (restart the stack with `make up` after changing it); its menu shows **General knowledge answers: on** or **off**.
+
+   What goes to Claude: during the call, only that question text (when the switch is on). Before the call, the brief sends the invite and the client's document titles, with names taken out. After the call, the summary and chat send the transcript, your notes and library text, names included.
 
 `.env` holds secrets. Never commit it.
 
@@ -63,7 +65,7 @@ The services and their ports (all on `localhost` only):
 
 Keep these ports on this Mac. Don't expose the api to a network: pairing codes have no attempt limit.
 
-To stop the stack: `make down`. To wipe every meeting, document and account and start again: `make reset`, then `make up`.
+To stop the stack: `make down`. To wipe every meeting, document and account and start again: `make reset` (type `RESET` when it asks), then `make up`.
 
 ## 3. Install the helper, grant permissions, pair it
 
@@ -255,6 +257,7 @@ Join the call as usual, on speakers or a headset. No bot joins.
 ### Stop and read the notes
 
 - Press **Stop** on the meeting page, or **Stop recording** in the menu.
+- If the stack can't be reached when you stop from the menu, the app tries again for about 2 minutes. If it still can't, the next **Start recording now** asks whether to resume that meeting: choose **Start new** and Fleck processes it. If you stop on the page while the app is offline, the app stops as soon as it reconnects, and anything it sent late is added to the notes.
 - The page shows **Processing the recording…**, then the notes. A 3-minute call took about 30 seconds.
 - Read **Where Fleck helped** and the **Used** / **Not used** markers. Fleck marks an answer **Used** when what you said in the 15 seconds after it appeared is close to it. It measures topic, not correctness, so check the markers and flip any that are wrong.
 - **Claude cost** at the top is what this meeting's Claude calls cost.

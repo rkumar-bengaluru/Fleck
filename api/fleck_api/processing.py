@@ -166,7 +166,7 @@ def summarise(s: Session, meeting_id: int) -> None:
                            + ([("These ai_text values state figures that are not in the transcript or the notes: "
                                 + "; ".join(f'"{b}"' for b in made_up))] if made_up else []))
         prompt += f"\n\nYour previous reply was rejected. {why} Call write_summary again."
-    for x in sections:  # a figure still not in the transcript or the notes: the addition goes (spec 7.4's rule, decision 150)
+    for x in sections:  # a figure still not in the transcript or the notes: the addition goes (spec 7.4's rule, decision 152)
         for i in x["items"]:
             if not figures_in_sources(i["ai_text"], sources):
                 i["ai_text"] = ""
@@ -215,7 +215,7 @@ def process_meeting(s: Session, payload: dict) -> None:
         compute_used_markers(s, mid)
         store_transcript(s, mid)  # after the markers: it carries used / used_by
         summarise(s, mid)
-        if _row_count(s, mid) != rows:  # rows landed while this ran: once more, with them (decision 151)
+        if _row_count(s, mid) != rows:  # rows landed while this ran: once more, with them (decision 153)
             s.commit()
             enqueue(s, "process_meeting", {"meeting_id": mid}, func.now() + LATE_GRACE)
             return

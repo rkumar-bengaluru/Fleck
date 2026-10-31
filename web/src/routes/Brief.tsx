@@ -40,7 +40,7 @@ export default function Brief() {
     .sort((a, b) => TOPICS.indexOf(a.topic) - TOPICS.indexOf(b.topic));
   const thin = data.items.filter(i => i.kind === "not_in_material");
   const e = data.event;
-  // the documents the answers cite (firm documents included), not only the client's (decision 153)
+  // the documents the answers cite (firm documents included), not only the client's (decision 160)
   const docs = new Set(data.items.flatMap(i => i.citations.map(c => c.doc_id))).size;
   return (
     <>

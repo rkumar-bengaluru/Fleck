@@ -5,6 +5,7 @@ up:
 down:
 	$(COMPOSE) down
 reset:  # wipes every meeting, document and account (the data volumes)
+	@read -p "This deletes every meeting, document and account. Type RESET to go on: " a && [ "$$a" = RESET ] || { echo "Not reset."; exit 1; }
 	$(COMPOSE) down -v
 test:
 	uv run --all-packages pytest core api gsim helper/tests/unit

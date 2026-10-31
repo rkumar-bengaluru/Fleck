@@ -1,9 +1,11 @@
-.PHONY: up down test gen-types ensure-ollama seed-library seed-demo helper-app fixtures
+.PHONY: up down reset test gen-types ensure-ollama seed-library seed-demo helper-app fixtures
 COMPOSE = docker compose -f deploy/docker-compose.yml $(if $(wildcard .env),--env-file .env)  # .env sets TZ for compose
 up:
 	$(COMPOSE) up -d --build --wait
 down:
 	$(COMPOSE) down
+reset:  # wipes every meeting, document and account (the data volumes)
+	$(COMPOSE) down -v
 test:
 	uv run --all-packages pytest core api gsim helper/tests/unit
 ensure-ollama:

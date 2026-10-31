@@ -119,14 +119,15 @@ def redact_clients(text: str, client_names: list[str]) -> str:
     return text
 
 
-def redact_people(text: str, people: list[str]) -> str:
+def redact_people(text: str, people: list[str], ignore_case: bool = False) -> str:
     """Each attendee's full name and each word of it becomes "someone", matched case-sensitively as written (Whisper
     capitalises names; "max file size" stays). A name that opens a sentence is redacted even when it is also a word
-    ("Will you...?"): privacy over answer quality. "Priya's" becomes "someone's"; "Priyas" is a known limit."""
+    ("Will you...?"): privacy over answer quality. "Priya's" becomes "someone's"; "Priyas" is a known limit.
+    ignore_case is for typed text (a calendar invite), never for the live transcript (decision 116)."""
     # the name, each space-separated part ("O'Brien") and each run of 2+ letters; a lone initial ("A") stays
     words = {w for p in people for w in [p, *(t for t in p.split() if len(t) >= 2), *re.findall(r"[^\W\d_]{2,}", p)]}
     for w in sorted(words, key=len, reverse=True):
-        text = re.sub(rf"\b{re.escape(w)}(?=(?:['’]s)?\b)", "someone", text)
+        text = re.sub(rf"\b{re.escape(w)}(?=(?:['’]s)?\b)", "someone", text, flags=re.I if ignore_case else 0)
     return text
 
 

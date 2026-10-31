@@ -30,9 +30,10 @@ export default function Brief() {
     const t = setInterval(() => load(), 3_000);
     return () => clearInterval(t);
   }, [waiting, id]);
-  const record = () => api<{ id: number }>("/api/meetings", { method: "POST", body: { event_id: Number(id), start_helper: true } })
+  const [starting, setStarting] = useState(false);
+  const record = () => { if (starting) return; setStarting(true); api<{ id: number }>("/api/meetings", { method: "POST", body: { event_id: Number(id), start_helper: true } })
     .then(m => navigate(`/meetings/${m.id}`))
-    .catch(e => { if (!(e instanceof Unauthorized)) setError(e instanceof HttpError && e.status === 409 ? "Desktop app not connected" : "Couldn't start the recording. Try again."); });
+    .catch(e => { if (!(e instanceof Unauthorized)) setError(e instanceof HttpError && e.status === 409 ? "Desktop app not connected" : "Couldn't start the recording. Try again."); setStarting(false); }); };
 
   if (!data) return error ? <p className="error" role="alert">{error}</p> : null;
   const answered = data.items.filter(i => i.kind !== "not_in_material")
@@ -57,6 +58,7 @@ export default function Brief() {
       {error && <p className="error" role="alert">{error}</p>}
       {waiting && <p className="subtitle" role="status">Preparing the brief…</p>}
       {data.status === "none" && <p className="subtitle">No brief yet. Refresh brief to prepare one.</p>}
+      {data.status === "ready" && data.items.length === 0 && <p className="subtitle">No questions came back. Refresh brief.</p>}
       {data.status === "failed" && <p className="error" role="alert">Couldn't build the brief. {data.error}</p>}
 
       {data.context && (
@@ -73,8 +75,8 @@ export default function Brief() {
             <span className="subtitle">{answered.length} answered from our material, {thin.length} gap{thin.length === 1 ? "" : "s"}</span>
           </div>
           <div className="brief-grid">
-            {answered.map(i => (
-              <article key={i.question} className="brief-card">
+            {answered.map((i, n) => (
+              <article key={n} className="brief-card">
                 <span className="brief-topic">{label(i.topic)}</span>
                 <h3>{i.question}</h3>
                 <p>{i.answer}</p>
@@ -88,7 +90,7 @@ export default function Brief() {
       {thin.length > 0 && (
         <section aria-labelledby="gaps" className="brief-box brief-thin">
           <h2 id="gaps">Where our material is thin</h2>
-          {thin.map(i => <div key={i.question}><b>{i.question}</b> Nothing in the library answers this.</div>)}
+          {thin.map((i, n) => <div key={n}><b>{i.question}</b> Nothing in the library answers this.</div>)}
         </section>
       )}
     </>

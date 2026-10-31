@@ -1,6 +1,7 @@
 """Pre-meeting brief (Task 20): Claude Sonnet proposes likely questions from the redacted invite and the client's
 documents; local Qwen answers each one from the library with the live path's validators. Claude never writes an answer."""
 import logging
+import re
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -20,7 +21,7 @@ from fleck_api.db import get_session
 from fleck_api.devices import user_or_device
 from fleck_api.jobs import enqueue, enqueue_once, job
 from fleck_api.meetings import _meeting, people_of
-from fleck_api.models import Brief, BriefItem, CalendarEvent, Client, Document, Job, LlmCall, User
+from fleck_api.models import Brief, BriefItem, CalendarEvent, Client, Document, Job, LlmCall, Meeting, User
 
 log = logging.getLogger("fleck.brief")
 router = APIRouter(prefix="/api")
@@ -28,6 +29,8 @@ PROMPT = Path(__file__).with_name("prompts") / "brief_questions.md"
 TOPICS = ("commercial", "proof", "delivery", "risk", "technical")
 MAX_QUESTIONS = 8
 LEAD = timedelta(minutes=30)
+RECORDING_RETRY = timedelta(minutes=5)
+QUESTIONS_TTL = timedelta(minutes=10)
 KEEP_ALIVE = "2m"  # the brief must not pin qwen3:4b on the GPU between meetings
 TOOL = {
     "name": "propose_questions", "description": "The questions the prospect is likely to ask.", "strict": True,
@@ -88,14 +91,28 @@ def answer_question(question: str, retriever, ollama, client_names: list[str]) -
     return out
 
 
+_URL, _EMAIL, _DIGITS = re.compile(r"https?://\S+|www\.\S+", re.I), re.compile(r"\S+@\S+"), re.compile(r"\+?\d(?:[\s().-]?\d){5,}")
+
+
 def _safe(text: str, people: list[str], client_names: list[str]) -> str:
-    return redact_clients(redact_people(text, people), client_names)
+    """Invite text for Claude: links and dial-in numbers/passcodes (6+ digits) go, emails and attendee names become
+    "someone" whatever their case (typed text, unlike the live transcript), client names "a client"."""
+    text = _EMAIL.sub("someone", _URL.sub("", text))
+    return redact_clients(redact_people(_DIGITS.sub("", text), people, ignore_case=True), client_names)
 
 
 @job("build_brief", on_fail=lambda s, payload, error: mark_failed(s, payload, error))
 def build_brief(s: Session, payload: dict) -> None:
     ev = s.get(CalendarEvent, payload["event_id"])
     if ev is None or ev.cancelled:
+        return
+    if "scheduled_for" in payload and (ev.client_id is None or payload["scheduled_for"] != ev.start_at.isoformat()):
+        return  # unlinked or moved since it was queued
+    if s.scalar(select(Meeting.id).where(Meeting.status == "recording").limit(1)):
+        # Ollama must not be touched mid-meeting: a 2 min keep_alive would shorten the recording's -1
+        later = {"event_id": ev.id} | ({"scheduled_for": payload["scheduled_for"]} if "scheduled_for" in payload else {})
+        if not s.scalar(select(Job.id).where(Job.kind == "build_brief", Job.status == "queued", Job.payload == later).limit(1)):
+            enqueue(s, "build_brief", later, datetime.now(timezone.utc) + RECORDING_RETRY)
         return
     b = _brief(s, ev.id)
     b.status, b.error = "building", None
@@ -109,8 +126,14 @@ def build_brief(s: Session, payload: dict) -> None:
     # the title alone without a client; with one, the invite and the client's documents. Names go first (privacy rule).
     title = _safe(ev.title, people, names)
     desc = _safe(ev.description, people, names) if client and ev.description else None
-    passages = retriever.search(title, limit=6, client_slug=client.slug) if client and titles else []
-    questions = propose_questions(s, title, desc, titles, passages, ev.id)
+    asked = b.questions
+    if asked and datetime.fromisoformat(asked["at"]) > datetime.now(timezone.utc) - QUESTIONS_TTL:
+        questions = asked["items"]  # a retry after a failed answer step: Sonnet was already paid for
+    else:
+        passages = retriever.search(title, limit=6, client_slug=client.slug) if client and titles else []
+        questions = propose_questions(s, title, desc, titles, passages, ev.id)
+        b.questions = {"at": datetime.now(timezone.utc).isoformat(), "items": questions}
+        s.commit()
     ollama.warm(MODEL)
     answered = [(q, answer_question(q["question"], retriever, ollama, names)) for q in questions]
     s.execute(delete(BriefItem).where(BriefItem.brief_id == b.id))
@@ -120,7 +143,7 @@ def build_brief(s: Session, payload: dict) -> None:
     b.context = (f"{client.name}: {len(titles)} library document{'s' * (len(titles) != 1)} ({', '.join(titles[:6])})." if titles
                  else f"New prospect: no documents for {client.name} in the library." if client
                  else "No client is linked to this event, so the questions come from the invite title only.")
-    b.status, b.updated_at = "ready", func.now()
+    b.status, b.updated_at, b.questions = "ready", func.now(), None
     s.commit()
 
 
@@ -139,6 +162,7 @@ def request_build(s: Session, event_id: int) -> None:
     b = _brief(s, event_id)
     if b.status != "building":
         b.status = "queued"
+    b.questions = None  # a refresh asks Sonnet again
     s.commit()
     enqueue_once(s, "build_brief", {"event_id": event_id})
 
@@ -148,13 +172,13 @@ def schedule_briefs(s: Session, user_id: int, now: datetime) -> None:
     re-sync finds its own job (queued, running or done) and adds nothing; a moved event swaps its queued job.
     An event starting within 30 min is left to the build its client link queued."""
     for e in s.scalars(select(CalendarEvent).where(CalendarEvent.user_id == user_id, CalendarEvent.client_id.is_not(None),
-                                                    CalendarEvent.cancelled.is_(False), CalendarEvent.start_at > now + LEAD)).all():
+                                                    CalendarEvent.cancelled.is_(False), CalendarEvent.start_at > now)).all():
         payload = {"event_id": e.id, "scheduled_for": e.start_at.isoformat()}
-        if s.scalar(select(Job.id).where(Job.kind == "build_brief", Job.payload == payload).limit(1)):
-            continue
-        s.execute(delete(Job).where(Job.kind == "build_brief", Job.status == "queued",
-                                    Job.payload["event_id"].as_integer() == e.id, Job.payload.has_key("scheduled_for")))
-        enqueue(s, "build_brief", payload, e.start_at - LEAD)
+        s.execute(delete(Job).where(Job.kind == "build_brief", Job.status == "queued", Job.payload["event_id"].as_integer() == e.id,
+                                    Job.payload.has_key("scheduled_for"), Job.payload["scheduled_for"].as_string() != payload["scheduled_for"]))  # moved
+        s.commit()
+        if e.start_at > now + LEAD and not s.scalar(select(Job.id).where(Job.kind == "build_brief", Job.payload == payload).limit(1)):
+            enqueue(s, "build_brief", payload, e.start_at - LEAD)
 
 
 def _items(s: Session, b: Brief | None) -> list[BriefItem]:
@@ -195,6 +219,6 @@ def meeting_brief(meeting_id: int, _u: User = Depends(user_or_device), s: Sessio
     """What the helper matches live questions against: answered items with their question vectors. Gaps are left out,
     so a question about one goes to the library and the fallback like any other."""
     m = _meeting(s, meeting_id)
-    b = s.scalar(select(Brief).where(Brief.event_id == m.event_id, Brief.status == "ready")) if m.event_id else None
+    b = s.scalar(select(Brief).where(Brief.event_id == m.event_id)) if m.event_id else None  # a rebuild or a failed refresh keeps the old items
     return {"items": [{c: getattr(i, c) for c in ("question", "answer", "kind", "citations", "question_vector")}
                       for i in _items(s, b) if i.kind != "not_in_material" and i.question_vector]}

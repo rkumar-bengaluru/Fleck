@@ -624,3 +624,7 @@ Check of the Milestone E follow-ups:
 - I4: the pipeline tests use `TailSrc`, which yields silence until the recheck has an outcome (10 s cap). Only the frames-keep-flowing test runs in real time. The pipeline tests now take about 9 s, down from about 23 s.
 - M1: the first late try goes at once. M2: the breaker is re-read during each wait, and the give-up limit is checked after every try. M3: `run`'s body is in `try/finally`, so the stop flag and the `stopped` count always happen. M4: there is a test of the production `partial(live_embed, late=True)` path with stubbed Ollama calls, and tests for the `stopped` count at the end of a run and when the source dies.
 
+
+### Task 20 fix round 1 (2026-10-31)
+
+- Review items I1-I3, M4, M5, M7, M8 fixed (decision 132). New: `briefs.questions` (migration 0008), `redact_people(ignore_case=)`. 5 new api tests, 2 web tests, extra probes in `test_brief_names_never_reach_claude`. `pytest api core -m "not ollama and not claude"` 404 passed; Vitest 47 passed; tsc clean. No Claude calls, no replays.

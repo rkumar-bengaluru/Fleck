@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
-from sqlalchemy import func, select, update
+from sqlalchemy import false, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -87,6 +87,7 @@ def get_meeting(meeting_id: int, _u: User = Depends(user_or_device), s: Session 
     note = s.scalar(select(Note).where(Note.meeting_id == m.id))
     summary = s.scalar(select(Summary).where(Summary.meeting_id == m.id).order_by(Summary.version.desc()))
     brief = s.scalar(select(Brief).where(Brief.event_id == m.event_id)) if m.event_id else None
+    first_meeting = s.scalar(select(func.min(Meeting.id)).where(Meeting.event_id == m.event_id)) if m.event_id else None
     items = list(s.scalars(select(BriefItem).where(BriefItem.brief_id == brief.id).order_by(BriefItem.id))) if brief else []
     return {
         "meeting": meeting_dict(s, m) | {"recorded_by_name": ((u := s.get(User, m.recorded_by)).name or u.email) if m.recorded_by else "", "library_clients": list(s.scalars(select(Client.name).order_by(Client.name)))},
@@ -97,7 +98,7 @@ def get_meeting(meeting_id: int, _u: User = Depends(user_or_device), s: Session 
         "notes": note.text if note else "",
         "summary": summary.items if summary else None,
         "cost_usd": s.scalar(select(func.coalesce(func.sum(LlmCall.cost_usd), 0.0)).where(
-            LlmCall.meeting_id == m.id if m.event_id is None else (LlmCall.meeting_id == m.id) | (LlmCall.event_id == m.event_id))),  # the event's brief is part of its meeting's cost
+            (LlmCall.meeting_id == m.id) | (LlmCall.event_id == m.event_id if m.event_id and m.id == first_meeting else false()))),  # an event's brief cost is counted once, on its first meeting
         "brief": {"status": brief.status, "items": [_row(i, "topic", "question", "answer", "kind", "citations") for i in items]} if brief else None,
     }
 

@@ -182,6 +182,7 @@ class Brief(Base):
     context: Mapped[str | None] = mapped_column(Text)  # "What we know going in", built locally
     doc_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     error: Mapped[str | None] = mapped_column(Text)
+    questions: Mapped[dict[str, Any] | None] = mapped_column(JSONB)  # {"at": iso, "items": [...]}: Sonnet's reply, kept so a retry does not pay again
     created_at: Mapped[datetime] = _now()
     updated_at: Mapped[datetime] = _now()  # the page's "Prepared HH:MM"
 

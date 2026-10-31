@@ -68,3 +68,23 @@ test("no brief yet and a failed build both say so", async () => {
   await open();
   await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Couldn't build the brief"));
 });
+
+test("Record twice quickly starts one meeting", async () => {
+  await open();
+  const b = screen.getByRole("button", { name: "Record" });
+  fireEvent.click(b);
+  fireEvent.click(b);
+  await screen.findByText("live page");
+  expect(calls.filter(c => c.url === "/api/meetings").length).toBe(1);
+});
+
+test("a ready brief with no questions says so; repeated questions render", async () => {
+  state = { ...state, items: [] };
+  await open();
+  expect(screen.getByText("No questions came back. Refresh brief.")).toBeTruthy();
+  cleanup();
+  const same = { topic: "risk", question: "Who owns the IP?", answer: "You do.", kind: "library", citations: [rate] };
+  state = { ...state, items: [same, same] };
+  await open();
+  expect(screen.getAllByRole("article").length).toBe(2);
+});

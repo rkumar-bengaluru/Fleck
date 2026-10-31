@@ -132,12 +132,13 @@ def test_brief_names_never_reach_claude(env, stubbed, monkeypatch):
     sent = Sent(monkeypatch, QS)
     people = [{"email": "priya@x.test", "name": "Priya Shah"}, {"email": "marcus.webb@x.test", "name": None}]
     eid = make_event(env, title="Harbourline Legal x Northbeam — Priya Shah",
-                     description="Marcus Webb leads the NDA review for Harbourline. Priya's team joins.", attendees=people)
+                     description="Marcus Webb leads the NDA review for Harbourline. Priya's team joins. marcus webb and PRIYA SHAH will dial "
+                                 "+1 415 555 0100, passcode 482913. Mail priya.shah@harbourline.test or join https://meet.google.com/abc-defg-hij", attendees=people)
     build(env, eid)
     with env[2]() as s:
         row = s.scalar(select(LlmCall))
     for text in (json.dumps(sent[0]), json.dumps(row.request)):  # what went out, and what the trace kept
-        assert not any(n in text for n in ("Priya", "Shah", "Marcus", "Webb", "Harbourline Legal", "sk-test-key"))
+        assert not any(n in text for n in ("Priya", "Shah", "Marcus", "Webb", "Harbourline Legal", "sk-test-key", "marcus", "PRIYA", "@", "meet.google", "415", "482913"))
     assert "someone" in sent[0]["messages"][0]["content"] and "a client" in sent[0]["messages"][0]["content"]
 
 
@@ -245,3 +246,83 @@ def test_real_qwen_answers_brief_questions():
     out = brief.answer_question(RATE_Q, r, OllamaClient(), ["Harbourline Legal"])
     assert out["kind"] == "library" and "5,200" in out["answer"]
     assert brief.answer_question(SECOND_Q, r, OllamaClient(), [])["kind"] == "not_in_material"
+
+
+def test_retry_after_a_failed_answer_step_pays_sonnet_once(env, stubbed, monkeypatch):
+    sent = Sent(monkeypatch, QS)
+    eid = make_event(env)
+    real = brief.answer_question
+    boom = {"n": 0}
+
+    def flaky(*a, **kw):
+        boom["n"] += 1
+        if boom["n"] == 1:
+            raise RuntimeError("ollama down")
+        return real(*a, **kw)
+    monkeypatch.setattr(brief, "answer_question", flaky)
+    with pytest.raises(RuntimeError):
+        build(env, eid)
+    build(env, eid)  # the job's retry
+    assert len(sent) == 1 and len(items(env, eid)) == 2
+    with env[2]() as s:
+        assert s.scalar(select(Brief.questions)) is None  # cleared once ready
+
+
+def test_build_waits_while_a_meeting_is_recording(env, monkeypatch):
+    monkeypatch.setattr(brief, "_deps", lambda: pytest.fail("Ollama touched during a recording"))
+    sent = Sent(monkeypatch, QS)
+    eid = make_event(env)
+    with env[2]() as s:
+        s.add(Meeting(title="live", status="recording"))
+        s.commit()
+        brief.build_brief(s, {"event_id": eid})
+        brief.build_brief(s, {"event_id": eid})
+        [j] = s.scalars(select(Job).where(Job.kind == "build_brief"))
+        assert j.run_after > datetime.now(timezone.utc) + timedelta(minutes=4) and not sent
+
+
+def test_stale_scheduled_jobs_do_nothing(env, stubbed, monkeypatch):
+    sent = Sent(monkeypatch, QS)
+    eid = make_event(env, hours=3)
+    with env[2]() as s:
+        uid = s.scalar(select(User.id))
+        brief.schedule_briefs(s, uid, datetime.now(timezone.utc))
+        [j] = s.scalars(select(Job).where(Job.kind == "build_brief"))
+        e = s.get(CalendarEvent, eid)
+        e.start_at -= timedelta(hours=2.8)  # now 12 min away: the queued job goes
+        s.commit()
+        brief.schedule_briefs(s, uid, datetime.now(timezone.utc))
+        assert not list(s.scalars(select(Job).where(Job.kind == "build_brief", Job.status == "queued")))
+        brief.build_brief(s, j.payload)  # even if it ran: the start moved
+        e.client_id = None
+        s.commit()
+        brief.build_brief(s, {"event_id": eid, "scheduled_for": e.start_at.isoformat()})  # unlinked
+    assert not sent
+
+
+def test_feed_keeps_serving_while_a_refresh_is_queued(env, stubbed, monkeypatch):
+    Sent(monkeypatch, QS)
+    eid = make_event(env)
+    build(env, eid)
+    env[0].post(f"/api/events/{eid}/brief")
+    with env[2]() as s:
+        m = Meeting(title="x", event_id=eid)
+        s.add(m)
+        s.commit()
+        mid = m.id
+    assert len(env[0].get(f"/api/meetings/{mid}/brief", headers=pair(env)).json()["items"]) == 1
+
+
+def test_event_cost_counts_once_across_meetings(env, stubbed, monkeypatch):
+    Sent(monkeypatch, QS)
+    monkeypatch.setenv("FLECK_PRICES", '{"claude-sonnet-5-5": {"input": 2, "output": 10}}')
+    eid = make_event(env)
+    build(env, eid)
+    with env[2]() as s:
+        a, b = Meeting(title="a", event_id=eid), Meeting(title="b", event_id=eid)
+        s.add_all([a, b])
+        s.commit()
+        ids = (a.id, b.id)
+    pair(env)
+    costs = [env[0].get(f"/api/meetings/{i}").json()["cost_usd"] for i in ids]
+    assert costs[0] == pytest.approx(0.004) and costs[1] == 0

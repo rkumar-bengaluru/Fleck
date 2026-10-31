@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { mmss } from "./RecordingTimeline";
+import { isGap, Who } from "./Transcript";
 
 export interface Line { segment_id: string; stream: string; start_ms: number; text: string }
 
@@ -15,8 +16,8 @@ export default function TranscriptView({ segments, canSeek, onSeek, focusMs }: {
         {segments.map(s => (
           <li key={s.segment_id} id={`line-${s.segment_id}`} className="line" aria-current={s.segment_id === focus ? "true" : undefined}>
             <span className="line-who">{canSeek ? <button type="button" className="link" aria-label={`Play from ${mmss(s.start_ms)}`} onClick={() => onSeek(s.start_ms)}>{mmss(s.start_ms)}</button> : mmss(s.start_ms)}<br />
-              <b className={s.stream === "you" ? "you" : "client"}>{s.stream === "you" ? "You" : "Client"}</b></span>
-            <span className="line-body">{s.text}</span>
+              <Who s={s} /></span>
+            <span className={isGap(s) ? "line-body gap" : "line-body"}>{s.text}</span>
           </li>
         ))}
       </ol>

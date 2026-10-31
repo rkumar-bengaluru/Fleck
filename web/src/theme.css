@@ -91,6 +91,7 @@ h1 { margin: 0; font-size: 34px; line-height: 1.15; font-weight: 700; }
 .line-body { display: flex; flex-direction: column; gap: 8px; }
 .question { background: #F3F0FB; border-radius: 6px; padding: 2px 6px; margin: 0 -6px; }
 .partial { color: #6B7682; font-style: italic; }
+.gap, .line-who .gap { color: #8A5A00; font-style: italic; }
 .assist { border-left: 4px solid var(--teal); background: #F1F8F7; border-radius: 0 8px 8px 0; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
 .assist-text { font-size: 15px; }
 .assist-meta, .chips { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }

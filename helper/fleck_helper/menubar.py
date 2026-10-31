@@ -131,6 +131,16 @@ class _Recording:
                 self.upload(*done)
 
 
+def gap_marker(mid: str, gap: Gap) -> SegmentEvent:
+    """Spec 7.7: a capture outage (stream restart, failure or dropped audio) as a transcript line. It travels as a final
+    client segment with no gate (the api stores it like any segment; the web shows `gap-` ids as a marker, not speech)."""
+    def stamp(ms):
+        return f"{ms // 60_000}:{ms // 1000 % 60:02d}"
+    what = {"you": "Your microphone", "both": "Audio"}.get(gap.stream, "Audio from the call")
+    return SegmentEvent(type="segment", meeting_id=mid, segment_id=f"gap-{gap.start_ms}", stream="client", start_ms=gap.start_ms,
+                        end_ms=gap.end_ms, text=f"{what} was interrupted ({stamp(gap.start_ms)}–{stamp(gap.end_ms)})", final=True, gate=None)
+
+
 def rewarm_embedders() -> None:
     """Loads both embedders with a long timeout: a live classify call gives up after 1 s, which can cancel a model
     load that would take longer, so an evicted embedder never comes back by itself."""
@@ -319,6 +329,8 @@ class Recorder:
                     assistant.start(e, mid, post, src.t0_wall)
                 elif isinstance(e, (Gap, Unavailable)):
                     log.warning("meeting %s: %s", mid, e)
+                    if isinstance(e, Gap):
+                        self.transport.send(gap_marker(mid, e))
                 self._set_degraded(getattr(pipe, "degraded", False))
         except Exception:
             log.exception("recording meeting %s failed", mid)

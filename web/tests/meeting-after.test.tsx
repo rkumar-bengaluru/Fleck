@@ -80,6 +80,15 @@ test("the Transcript tab lists lines with clickable timestamps; Chat is the meet
   expect(screen.getByRole("textbox", { name: "Ask about this meeting" })).toBeTruthy();
 });
 
+test("a capture outage shows as a marker line, not as the client's speech", async () => {
+  state.segments.push({ segment_id: "gap-200000", stream: "client", start_ms: 200_000, end_ms: 215_000, text: "Audio from the call was interrupted (3:20–3:35)", gate: null });
+  await open();
+  fireEvent.click(screen.getByRole("tab", { name: "Transcript" }));
+  const line = screen.getByText("Audio from the call was interrupted (3:20–3:35)").closest("li")!;
+  expect(within(line).getByText("Fleck")).toBeTruthy();
+  expect(within(line).queryByText("Client")).toBeNull();
+});
+
 test("processing polls every 3 s until ready", async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   state.meeting.status = "processing"; state.summary = null;

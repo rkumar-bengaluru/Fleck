@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from fleck_core.events import AssistEvent, SegmentEvent
-from fleck_helper.audio import FRAME, Frame
+from fleck_helper.audio import FRAME, Frame, Gap
 from fleck_helper.menubar import MODELS, Recorder
 from fleck_helper.pipeline import Trigger
 
@@ -343,3 +343,23 @@ def test_a_failing_resume_prompt_answers_start_new(monkeypatch):
     th.start()
     th.join(5)
     assert out == [False]  # answered, not hung
+
+
+def test_a_capture_gap_becomes_a_transcript_marker(make):
+    class Gapped(FakePipeline):
+        def run(self, source):
+            yield Gap(62_000, 75_500, "client")
+            yield Gap(600_000, 601_000, "you")
+            yield Gap(3_599_000, 3_605_000, "both")
+            yield from super().run(source)
+    r = make()
+    r.pipeline_factory = Gapped
+    r.start()
+    assert _until(lambda: len(r.transport.sent) >= 4)
+    r.stop()
+    r.wait(5)
+    marks = [e for e in r.transport.sent if isinstance(e, SegmentEvent) and e.segment_id.startswith("gap-")]
+    assert [(m.segment_id, m.stream, m.start_ms, m.end_ms, m.text, m.final, m.gate) for m in marks] == [
+        ("gap-62000", "client", 62_000, 75_500, "Audio from the call was interrupted (1:02–1:15)", True, None),
+        ("gap-600000", "client", 600_000, 601_000, "Your microphone was interrupted (10:00–10:01)", True, None),
+        ("gap-3599000", "client", 3_599_000, 3_605_000, "Audio was interrupted (59:59–60:05)", True, None)]

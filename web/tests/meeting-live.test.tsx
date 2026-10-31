@@ -67,6 +67,14 @@ test("test_applies_events_in_order", async () => {
   expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
 });
 
+test("a capture outage arrives as a marker line", async () => {
+  const s = await open();
+  s.emit(seg("gap-62000", "client", 62_000, "Audio from the call was interrupted (1:02–1:15)"));
+  const [item] = within(screen.getByRole("region", { name: "Live transcript" })).getAllByRole("listitem");
+  expect(item.textContent).toContain("Fleck");
+  expect(item.textContent).not.toContain("Client");
+});
+
 test("test_partial_replaced_by_final", async () => {
   const s = await open();
   s.emit(seg("s1", "client", 0, "What does a senior", false));

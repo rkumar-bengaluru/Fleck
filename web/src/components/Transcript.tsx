@@ -4,6 +4,11 @@ import AssistCard, { type AssistView } from "./AssistCard";
 
 export type Seg = Pick<SegmentEvent, "segment_id" | "stream" | "start_ms" | "text" | "final">;
 
+// spec 7.7: the helper sends a capture outage as a segment with a `gap-` id; it is a marker, not speech
+export const isGap = (s: { segment_id: string }) => s.segment_id.startsWith("gap-");
+export const Who = ({ s }: { s: { segment_id: string; stream: string } }) =>
+  isGap(s) ? <b className="gap">Fleck</b> : <b className={s.stream === "you" ? "you" : "client"}>{s.stream === "you" ? "You" : "Client"}</b>;
+
 const stamp = (ms: number) => `${Math.floor(ms / 60_000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}`;
 
 export default function Transcript({ segments, assists }: { segments: Seg[]; assists: AssistView[] }) {
@@ -30,9 +35,9 @@ export default function Transcript({ segments, assists }: { segments: Seg[]; ass
           const mine = assists.filter(a => a.segment_id === s.segment_id);
           return (
             <li key={s.segment_id} className="line">
-              <span className="line-who">{stamp(s.start_ms)}<br /><b className={s.stream === "you" ? "you" : "client"}>{s.stream === "you" ? "You" : "Client"}</b></span>
+              <span className="line-who">{stamp(s.start_ms)}<br /><Who s={s} /></span>
               <span className="line-body">
-                <span className={s.final ? (mine.length ? "question" : "") : "partial"}>{s.text}</span>
+                <span className={isGap(s) ? "gap" : s.final ? (mine.length ? "question" : "") : "partial"}>{s.text}</span>
                 {mine.map(a => <AssistCard key={a.assist_id} a={a} />)}
               </span>
             </li>

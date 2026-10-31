@@ -525,3 +525,4 @@ Follow-ups that must be done before the MVP is done:
 - Review items fixed with tests: line-count coverage and bullets, strict tool schema and the retry loop (no tool call, malformed, max_tokens, named bad lines, note-line fallback), atomic Stop, 4-hour chunk cap and ffmpeg timeout, 404 and 416 on the recording, API error message in the trace, `HttpError.status` in the web client. Threshold 0.52 (decision 118), transcript JSON written after the markers, q_general fixture timings null (decision 120h). New decision 122.
 - No replay, no new real Claude calls; `strict: true` is therefore untested against the live API.
 
+- Task 17 fix round 1 (d0453c1): coverage guard counts whole lines; strict summary tool, two-attempt loop with fallback to note lines; max_tokens 16000; Stop enqueues once (conditional UPDATE); threshold 0.52. Controller live check: Sonnet 5.5 accepts strict tool, 200, tool_use.

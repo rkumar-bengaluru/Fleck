@@ -105,3 +105,19 @@ def test_whisper_loads_from_the_local_cache_without_asking_the_hub(monkeypatch):
     assert local_model("cached/model") == "/cache/snapshots/abc"
     assert local_model("new/model") == "new/model"  # mlx_whisper downloads it on first use
     assert calls == [True, True]
+
+
+def test_warm_whisper_loads_the_cached_model_once_with_silence(monkeypatch):
+    # decision 164: a first Whisper load during a recording dropped ~0.6 s of the call
+    import sys
+    import types
+
+    from fleck_helper import transcribe
+
+    calls = []
+    monkeypatch.setitem(sys.modules, "mlx_whisper", types.SimpleNamespace(transcribe=lambda a, **kw: calls.append((a, kw))))
+    monkeypatch.setattr(transcribe, "local_model", lambda repo: f"/cache/{repo}")
+    transcribe.warm_whisper()
+    (audio, kw), = calls
+    assert not audio.any() and len(audio) == 16000
+    assert kw["path_or_hf_repo"] == "/cache/mlx-community/whisper-large-v3-turbo"

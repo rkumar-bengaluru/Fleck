@@ -74,6 +74,14 @@ class StreamTranscriber:
         return kept_text(out)
 
 
+def warm_whisper(model: str = "mlx-community/whisper-large-v3-turbo") -> None:
+    """Loads Whisper at app start: a first load during a recording held the GIL long enough to drop ~0.6 s of the
+    call (rupak.k's live test, decision 164). mlx_whisper keeps the model for the process, so meetings reuse it."""
+    import mlx_whisper  # lazy: darwin-only
+
+    mlx_whisper.transcribe(np.zeros(16000, np.float32), path_or_hf_repo=local_model(model), language="en", verbose=None)
+
+
 def local_model(repo: str) -> str:
     """The cached snapshot's folder, so loading Whisper never asks huggingface.co for the latest revision (spec: local
     only, Task 22). Only a model not yet on this Mac is fetched by its repo name."""

@@ -489,6 +489,14 @@ def _app_class():
     return MenuBarApp
 
 
+def _warm_whisper() -> None:
+    from fleck_helper.transcribe import warm_whisper
+    try:
+        warm_whisper()
+    except Exception as e:  # the first meeting then loads it, as before
+        log.warning("warm whisper failed: %r", e)
+
+
 def main() -> None:
     from fleck_core.answer import OllamaClient
     from fleck_helper.cli import api_url, load_claude_key, load_token
@@ -506,6 +514,7 @@ def main() -> None:
     if token:
         recorder = Recorder(api, None, panel, power=PowerAssertion(), ollama=OllamaClient(), ask=_ask)
         recorder.transport = Transport(api_url(), token, on_message=recorder.on_message)
+        threading.Thread(target=_warm_whisper, daemon=True, name="warm-whisper").start()
         from Foundation import NSBundle
         if NSBundle.mainBundle().bundleIdentifier():
             scheduler = Scheduler(UNNotifier(lambda event_id: _bg(recorder.start, event_id)))

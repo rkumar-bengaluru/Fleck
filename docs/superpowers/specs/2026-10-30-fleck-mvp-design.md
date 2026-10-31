@@ -26,7 +26,7 @@ A desktop assistant that sits openly in the meeting with the salesperson. It lis
 ## 3. Goals
 
 1. **Sign in with Google.** Every member of the presales team signs in with Google. The team shares one library of past material. Who counts as the team is an allow-list in `.env` (`FLECK_ALLOWED_DOMAINS`, `FLECK_ALLOWED_EMAILS`); anyone else is refused at sign-in. The allow-list is only the sign-in gate, not a way to split teams: the MVP has exactly one team (rupak.k's rule). Everyone signed in sees the whole library and every meeting, since team chat spans all meetings; each meeting records who recorded it. **(Visibility: Claude's call.)**
-2. **Calendar sync.** The user's Google Calendar appears in Fleck, read-only (`calendar.readonly`; Fleck never writes to it). The user links a meeting to a client by hand, with a dropdown of library clients on the event page; ad-hoc recordings are linked the same way. A meeting with no client still gets a brief, built from its title and description only. (Manual link: rupak.k's rule.)
+2. **Calendar sync.** The user's Google Calendar appears in Fleck, read-only (`calendar.readonly`; Fleck never writes to it). The user links a meeting to a client by hand, with a dropdown of library clients on the event page; ad-hoc recordings are linked the same way. A meeting with no client still gets a brief, built from its title and description only. (Manual link: rupak.k's rule.) *(Amended: decisions 129, 130, 144.)* Before either goes to Claude, attendee names, client names (and the guests' company, from their email domain), emails, links and long digit runs are redacted. A meeting with a client gets its brief when the client is linked and again 30 minutes before the start; a meeting with no client gets one only when the user presses **Refresh brief**. An ad-hoc recording is linked from its meeting page.
 3. **Library.** The team uploads past material (PDF, Word, PowerPoint, Excel, Markdown), filed by client, plus firm-wide material and reference material. Fleck indexes it for search. Each document has a kind: **client** (our past work for that client), **firm** (rate card, capabilities, FAQ) or **reference** (third-party examples). Reference documents may be quoted for their terms but are never presented as the firm's past work. **(Claude's call.)**
 4. **Pre-meeting brief.** Before a meeting with a known client: the questions this client is likely to ask, each with the best answer from the library and its source. **(Claude's call, accepted by rupak.k to review.)**
 5. **Meeting kick-off.** A macOS notification 5 minutes before a meeting starts recording with one click; an ad-hoc **Start recording** for unplanned calls. Fleck captures the user's mic and the call audio, and transcribes both live on the Mac.
@@ -55,7 +55,7 @@ iOS, Android, Windows; Outlook calendar; several teams with separate data (one t
 ## 5. Anti-goals (failure even if it works)
 
 - **A made-up fact shown as ours.** Prices, rates, team sizes, dates, client names and results come only from the library, quoted with their source. If no document backs a number, the answer says so. Claude's fallback answers never contain prices or claims about the firm's past work.
-- **Help that arrives too late.** Target (p95 over pooled replays of the test conversation, on rupak.k's Mac): the first words of a library or brief answer appear within **3 s** of the client finishing the question, and the full library answer within **6 s**; the first words of a Claude fallback answer within **5 s** (its timeout). The time to a "Not in our material" outcome is reported, not gated (rupak.k, 2026-10-31).
+- **Help that arrives too late.** Target (p95 over pooled replays of the test conversation, on rupak.k's Mac): the first words of a library or brief answer appear within **3 s** of the client finishing the question, and the full library answer within **6 s**; the first words of a Claude fallback answer within **5 s** (its timeout). The time to a "Not in our material" outcome is reported, not gated (rupak.k, 2026-10-31). *(Amended: decision 112.)* The gates are split by kind (library and brief, Claude fallback) and the p95 is pooled over every question of at least 3 real-time replays.
 - **Missed or misheard questions.** Target: on the test conversation, at least 90% of the client's questions trigger an answer, and no more than one false trigger per 10 minutes.
 - **Getting in the way.** Reading an answer must never need a window or tab switch, a click, or a sound. The answer panel (§7.8) floats over the call, never takes keyboard focus, and stays out of screen shares.
 
@@ -128,7 +128,7 @@ Live and replay differ only at the source. From the 16 kHz streams onward, the c
    bleed variant: right channel also mixed into left                     │
    (delayed, quieter, reverb) = call heard through                       ▼
    speakers, for tuning the gate and echo tests             classify() ──▶ live answer path
-                                                            (CPU, §7.2)    (helper: Weaviate,
+                                                            (§7.2)         (helper: Weaviate,
                                                                             qwen3:4b, checks §7.4)
                                                                                  │
   Both streams' audio, in chunks ─────▶ api ──▶ MinIO (recording)                ▼
@@ -155,18 +155,20 @@ Time from the client finishing a question to the first words on screen (estimate
 |---|---|
 | End of speech detected (silence) | ~0.6 s |
 | Whisper finalises the last window | 0.3–0.5 s |
-| Question classified (no LLM, §7.2: `qwen3-embedding:4b` classify embed in parallel with the 0.6b search embed, decision 95) + hybrid search | ~0.11 s (p95 0.30 s budget, then CPU rules) + ~0.15 s |
+| Question classified (no LLM, §7.2: `qwen3-embedding:4b` classify embed in parallel with the 0.6b search embed, decision 95) + hybrid search | ~0.11 s (1 s budget, then CPU rules; amended: decision 128) + ~0.15 s |
 | `qwen3:4b` reads ~1,000 prompt tokens, first token out (measured p95 1.11 s; ~0.1 s when started early) | 1–1.5 s |
 | **First words** | **~2.2–2.8 s** against the 3 s target |
 
 To keep headroom: **(Claude's call)**
 
 1. **Answer from the brief first.** The pre-meeting brief's answers are stored; a live question that matches one shows its answer at once, with no generation.
-2. **Start early.** Search and the model's prompt reading start on Whisper's partial text when it looks like a question; the work is dropped if the final text differs.
+2. **Start early.** Search and the model's prompt reading start on Whisper's partial text when it looks like a question; the work is dropped if the final text differs. *(Amended: decision 103.)* They start on the client's pause instead: at each client final the turn so far is classified, and if it is a question, search and prompt reading start. The trigger at the turn's close reuses that work only when its text is the same; otherwise the work is dropped and search runs again.
 3. **Small, warm prompt.** At most 3 passages (~800 tokens); a fixed instruction prefix so its cache is reused; all models loaded (`keep_alive`) from when recording starts.
 4. **Fallback model.** If `qwen3:8b` misses the target when measured, switch to `qwen3:4b`.
 
 Item 2 never shows anything on screen: an answer is shown only after the final-text trigger in §7.2.
+
+**Classifier budget** *(amended: decision 128)*. The classify embed may take up to **1 s** (over 0.30 s is logged as slow). Past 1 s, or on an error, strict CPU rules decide, and a circuit breaker keeps the rules deciding for 10 s. A client turn the rules said no to is classified again on its own thread for up to 30 s. If it turns out to be a question, its answer is shown with a **Late** tag next to the source label (panel, live page and notes): it answers an earlier question.
 
 **Measured (2026-10-30, M5, decision 72).** With fresh passages and a fresh question each time (1,045 prompt tokens), `qwen3:8b` took 2.59 s (p95) to its first token, putting first words at ~3.8 s, over the target; `qwen3:4b` took 1.11 s, giving ~2.4 s. Item 4 applied: the live model is `qwen3:4b`, and item 2 (start early) is mandatory, which cuts the first token to ~0.1 s when the passages were read on the partial text.
 
@@ -179,14 +181,15 @@ The pipeline is fixed: **VAD-flushed segment → speaker gate → local classifi
 1. **Segments, not streams.** Whisper is not truly streaming. "Partials" are re-inferences of the current audio chunk and are treated as an early preview only. A segment becomes final when VAD sees end of speech (300–700 ms of silence, counted in §7.1).
 2. **Speaker gate.** Call audio is **Client** and mic audio is **You** by construction (separate streams). For triggering, smoothed RMS energy decides whether the segment is clean client speech:
    `client_speech = sys_energy > mic_energy × 1.5 AND mic_energy < silence_threshold`.
+   *(Amended: decision 93.)* The built gate relies on echo cancellation, not loudness. Each 200 ms window of smoothed RMS counts as client only when `mic ≤ max(noise_floor, client × FLECK_GATE_BLEED_MAX)`, with `FLECK_GATE_BLEED_MAX=0.3` (a client-to-mic ratio of at least 3.3). The noise floor is twice the 10th percentile of mic RMS over the last 10 s, never below `FLECK_GATE_SILENCE`. **You** mirrors the rule, and 75% of the audible windows decide the segment. Weak echo cancellation (bleed above 0.3×) is gated overlap and never triggers.
    Both channels active means **overlap**: never a trigger. Multiplier and threshold are tuned on the **bleed** recording (call audio leaking into the mic through the speakers, after Apple's echo cancellation), not on clean audio. **(Tuning on bleed: Claude's adjustment.)**
 3. **Classifier contract.**
    ```
    classify(transcript: str, speaker: Literal["client", "you", "overlap"]) -> QuestionVerdict
    QuestionVerdict: is_question: bool, confidence: float, reason: str
    ```
-   It runs on CPU in under 50 ms, so it never competes with Whisper or Qwen for the GPU. The pipeline triggers only when `speaker == "client"`, `is_question` and `confidence ≥` a configured threshold. The implementation behind the contract (rules plus a small CPU model) is replaceable without touching the pipeline.
-4. **Trigger once, on final text.** Only final segments can trigger, and each `segment_id` triggers at most once. Speculative search and prompt reading on partials (§7.1, item 2) stay invisible.
+   It runs on CPU in under 50 ms, so it never competes with Whisper or Qwen for the GPU. *(Amended: decisions 94, 95, 128.)* It does not: hard vetoes run on the CPU (under 4 words, call mechanics and small talk, tag questions, cut-off lines, requests to send a document), and everything else is scored by a logistic regression on a `qwen3-embedding:4b` vector computed by Ollama on the GPU, in parallel with the search embed. The budget is 1 s (§7.1); past it, strict CPU rules decide. The pipeline triggers only when `speaker == "client"`, `is_question` and `confidence ≥` a configured threshold. The implementation behind the contract (rules plus a small CPU model) is replaceable without touching the pipeline.
+4. **Trigger once, on final text.** Only final segments can trigger, and each `segment_id` triggers at most once. Speculative search and prompt reading on partials (§7.1, item 2) stay invisible. *(Amended: decision 103: the speculative work starts on client finals before the turn closes, not on partials.)*
 5. **Precision first.** A false trigger interrupts the salesperson mid-sentence; a missed question can be asked again. **(rupak.k's text said both "false triggers cost more" and "prioritise recall"; Claude reads it as precision first.)**
 
 **Negative-sample test (a blocker, not a description).** A committed negative set of 10–15 minutes, both speakers, generated like the test conversation (§8):
@@ -214,11 +217,13 @@ Each runs at two levels: the classifier on the reference transcripts (fast, ever
 Each answer Fleck showed is marked **Used** or **Not used** in the notes.
 
 - **Automatic value.** For each **You** final segment that starts within 15 s after the answer appeared, compute cosine similarity between that segment and the shown answer, using the same embedding model as the library. If the highest similarity is ≥ 0.75, the answer is **Used**. The 0.75 is a starting value, set from the test conversation.
+  - *(Amended: decisions 118, 127.)* The threshold is **0.52** (`FLECK_USED_THRESHOLD`), set from the replayed test conversation: at 0.75, three of the four used answers were missed. A **You** segment counts when it *overlaps* the 15 s window after the answer appeared (it ends after the answer appeared and starts before the window closes), as long as it began no earlier than 2 s before the question ended. A salesperson who starts talking as the card appears is reading it.
   - Computed after the meeting, not live, so it never competes for the GPU during the call. **(Claude's adjustment.)**
   - Highest single segment, not the whole reply joined together, so one matching sentence in a long reply still counts. **(Claude's adjustment.)**
 - **Manual override.** In the notes, each marker shows its value and whether it is automatic or set by hand. One click flips it; a manual value always wins, and recomputing never overwrites it.
 - **Testable.** The test conversation's script marks, for each answered question, whether the salesperson uses the answer. It includes at least one answer that is ignored, and one where the reply is on-topic but doesn't use the answer. The automatic marker must agree with the script on every one of them.
 - **Known limit.** Similarity measures topic, not correctness: a reply on the same subject with a different number can still be marked **Used**. The override covers this.
+- *(Amended: Task 22 measurement.)* The marker does not agree with the script on every answer: `q_liability`'s on-topic reply scores 0.519–0.555, so it reads **Used** in 3 of 4 runs where the script says not used. The threshold was not retuned; the hand-over lists it as a known limit.
 
 ### 7.4 Citations and anti-goal enforcement (rupak.k's rules, with Claude's adjustments marked)
 
@@ -227,7 +232,7 @@ The model never decides what a source is called. Rules enforced in code, not onl
 **Library answers (`qwen3:4b`)**
 1. The prompt gives at most 3 passages, numbered `[1]`–`[3]`, each with its document kind (client / firm / reference). Each claim must end with the number of the passage it comes from. If the passages don't answer the question, the model replies `NONE`, which hands over to the fallback.
 2. The api maps each `[n]` to the Weaviate result's `doc_id` + `chunk_id`. **An answer with no valid citation, or citing a number it wasn't given, is rejected.** The source line on screen (document title, client, kind) is rendered from Weaviate metadata, never from the model's text. **(Numbered markers instead of the model writing `doc_id`s: Claude's adjustment, cheaper and streamable.)**
-3. **Number check.** Every figure in a sentence (amounts, currencies, %, durations, team sizes, dates) must appear, after normalising ("6,900" = "6900" = "six thousand nine hundred"), in a passage that sentence cites. Sentences without figures stream to the screen token by token. Sentences with a figure are held until complete and checked. A sentence that fails is replaced by **Not in our material** with a link to the cited source. **(Claude's addition: a valid citation alone doesn't stop a wrong number.)**
+3. **Number check.** Every figure in a sentence (amounts, currencies, %, durations, team sizes, dates) must appear, after normalising ("6,900" = "6900" = "six thousand nine hundred"), in a passage that sentence cites. Sentences without figures stream to the screen token by token. Sentences with a figure are held until complete and checked. A sentence that fails is replaced by **Not in our material** with a link to the cited source. *(Amended: decisions 76, 123g: no link is shown; no event carries one.)* **(Claude's addition: a valid citation alone doesn't stop a wrong number.)**
 4. An answer citing only **reference** documents is labelled **Reference contract, not our work**.
 
 **Fallback answers (Claude Haiku)**
@@ -265,6 +270,7 @@ So: XLSX is read with `openpyxl` directly (already a markitdown dependency, no d
 |---|---|---|---|
 | Answer model | `qwen3:4b-q4_K_M` | `sha256:2bfd38a7daaf4b1037efe517ccb73d1a3bbd4822cf89f1a82be1569050a114e0` | 2.6 GB |
 | Embeddings | `qwen3-embedding:0.6b` | `sha256:ac6da0dfba84a81fdbfbaf330198c33cd77c4cdfc53e8bc50eb581914a15621d` | 0.64 GB |
+| Question classifier (added: decision 95) | `qwen3-embedding:4b` | `sha256:df5bd2e3c74cd8d069d21dc038f1b359fcdc9458fce1c99bd43c9eb1518ff907` | |
 | Former answer model (measured too slow, decision 72) | `qwen3:8b-q4_K_M` | `sha256:500a1f067a9f782620b40bee6f7b0c89e17ae61f686b92c24933e4ca4b2b8b41` | 5.2 GB |
 
 ### 7.6 Ports (fixed, rupak.k's rule)
@@ -290,7 +296,7 @@ Presales meetings run 30–60 minutes. The stack must stay steady for that long.
 | Risk over an hour | Design |
 |---|---|
 | Ollama unloads idle models after 5 minutes by default; the next answer would wait seconds for a reload | While recording, every Ollama request sets `keep_alive: -1`; when recording stops, the models are released |
-| Mac sleeps, or the ScreenCaptureKit stream stops | The helper holds a no-sleep assertion while recording. If the capture stream ends unexpectedly, it restarts it and marks the gap in the transcript |
+| Mac sleeps, or the ScreenCaptureKit stream stops | The helper holds a no-sleep assertion while recording. If the capture stream ends unexpectedly, it restarts it and marks the gap in the transcript. *(Amended: decision 139.)* The marker is a transcript line labelled **Fleck**, such as "Audio from the call was interrupted (m:ss–m:ss)" ("Your microphone…" for the mic) |
 | Live prompts grow with the meeting | A live prompt holds only the question and ≤ 3 passages, never the running transcript, so answer latency doesn't depend on how long the meeting has run |
 | Memory grows (1 hour of two 16 kHz streams ≈ 230 MB raw) | Audio is written in chunks to local disk and uploaded to MinIO, never accumulated in memory. Whisper works only on the current window |
 | Connection between helper and api drops | The helper queues unsent segments and audio chunks and resends them in order on reconnect; the api ignores duplicates by `segment_id` and chunk number. The browser reloads the meeting state when it reconnects |
@@ -302,6 +308,8 @@ Presales meetings run 30–60 minutes. The stack must stay steady for that long.
 - the helper's memory grows by less than 300 MB
 - every scripted question in every loop gets its expected outcome
 
+*(Amended: decision 143, rupak.k's rulings.)* Memory growth is measured from the first sample after loop 1, because MLX fills its buffer cache during the first loop and then stays flat; the helper's physical footprint (including Metal buffers) is measured, not RSS. A live-fallback Claude timeout that ends in **Not in our material** does not fail "expected outcome"; it is reported as `claude_timeouts`.
+
 Results go into the hand-over note (§9).
 
 ### 7.8 The answer panel (rupak.k's requirement: no window switching; design: Claude's call)
@@ -312,7 +320,7 @@ A native macOS panel drawn by the helper (PyObjC `NSPanel`), not a browser windo
 - **Placement.** Top-centre, just under the camera, about 540 pt wide and as tall as the answer (mockups), so reading it keeps the eyes near the lens. It can be dragged, and remembers where it was put.
 - **Content**, newest only:
   - while working: the client's question and **Thinking…**
-  - then: the question (one line), the answer streaming in, and the source line: a label chip plus detail text, exactly as in the mockups: **Our material** + document title (from Weaviate metadata, §7.4); **General knowledge** + "Not from our material"; **Not in our material** + a link to the closest document; **Reference contract** + "Not our work: <title>"
+  - then: the question (one line), the answer streaming in, and the source line: a label chip plus detail text, exactly as in the mockups: **Our material** + document title (from Weaviate metadata, §7.4); **General knowledge** + "Not from our material"; **Not in our material** (amended: decision 123g: no link to a closest document); **Reference contract** + "Not our work: <title>"
 - **History.** ◀ ▶ step through this meeting's earlier answers; a new answer always jumps back to the newest.
 - **Show / hide.** The global shortcut ⌥⌘F, or the menu-bar item. It appears automatically when recording starts and hides when recording stops.
 - **Direct from the helper.** The helper produces the answer (§6), so the panel shows it with no trip through the api and browser. The same answer is also sent to the api for storage and the browser.
@@ -329,6 +337,7 @@ A 6–8 minute presales call between rupak.k as salesperson (left channel) and a
 - a question the library covers only in general, answered by Claude and labelled as general knowledge
 - a pricing question for which no document gives a number, where the answer must say so
 - a few overlaps and interruptions, and spoken numbers and dates
+- *(Added: decision 89.)* an eighth question, "Would you cap liability at twelve months of fees?", expected from reference material. *(Amended: decision 101.)* The local model replies NONE to it, so it goes to the Claude fallback and is labelled **General knowledge**: a known limit.
 
 The script, the reference transcript and the expected outcome for each question (answered from library / Claude / "not in our material", and which document) are committed next to the WAV. They are the acceptance test for goals 5–7 and the anti-goal targets.
 
@@ -352,7 +361,7 @@ Content work never blocks development: the case studies are written in the same 
 
 The hand-over runs on `gsim` by default: the demo meeting is linked to a fixed event in the simulated calendar, so it works without any Google setup. Real Google sign-in and calendar are switched on by putting OAuth credentials in `.env`; the hand-over note gives the Google Cloud setup steps and rupak.k checks real sign-in by hand. **(Claude's call.)**
 
-Live capture and the answer panel are checked by hand before hand-over: one real call on speakers in a browser (Google Meet) and one in a desktop app (Zoom), each with a full-screen share to confirm the panel doesn't appear in it, recorded with whole-system audio capture, with the results in the hand-over note. The automated tests use replay. The helper is signed with a local self-signed certificate so macOS keeps its Screen Recording and Microphone permissions across rebuilds; no Apple Developer ID needed. **(Claude's call.)**
+Live capture and the answer panel are checked by hand before hand-over: one real call on speakers in a browser (Google Meet) and one in a desktop app (Zoom), each with a full-screen share to confirm the panel doesn't appear in it, recorded with whole-system audio capture, with the results in the hand-over note. *(Amended: decisions 60, 124.)* Claude cannot hold a real call, so these calls, a real notification's **Record** and the ⌥⌘F shortcut with Accessibility are left to rupak.k, first in `manual-checks.md`. The automated stand-ins are a speaker test (afplay through the speakers into the signed app's capture) and a full-display capture that checks the panel stays out of it. The automated tests use replay. The helper is signed with a local self-signed certificate so macOS keeps its Screen Recording and Microphone permissions across rebuilds; no Apple Developer ID needed. **(Claude's call.)**
 
 ## 10. How the work runs after this is approved
 

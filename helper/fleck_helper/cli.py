@@ -112,6 +112,7 @@ def replay(wav: Path, meeting: str, fallback: str) -> None:
 
     token = load_token() or sys.exit("Not paired: run fleck-helper pair <code>")
     m = httpx.get(f"{api_url()}/api/meetings/{meeting}", headers={"Authorization": f"Bearer {token}"}, timeout=10).raise_for_status().json()["meeting"]
+    load_claude_key()  # the keychain's key, as the app does (never logged)
     assistant = make_assistant(m, fallback)
     transport = Transport(api_url(), token)
     threads = []

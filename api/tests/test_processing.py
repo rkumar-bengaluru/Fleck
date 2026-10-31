@@ -100,7 +100,7 @@ def test_process_meeting_ready_and_failed(env, monkeypatch):
 
 class Fake:
     """Embeds a text as a one-hot over its words, so equal wording scores 1."""
-    WORDS = ["thirty", "minutes", "team", "weeks", "code", "owner"]
+    WORDS = ["thirty", "minutes", "team", "weeks", "code", "owner", "five", "days"]
 
     def embed(self, texts):
         return [[float(w in t.lower()) for w in self.WORDS] + [0.01] for t in texts]
@@ -114,9 +114,11 @@ def _seed(make, mid=None):
         s.add_all([Segment(meeting_id=m.id, segment_id="c1", stream="client", start_ms=0, end_ms=1000, text="How fast?"),
                    Segment(meeting_id=m.id, segment_id="y-early", stream="you", start_ms=500, end_ms=900, text="thirty minutes"),  # before the card
                    Segment(meeting_id=m.id, segment_id="y1", stream="you", start_ms=6000, end_ms=8000, text="We respond in thirty minutes."),
+                   Segment(meeting_id=m.id, segment_id="y-over", stream="you", start_ms=1500, end_ms=3500, text="five days"),  # starts as the card shows (2000 ms)
                    Segment(meeting_id=m.id, segment_id="y-late", stream="you", start_ms=30000, end_ms=31000, text="team weeks")])
         s.add_all([Assist(meeting_id=m.id, assist_id="a-auto", segment_id="c1", question="q", answer="thirty minutes", first_words_ms=1000),
                    Assist(meeting_id=m.id, assist_id="a-miss", segment_id="c1", question="q", answer="team weeks code", first_words_ms=1000),
+                   Assist(meeting_id=m.id, assist_id="a-over", segment_id="c1", question="q", answer="five days", first_words_ms=1000),
                    Assist(meeting_id=m.id, assist_id="a-manual", segment_id="c1", question="q", answer="thirty minutes", first_words_ms=1000,
                           used=False, used_by="manual")])
         s.commit()
@@ -131,6 +133,7 @@ def test_manual_used_not_overwritten(make_session):
     assert (a["a-auto"].used, a["a-auto"].used_by) == (True, "auto") and a["a-auto"].used_score > 0.9
     assert (a["a-miss"].used, a["a-miss"].used_by) == (False, "auto")  # the only match is 30 s after the card
     assert (a["a-manual"].used, a["a-manual"].used_by) == (False, "manual")
+    assert a["a-over"].used is True  # a You final that overlaps the window counts, though it started before the card showed
 
 
 NOTES = "Asked for SLA in writing\nSend the rate card\n\nKickoff in May"

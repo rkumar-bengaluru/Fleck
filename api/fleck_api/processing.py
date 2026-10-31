@@ -88,8 +88,8 @@ def _cos(a: list[float], b: list[float]) -> float:
 
 
 def compute_used_markers(s: Session, meeting_id: int, embedder=None) -> None:
-    """Auto "used it": the best cosine between an assist's answer and the You finals that start within 15 s after the
-    card appeared. Assists a person set (used_by manual) are left alone."""
+    """Auto "used it": the best cosine between an assist's answer and the You finals that overlap the 15 s after the
+    card appeared (a vendor who starts talking as the card shows is reading it). Assists a person set (used_by manual) are left alone."""
     threshold = float(setting("FLECK_USED_THRESHOLD", "") or 0.52)
     segs = {x.segment_id: x for x in s.scalars(select(Segment).where(Segment.meeting_id == meeting_id))}
     you = [x for x in segs.values() if x.stream == "you" and x.text.strip()]
@@ -101,7 +101,7 @@ def compute_used_markers(s: Session, meeting_id: int, embedder=None) -> None:
         a.used_by, a.used_score, score = "auto", None, 0.0
         if q is not None and a.answer.strip():
             shown = q.end_ms + (a.first_words_ms or 0)
-            near = [x.segment_id for x in you if shown <= x.start_ms <= shown + USED_WINDOW_MS]
+            near = [x.segment_id for x in you if x.end_ms > shown and x.start_ms < shown + USED_WINDOW_MS]
             if near:
                 answer = embedder.embed([a.answer])[0]
                 score = max(_cos(answer, vec[i]) for i in near)

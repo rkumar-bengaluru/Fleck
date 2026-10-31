@@ -11,7 +11,7 @@ const time = (iso: string) => new Date(iso).toLocaleTimeString("en-GB", { hour: 
 interface BriefData {
   event: { id: number; title: string; start_at: string; end_at: string; client: { id: number; name: string } | null };
   status: "none" | "queued" | "building" | "ready" | "failed";
-  context: string | null; doc_count: number; prepared_at: string | null; error: string | null; cost_usd: number;
+  context: string | null; prepared_at: string | null; error: string | null; cost_usd: number;
   items: { topic: string; question: string; answer: string; kind: Kind; citations: Citation[] }[];
 }
 
@@ -40,6 +40,8 @@ export default function Brief() {
     .sort((a, b) => TOPICS.indexOf(a.topic) - TOPICS.indexOf(b.topic));
   const thin = data.items.filter(i => i.kind === "not_in_material");
   const e = data.event;
+  // the documents the answers cite (firm documents included), not only the client's (decision 153)
+  const docs = new Set(data.items.flatMap(i => i.citations.map(c => c.doc_id))).size;
   return (
     <>
       <Link to="/">Back to Today</Link>
@@ -47,7 +49,7 @@ export default function Brief() {
         <div>
           <h1>Brief for {e.client?.name ?? e.title}</h1>
           <p className="subtitle">
-            {e.title}, {time(e.start_at)} to {time(e.end_at)}.{data.prepared_at && ` Prepared ${time(data.prepared_at)} from ${data.doc_count} library document${data.doc_count === 1 ? "" : "s"}.`}
+            {e.title}, {time(e.start_at)} to {time(e.end_at)}.{data.prepared_at && ` Prepared ${time(data.prepared_at)} from ${docs} library document${docs === 1 ? "" : "s"}.`}
           </p>
         </div>
         <div className="actions">

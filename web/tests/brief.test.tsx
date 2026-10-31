@@ -88,3 +88,10 @@ test("a ready brief with no questions says so; repeated questions render", async
   await open();
   expect(screen.getAllByRole("article").length).toBe(2);
 });
+
+test("the prepared line counts the documents the answers cite, as for a brief with no client", async () => {
+  state = { ...state, event: { ...state.event, client: null }, doc_count: 0,
+            items: [...state.items, { topic: "delivery", question: "Who runs it?", answer: "A tech lead [1].", kind: "library", citations: [{ ...rate, doc_id: "d2", title: "Delivery FAQ" }] }] };
+  render(<MemoryRouter initialEntries={["/events/5/brief"]}><Routes><Route path="/events/:id/brief" element={<Brief />} /></Routes></MemoryRouter>);
+  expect((await screen.findByText(/Prepared/)).textContent).toMatch(/from 2 library documents\.$/);
+});

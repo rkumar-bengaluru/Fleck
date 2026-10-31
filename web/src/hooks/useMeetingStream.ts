@@ -64,9 +64,10 @@ const RECONNECT_MS = 1000;
 const wsUrl = (id: string) => `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/api/ws/meetings/${id}`;
 
 /** The meeting's record plus the live socket. On every (re)connect: GET the record first, then apply the events that arrived meanwhile. */
-export function useMeetingStream(id: string): State {
+export function useMeetingStream(id: string, off = false): State {
   const [state, dispatch] = useReducer(reduce, { meeting: null, notes: null, status: "recording", segments: [], assists: [], error: false });
   useEffect(() => {
+    if (off) return;  // the meeting has ended: no socket
     let closed = false;
     let ws: WebSocket | undefined;
     let retry: ReturnType<typeof setTimeout> | undefined;
@@ -97,6 +98,6 @@ export function useMeetingStream(id: string): State {
     };
     connect();
     return () => { closed = true; clearTimeout(retry); ws?.close(); };
-  }, [id]);
+  }, [id, off]);
   return state;
 }

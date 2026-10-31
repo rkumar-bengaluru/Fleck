@@ -132,11 +132,11 @@ class _Recording:
 
 
 def rewarm_embedders() -> None:
-    """Loads both embedders with a long timeout: a live classify call gives up after 300 ms, which can cancel a model
+    """Loads both embedders with a long timeout: a live classify call gives up after 1 s, which can cancel a model
     load that would take longer, so an evicted embedder never comes back by itself."""
     from fleck_helper.classify import live_embed
     try:
-        live_embed("warm up", timeout=30)
+        live_embed("warm up", timeout=30, warm=True)
     except Exception as e:
         log.warning("embedder re-warm failed: %r", e)
 

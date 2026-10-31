@@ -152,3 +152,10 @@ def test_retry_requeues_only_a_failed_meeting_once(env):
         assert m.status == "processing" and m.failure_reason is None
         assert s.scalar(select(func.count()).select_from(Job).where(Job.kind == "process_meeting")) == 1
     assert client.post("/api/meetings/9999/retry").status_code == 404
+
+
+def test_retry_needs_a_signed_in_user(env):
+    client, _, _ = env
+    mid = client.post("/api/meetings", json={"title": "x"}, headers=pair(env)).json()["id"]
+    client.cookies.clear()
+    assert client.post(f"/api/meetings/{mid}/retry").status_code == 401

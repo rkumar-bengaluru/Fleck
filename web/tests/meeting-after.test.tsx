@@ -26,7 +26,7 @@ beforeEach(() => {
     if (url.startsWith("/api/assists/")) return new Response(JSON.stringify({}), { status: 200 });
     return new Response(null, { status: 204 });
   }));
-  window.HTMLMediaElement.prototype.play = vi.fn(async () => {});
+  window.HTMLMediaElement.prototype.play = vi.fn(async () => {});  // eslint-disable-line
   window.HTMLMediaElement.prototype.pause = vi.fn();
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
@@ -73,10 +73,10 @@ test("test_timeline_marker_per_assist", async () => {
 
 test("the Transcript tab lists lines with clickable timestamps; Chat is a placeholder", async () => {
   await open();
-  fireEvent.click(screen.getByRole("button", { name: "Transcript" }));
+  fireEvent.click(screen.getByRole("tab", { name: "Transcript" }));
   expect(screen.getByText("Line 2")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Play from 2:00" })).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Chat" }));
+  fireEvent.click(screen.getByRole("tab", { name: "Chat" }));
   expect(screen.getByText("Chat arrives in a later build")).toBeTruthy();
 });
 
@@ -101,4 +101,77 @@ test("failed shows the reason and Try again re-enqueues", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Try again" }));
   await screen.findByText("Processing the recording…");
   expect(calls.some(c => c.method === "POST" && c.url === "/api/meetings/5/retry")).toBe(true);
+});
+
+test("a marker and a time link seek the audio and play", async () => {
+  await open();
+  const audio = document.querySelector("audio")!;
+  fireEvent.click(screen.getByRole("button", { name: "Jump to 2:00, General knowledge" }));
+  expect(audio.currentTime).toBe(120);
+  expect(window.HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(1);
+  fireEvent.click(within(screen.getByRole("article", { name: "Question 3?" })).getByRole("button", { name: "Play from 3:00" }));
+  expect(audio.currentTime).toBe(180);
+  expect(window.HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(2);
+});
+
+test("a play that is blocked does not throw", async () => {
+  window.HTMLMediaElement.prototype.play = vi.fn(async () => { throw new Error("blocked"); });
+  await open();
+  fireEvent.click(screen.getByRole("button", { name: "Jump to 1:00, Our material" }));
+  await Promise.resolve();
+});
+
+test("with no recording the player, markers and time links are inert", async () => {
+  await open();
+  fireEvent.error(document.querySelector("audio")!);
+  expect(await screen.findByText("No recording")).toBeTruthy();
+  expect((screen.getByRole("button", { name: "Play recording" }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole("button", { name: "Jump to 1:00, Our material" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.queryByRole("button", { name: /^Play from/ })).toBeNull();
+  expect(screen.getByText("1:00")).toBeTruthy();  // the time stays as text
+});
+
+test("a failed meeting has no seek links", async () => {
+  state.meeting.status = "failed"; state.meeting.failure_reason = "boom";
+  await open();
+  expect(screen.queryByRole("button", { name: /^Play from/ })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Play recording" })).toBeNull();
+});
+
+test("polling stops when the page goes away", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  state.meeting.status = "processing"; state.summary = null;
+  const { unmount } = render(<MemoryRouter><MeetingAfter id="5" /></MemoryRouter>);
+  await screen.findByText("Processing the recording…");
+  unmount();
+  const n = calls.length;
+  await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+  expect(calls.length).toBe(n);
+});
+
+test("a failed save says so and shows the stored state", async () => {
+  await open();
+  const row = screen.getByRole("article", { name: "Question 2?" });
+  (fetch as ReturnType<typeof vi.fn>).mockImplementation(async (url: string, init?: RequestInit) => {
+    calls.push({ method: init?.method ?? "GET", url });
+    if (url.startsWith("/api/assists/")) return new Response(null, { status: 500 });
+    return new Response(JSON.stringify(state), { status: 200 });
+  });
+  fireEvent.click(within(row).getByRole("button", { name: "Not used, auto" }));
+  expect((await screen.findByRole("alert")).textContent).toContain("Couldn't save");
+  await within(screen.getByRole("article", { name: "Question 2?" })).findByRole("button", { name: "Not used, auto" });
+});
+
+test("a failed retry says so", async () => {
+  state.meeting.status = "failed"; state.meeting.failure_reason = "boom";
+  await open();
+  (fetch as ReturnType<typeof vi.fn>).mockImplementation(async (url: string) => (url.endsWith("/retry") ? new Response(null, { status: 500 }) : new Response(JSON.stringify(state), { status: 200 })));
+  fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+  expect(await screen.findByText(/Couldn't start processing again/)).toBeTruthy();
+});
+
+test("the views are tabs with a panel", async () => {
+  await open();
+  expect(screen.getByRole("tab", { name: "Notes" }).getAttribute("aria-selected")).toBe("true");
+  expect(screen.getByRole("tabpanel")).toBeTruthy();
 });

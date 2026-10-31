@@ -10,7 +10,9 @@ const clock = (ms: number) => { const s = Math.max(0, Math.floor(ms / 1000)); re
 
 export default function MeetingLive() {
   const { id = "" } = useParams();
-  const { meeting, notes, status, segments, assists, error } = useMeetingStream(id);
+  const [ended, setEnded] = useState(false);
+  const { meeting, notes, status, segments, assists, error } = useMeetingStream(id, ended);
+  useEffect(() => { if (status !== "recording") setEnded(true); }, [status]);  // MeetingAfter takes over: close the socket
   const [now, setNow] = useState(Date.now());
   const [stopping, setStopping] = useState(false);
   const [stopFailed, setStopFailed] = useState(false);

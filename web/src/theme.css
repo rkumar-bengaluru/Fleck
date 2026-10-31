@@ -139,3 +139,5 @@ h1 { margin: 0; font-size: 34px; line-height: 1.15; font-weight: 700; }
 .ai-text { color: #6B7682; }
 .notes-section h3 { margin: 0 0 6px; font-size: 16px; }
 .notes-section ul { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; font-size: 16px; line-height: 1.55; }
+.tabpanel { display: flex; flex-direction: column; gap: 16px; }
+.tl-mark:disabled { cursor: default; opacity: .7; }

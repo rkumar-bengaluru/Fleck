@@ -99,7 +99,7 @@ class Pipeline:
         if self.embed is None:
             try:  # load the embedding model before the first question, not during it
                 if digests_ok():
-                    live_embed("warm up", timeout=30)
+                    live_embed("warm up", timeout=30, warm=True)
                 else:
                     self.embed = rules_only
                     self.degraded = True

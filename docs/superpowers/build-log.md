@@ -563,3 +563,9 @@ Follow-ups that must be done before the MVP is done:
 ### Task 18 re-review follow-up (2026-10-31)
 
 - N1: on resume, a chunk number whose cut-short file is still on disk is skipped, so the timeline never steps back over segments already sent. N2: `_ask` sets `done` in a `finally` and a failed prompt counts as "Start new". N3: the crash path's `stop(meeting_id=…)` never stops another meeting. One unit test each; N4–N7 parked.
+
+### Task 19 fix round 2 (2026-10-31)
+
+- Decision 127 also needs `start_ms >= question end - 2 s` (a 20 s monologue before the question is not credited; test `a-mono`). Stored-replay test still matches reference.json (table above).
+- Decision 128 now has the 10 s circuit breaker and a separate warm-up pool (tests with a stubbed Ollama and clock: two finals inside 10 s make no embed call, one after does, a 0.6 s call does not open it, a connection error opens it, warm-up ignores it). An autouse fixture closes the breaker between tests.
+- Web: `canSeek` disables the player, markers and time links with no recording, on an audio error or in a failed meeting; tabs are `tablist`/`tab`/`tabpanel`; the used toggle dropped `aria-pressed`; a failed PATCH or retry shows a message and the stored state is reloaded; blocked `play()` is caught; `MeetingLive` closes its socket on hand-off; the recorder falls back to the email. Tests added for seeking, no-recording, unmount polling, failed save, failed retry, tabs, and retry without a cookie (401).

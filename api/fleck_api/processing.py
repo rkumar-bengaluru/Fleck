@@ -28,6 +28,7 @@ from fleck_api.models import Assist, AudioChunk, Meeting, Note, Segment, Summary
 
 router = APIRouter(prefix="/api")
 USED_WINDOW_MS = 15_000
+USED_GRACE_MS = 2_000  # a You line may begin this long before the question ends (overlapping speech), no earlier
 HEADINGS = ("Key points", "Decisions", "Next steps", "Open questions")
 SUMMARY_PROMPT = Path(__file__).with_name("prompts") / "summary.md"
 SUMMARY_TOOL = {
@@ -101,7 +102,7 @@ def compute_used_markers(s: Session, meeting_id: int, embedder=None) -> None:
         a.used_by, a.used_score, score = "auto", None, 0.0
         if q is not None and a.answer.strip():
             shown = q.end_ms + (a.first_words_ms or 0)
-            near = [x.segment_id for x in you if x.end_ms > shown and x.start_ms < shown + USED_WINDOW_MS]
+            near = [x.segment_id for x in you if x.end_ms > shown and q.end_ms - USED_GRACE_MS <= x.start_ms < shown + USED_WINDOW_MS]
             if near:
                 answer = embedder.embed([a.answer])[0]
                 score = max(_cos(answer, vec[i]) for i in near)

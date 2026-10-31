@@ -12,6 +12,11 @@ from fleck_helper import classify as clf
 from fleck_helper.classify import classify, question_text, triggers
 from fleck_helper.question_rules import rule_classify
 
+@pytest.fixture(autouse=True)
+def _breaker_closed(monkeypatch):
+    monkeypatch.setattr(clf, "_open_until", 0.0)  # one test's timeout must not make the next one's rules decide
+
+
 FIX = Path(__file__).parents[3] / "fixtures"
 CONV = json.loads((FIX / "conversation/reference.json").read_text())
 NEG = json.loads((FIX / "negative/reference.json").read_text())
@@ -229,7 +234,7 @@ def test_shape_gate_is_fast():
 def test_live_search_vector_is_embed_query():
     from fleck_core.retrieval import Embedder
     q = "Who owns the code you write for us?"
-    search = clf.live_embed(q, timeout=30)[1]
+    search = clf.live_embed(q, timeout=30, warm=True)[1]
     assert search == Embedder("http://localhost:11434", timeout=30).embed_query(q)  # a separate call: bit-identical
 
 
@@ -237,7 +242,67 @@ def test_live_search_vector_is_embed_query():
 def test_cache_matches_live_embedder(embedding_cache):
     keys = sorted(embedding_cache)[:: max(1, len(embedding_cache) // 20)]
     for k in keys:
-        live = np.asarray(clf.live_embed(k, timeout=30)[0])
+        live = np.asarray(clf.live_embed(k, timeout=30, warm=True)[0])
         cached = embedding_cache[k].astype(np.float64)
         cos = live @ cached / np.linalg.norm(live) / np.linalg.norm(cached)
         assert cos > 0.999, (k, cos)
+
+
+@pytest.fixture
+def embed_stub(monkeypatch):
+    """live_embed with stubbed Ollama calls and a clock the test moves; `calls` counts the classify embeds."""
+    from fleck_core import retrieval
+    s = type("S", (), {"calls": 0, "delay": 0.0, "error": None, "now": 1000.0})()
+
+    def classify_embed(texts, timeout=clf.EMBED_TIMEOUT_S):
+        s.calls += 1
+        if s.error:
+            raise s.error
+        time.sleep(s.delay)
+        return [[0.1]]
+    monkeypatch.setattr(clf, "embed_classify", classify_embed)
+    monkeypatch.setattr(retrieval.Embedder, "embed_query", lambda self, t: [0.2])
+    monkeypatch.setattr(clf, "_clock", lambda: s.now)
+    monkeypatch.setattr(clf, "_open_until", 0.0)
+    return s
+
+
+def test_timeout_opens_the_breaker_for_10_s_then_the_embedder_is_tried_again(embed_stub, caplog):
+    embed_stub.delay = 0.3
+    with caplog.at_level(logging.WARNING), pytest.raises(TimeoutError):
+        clf.live_embed("Who owns the code?", timeout=0.1)
+    assert embed_stub.calls == 1 and any("opened" in r.message for r in caplog.records)
+    embed_stub.now += 9.9
+    for _ in range(2):  # two finals inside the 10 s: the rules decide, no embed call
+        with pytest.raises(Exception):
+            clf.live_embed("Who owns the code?")
+    assert embed_stub.calls == 1
+    assert classify("Who owns the code you write for us?", "client").reason.startswith("rules fallback")
+    embed_stub.now += 0.2
+    embed_stub.delay = 0.0
+    with caplog.at_level(logging.INFO):
+        assert clf.live_embed("Who owns the code?") == ([0.1], [0.2])
+    assert embed_stub.calls == 2 and any("closed" in r.message for r in caplog.records)
+
+
+def test_connection_error_opens_the_breaker(embed_stub):
+    embed_stub.error = clf.httpx.ConnectError("refused")
+    with pytest.raises(Exception):
+        clf.live_embed("Who owns the code?")
+    embed_stub.error = None
+    with pytest.raises(Exception):
+        clf.live_embed("Who owns the code?")
+    assert embed_stub.calls == 1
+
+
+def test_a_slow_call_does_not_open_the_breaker(embed_stub):
+    embed_stub.delay = 0.6
+    assert clf.live_embed("Who owns the code?") == ([0.1], [0.2])
+    embed_stub.delay = 0.0
+    assert clf.live_embed("Who owns the code?") == ([0.1], [0.2]) and embed_stub.calls == 2
+
+
+def test_warm_up_has_its_own_pool_and_ignores_the_breaker(embed_stub):
+    clf._open_until = embed_stub.now + 10
+    assert clf.live_embed("warm up", timeout=30, warm=True) == ([0.1], [0.2])  # not blocked by an open breaker
+    assert clf._warm_pool is not clf._pool

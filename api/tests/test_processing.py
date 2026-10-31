@@ -115,10 +115,13 @@ def _seed(make, mid=None):
                    Segment(meeting_id=m.id, segment_id="y-early", stream="you", start_ms=500, end_ms=900, text="thirty minutes"),  # before the card
                    Segment(meeting_id=m.id, segment_id="y1", stream="you", start_ms=6000, end_ms=8000, text="We respond in thirty minutes."),
                    Segment(meeting_id=m.id, segment_id="y-over", stream="you", start_ms=1500, end_ms=3500, text="five days"),  # starts as the card shows (2000 ms)
+                   Segment(meeting_id=m.id, segment_id="c2", stream="client", start_ms=30000, end_ms=31000, text="And the timeline?"),
+                   Segment(meeting_id=m.id, segment_id="y-mono", stream="you", start_ms=10000, end_ms=40000, text="five days"),  # a monologue 20 s older than the question
                    Segment(meeting_id=m.id, segment_id="y-late", stream="you", start_ms=30000, end_ms=31000, text="team weeks")])
         s.add_all([Assist(meeting_id=m.id, assist_id="a-auto", segment_id="c1", question="q", answer="thirty minutes", first_words_ms=1000),
                    Assist(meeting_id=m.id, assist_id="a-miss", segment_id="c1", question="q", answer="team weeks code", first_words_ms=1000),
                    Assist(meeting_id=m.id, assist_id="a-over", segment_id="c1", question="q", answer="five days", first_words_ms=1000),
+                   Assist(meeting_id=m.id, assist_id="a-mono", segment_id="c2", question="q", answer="five days", first_words_ms=1000),
                    Assist(meeting_id=m.id, assist_id="a-manual", segment_id="c1", question="q", answer="thirty minutes", first_words_ms=1000,
                           used=False, used_by="manual")])
         s.commit()
@@ -134,6 +137,7 @@ def test_manual_used_not_overwritten(make_session):
     assert (a["a-miss"].used, a["a-miss"].used_by) == (False, "auto")  # the only match is 30 s after the card
     assert (a["a-manual"].used, a["a-manual"].used_by) == (False, "manual")
     assert a["a-over"].used is True  # a You final that overlaps the window counts, though it started before the card showed
+    assert a["a-mono"].used is False  # a line that began well before the question is not an answer to it
 
 
 NOTES = "Asked for SLA in writing\nSend the rate card\n\nKickoff in May"

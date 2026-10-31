@@ -131,19 +131,39 @@ def embed_classify(texts: list[str], timeout: float = EMBED_TIMEOUT_S) -> list[l
 
 
 _pool = ThreadPoolExecutor(2, thread_name_prefix="embed")
+_warm_pool = ThreadPoolExecutor(2, thread_name_prefix="embed-warm")  # a 30 s warm-up must not take the live looks' threads
+BREAKER_S = 10.0
+_open_until = 0.0  # while the clock is before this, the rules decide without trying the embedder
+_clock = time.monotonic
 
 
-def live_embed(text: str, timeout: float = EMBED_TIMEOUT_S) -> tuple[list[float], list[float]]:
-    """The 4b classification vector and exactly `Embedder.embed_query`'s 0.6b search vector, fetched in parallel."""
+def live_embed(text: str, timeout: float = EMBED_TIMEOUT_S, warm: bool = False) -> tuple[list[float], list[float]]:
+    """The 4b classification vector and exactly `Embedder.embed_query`'s 0.6b search vector, fetched in parallel.
+    After a timeout or a connection error the embedder is skipped for BREAKER_S (decision 128), so a hung Ollama
+    cannot back up the audio queue; `warm` calls (long timeout, own threads) ignore and close the breaker."""
+    global _open_until
     from fleck_core.retrieval import Embedder
-    search = _pool.submit(Embedder(_URL, timeout=timeout).embed_query, text)
-    cls = _pool.submit(embed_classify, [text], timeout)
+    if not warm and _clock() < _open_until:
+        raise RuntimeError("embedder skipped: breaker open after a timeout")
+    pool = _warm_pool if warm else _pool
+    search = pool.submit(Embedder(_URL, timeout=timeout).embed_query, text)
+    cls = pool.submit(embed_classify, [text], timeout)
     t0 = time.perf_counter()
-    if len(wait([cls, search], timeout)[0]) < 2:  # one deadline for the pair, not one per call
-        raise TimeoutError(f"embeds over {timeout * 1000:.0f} ms")
+    try:
+        if len(wait([cls, search], timeout)[0]) < 2:  # one deadline for the pair, not one per call
+            raise TimeoutError(f"embeds over {timeout * 1000:.0f} ms")
+        vecs = cls.result()[0], search.result()
+    except (TimeoutError, httpx.TransportError) as e:
+        if not warm:
+            _open_until = _clock() + BREAKER_S
+            log.warning("embedder breaker opened for %.0f s (%r): the rules decide meanwhile", BREAKER_S, e)
+        raise
+    if _open_until:
+        _open_until = 0.0
+        log.info("embedder breaker closed")
     if (dt := time.perf_counter() - t0) > SLOW_S:
         log.info("question classifier slow: %.0f ms", dt * 1000)
-    return cls.result()[0], search.result()
+    return vecs
 
 
 def digests_ok() -> bool:

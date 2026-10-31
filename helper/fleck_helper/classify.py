@@ -158,6 +158,7 @@ def live_embed(text: str, timeout: float = EMBED_TIMEOUT_S, warm: bool = False,
             raise TimeoutError(f"embeds over {timeout * 1000:.0f} ms")
         vecs = cls.result()[0], search.result()
     except (TimeoutError, httpx.TransportError) as e:
+        cls.cancel(), search.cancel()  # one still queued would reach Ollama later for nobody
         if live:
             _open_until = _clock() + BREAKER_S
             log.warning("embedder breaker opened for %.0f s (%r): the rules decide meanwhile", BREAKER_S, e)

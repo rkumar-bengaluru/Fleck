@@ -59,6 +59,7 @@ class AssistEvent(_Event):
     sentence_index: int | None = None
     kind: Literal["library", "reference", "general", "not_in_material"] | None = None
     from_brief: bool = False
+    late: bool = False  # on `thinking`: the answer to an earlier question, found by the late recheck (decision 128)
     citations: list[Citation] = []
     first_words_ms: int | None = None
     full_ms: int | None = None

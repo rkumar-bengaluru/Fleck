@@ -96,6 +96,7 @@ h1 { margin: 0; font-size: 34px; line-height: 1.15; font-weight: 700; }
 .assist-meta, .chips { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .chip { background: #DDF1EE; color: #0B5A53; font-size: 12px; font-weight: 700; padding: 2px 7px; border-radius: 5px; }
 .chip-general, .chip-reference { background: #FBF0D9; color: #7A4B00; }
+.chip-late { background: transparent; color: #7A4B00; border: 1px solid #E0B25C; }
 .chip-not_in_material, .chip-thinking { background: var(--rule); color: var(--body); }
 .chip-title { font-size: 14px; }
 .chip-note { font-size: 13px; color: var(--muted); }

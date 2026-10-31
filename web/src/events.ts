@@ -11,6 +11,7 @@ export interface AssistEvent {
   sentence_index: number | null;
   kind: "library" | "reference" | "general" | "not_in_material" | null;
   from_brief: boolean;
+  late: boolean;
   citations: Citation[];
   first_words_ms: number | null;
   full_ms: number | null;

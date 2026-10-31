@@ -20,7 +20,7 @@ const sock = () => FakeSocket.all[FakeSocket.all.length - 1];
 const seg = (id: string, stream: "you" | "client", start_ms: number, text: string, final = true): SegmentEvent =>
   ({ type: "segment", meeting_id: "5", segment_id: id, stream, start_ms, end_ms: start_ms + 2000, text, final, gate: null });
 const assist = (o: Partial<AssistEvent>): AssistEvent => ({ type: "assist", meeting_id: "5", assist_id: "a1", segment_id: "s2",
-  phase: "thinking", question: "What does a senior engineer cost?", text: "", sentence_index: null, kind: null, from_brief: false,
+  phase: "thinking", question: "What does a senior engineer cost?", text: "", sentence_index: null, kind: null, from_brief: false, late: false,
   citations: [], first_words_ms: null, full_ms: null, rejected: [], llm: [], ...o });
 const rate = { doc_id: "d1", chunk_id: "c1", title: "Rate card FY2026", client: null, kind: "firm" as const };
 
@@ -209,4 +209,14 @@ test("reducer: sentence removal, superseded card, and a thinking snapshot keeps 
   st = reduce(st, { ev: assist({ phase: "thinking", question: "newer" }) });  // same id: superseded
   expect(st.assists).toHaveLength(1);
   expect(st.assists[0]).toMatchObject({ question: "newer", text: "", kind: null });
+});
+
+test("a late answer is tagged until a newer answer for its turn replaces it", async () => {
+  const s = await open();
+  s.emit(assist({ phase: "thinking", late: true }));
+  s.emit(assist({ phase: "done", kind: "library", text: "$5,200 a month offshore.", citations: [rate] }));
+  const card = screen.getByRole("group", { name: "Answer to: What does a senior engineer cost?" });
+  expect(within(card).getByText("Late")).toBeTruthy();
+  s.emit(assist({ phase: "thinking" }));  // a newer Trigger for the same turn
+  expect(within(card).queryByText("Late")).toBeNull();
 });

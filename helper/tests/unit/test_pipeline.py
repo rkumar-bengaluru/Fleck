@@ -283,6 +283,7 @@ def test_you_speaking_over_quiet_client_audio_is_kept():
 # Late recheck (Task 19b, decision 128): a turn the rules said no to while the embedder was down or slow is
 # classified again off the loop, and a late Trigger comes if the model then says it is a question.
 import logging  # noqa: E402
+import threading  # noqa: E402
 import time  # noqa: E402
 
 from fleck_helper import classify as clf  # noqa: E402
@@ -298,18 +299,24 @@ def _quick_retry(monkeypatch):
     monkeypatch.setattr(clf, "_open_until", 0.0)
 
 
-class PacedSrc:
-    """`items` at once, then `tail_ms` of silence at `pace` s a frame, so off-loop work finishes mid-run.
-    `times` holds when each paced frame was handed to the pipeline."""
-    def __init__(self, items, tail_ms, pace=0.02):  # real time
-        self.items, self.tail_ms, self.pace, self.times = items, tail_ms, pace, []
+def _outcome(p):
+    return any(k != "started" for k in getattr(p, "rechecks", {}))
+
+
+class TailSrc:
+    """`items`, then silence frames until `until()` holds (10 s cap), so off-loop work finishes mid-run without a
+    fixed wall-clock budget. `pace` > 0 hands frames over in real time; `times` holds when each tail frame went."""
+    def __init__(self, items, until, pace=0.0):
+        self.items, self.until, self.pace, self.times = items, until, pace, []
 
     def frames(self):
         yield from self.items
-        for f in _frames(_silence(self.tail_ms), t0=self.items[-1].t_ms + 20):
-            time.sleep(self.pace)
+        t, cap = self.items[-1].t_ms + 20, time.monotonic() + 10
+        while not self.until() and time.monotonic() < cap:
+            time.sleep(self.pace or 0.002)  # 2 ms: lets the recheck thread run
             self.times.append(time.monotonic())
-            yield f
+            yield Frame(t, np.zeros(FRAME, np.float32), np.zeros(FRAME, np.float32))
+            t += 20
 
 
 def _down_for(seconds, calls=None):
@@ -326,16 +333,19 @@ def _down_for(seconds, calls=None):
     return embed
 
 
-def _one_turn(text, embed, tail_ms):
-    items = _frames(np.concatenate([_silence(500), _clip(1), _silence(1500)]))
-    src = PacedSrc(items, tail_ms)
+def _items():
+    return _frames(np.concatenate([_silence(500), _clip(1), _silence(1500)]))
+
+
+def _one_turn(text, embed, until=_outcome, pace=0.0):
     p = Pipeline("m1", FakeTranscriber({"client": [text]}), embed=embed)
+    src = TailSrc(_items(), lambda: until(p), pace)
     return list(p.run(src)), p, src
 
 
 def test_rules_no_turn_gets_a_late_trigger_once_the_embedder_recovers(caplog):
     with caplog.at_level(logging.INFO):
-        out, p, _ = _one_turn(RULES_NO, _down_for(2.0), tail_ms=3500)
+        out, p, _ = _one_turn(RULES_NO, _down_for(1.0))
     seg = next(e for e in out if isinstance(e, SegmentEvent))
     trig = [e for e in out if isinstance(e, Trigger)]
     assert trig == [Trigger(seg.segment_id, RULES_NO, seg.end_ms)]
@@ -345,34 +355,48 @@ def test_rules_no_turn_gets_a_late_trigger_once_the_embedder_recovers(caplog):
 
 
 def test_no_recheck_when_the_rules_triggered():
-    out, p, _ = _one_turn(RULES_YES, _down_for(60), tail_ms=200)
+    out, p, _ = _one_turn(RULES_YES, _down_for(60), until=lambda p: True)
     trig = [e for e in out if isinstance(e, Trigger)]
     assert len(trig) == 1 and not trig[0].late and not p.rechecks
 
 
 def test_non_question_rechecks_and_emits_nothing():
-    out, p, _ = _one_turn("Okay, that works for us.", _down_for(0.5), tail_ms=1500)
+    out, p, _ = _one_turn("Okay, that works for us.", _down_for(0.3))
     assert not any(isinstance(e, Trigger) for e in out)
     assert p.rechecks["started"] == 1 and p.rechecks["not a question"] == 1
 
 
 def test_hard_vetoed_turn_is_never_rechecked():
-    out, p, _ = _one_turn("Can you hear me okay?", _down_for(60), tail_ms=200)
+    out, p, _ = _one_turn("Can you hear me okay?", _down_for(60), until=lambda p: True)
     assert not any(isinstance(e, Trigger) for e in out) and not p.rechecks
 
 
 def test_no_recheck_when_the_session_is_rules_only():
-    out, p, _ = _one_turn(RULES_NO, clf.rules_only, tail_ms=200)
+    out, p, _ = _one_turn(RULES_NO, clf.rules_only, until=lambda p: True)
     assert not any(isinstance(e, Trigger) for e in out) and not p.rechecks
 
 
 def test_recheck_gives_up_when_the_embedder_stays_down(monkeypatch, caplog):
     monkeypatch.setattr(pl, "LATE_GIVE_UP_S", 1.0)
     with caplog.at_level(logging.INFO):
-        out, p, _ = _one_turn(RULES_NO, _down_for(60), tail_ms=2000)
+        out, p, _ = _one_turn(RULES_NO, _down_for(60))
     assert not any(isinstance(e, Trigger) for e in out)
     assert p.rechecks["gave up"] == 1
     assert any("gave up" in r.message for r in caplog.records)
+
+
+def test_an_answer_arriving_after_the_give_up_limit_is_dropped(monkeypatch):
+    monkeypatch.setattr(pl, "LATE_GIVE_UP_S", 0.5)
+    calls = []
+
+    def embed(text):  # the live look fails; the late look answers yes, but only after the limit
+        calls.append(text)
+        if len(calls) == 1:
+            raise TimeoutError("embeds over 1000 ms")
+        time.sleep(0.8)
+        return EMBED(text)
+    out, p, _ = _one_turn(RULES_NO, embed)
+    assert not any(isinstance(e, Trigger) for e in out) and p.rechecks["gave up"] == 1
 
 
 def test_frames_keep_flowing_while_a_recheck_waits():
@@ -384,25 +408,57 @@ def test_frames_keep_flowing_while_a_recheck_waits():
             raise TimeoutError("embeds over 1000 ms")
         time.sleep(1.5)
         return EMBED(text)
-    out, p, src = _one_turn(RULES_NO, embed, tail_ms=2500)
-    assert max(b - a for a, b in zip(src.times, src.times[1:])) < 0.2
+    out, p, src = _one_turn(RULES_NO, embed, pace=0.02)  # real time here: the gaps are what is measured
+    assert len(src.times) > 50 and max(b - a for a, b in zip(src.times, src.times[1:])) < 0.2
     assert [e.late for e in out if isinstance(e, Trigger)] == [True]
 
 
-def test_recheck_waits_out_an_open_breaker():
+def test_first_late_try_ignores_the_breaker_and_later_ones_wait_it_out():
     calls = []
-    clf._open_until = clf._clock() + 1.0  # a live look just timed out
-    out, p, _ = _one_turn(RULES_NO, _down_for(0.3, calls), tail_ms=2500)
-    rechecks = [t for t, _ in calls[1:]]
-    assert rechecks and min(rechecks) >= clf._open_until
+
+    def embed(text):
+        calls.append(time.monotonic())
+        if len(calls) == 2:  # the first late try: at once, though the breaker is open; it fails and the
+            clf._open_until = clf._clock() + 0.4  # breaker is opened again by a live look meanwhile...
+            threading.Timer(0.2, lambda: setattr(clf, "_open_until", clf._clock() + 0.6)).start()  # ...and again
+        if len(calls) <= 2:
+            raise TimeoutError("embeds over 1000 ms")
+        return EMBED(text)
+    clf._open_until = clf._clock() + 10  # a live look just timed out
+    out, p, _ = _one_turn(RULES_NO, embed)
+    assert calls[1] - calls[0] < 0.5  # no 10 s wait before the first late try
+    assert calls[2] - calls[1] >= 0.75  # waited out the re-read breaker (0.2 + 0.6 s), not just 0.4 s
     assert [e.late for e in out if isinstance(e, Trigger)] == [True]
+
+
+def test_one_late_embed_in_flight():
+    a, gap = _clip(1), _silence(1500)
+    client = np.concatenate([_silence(500), a, gap, np.zeros_like(a), gap, a, gap])
+    you = np.concatenate([_silence(500), np.zeros_like(a), gap, a, gap, np.zeros_like(a), gap])
+    live, peak, n, lock = [0], [0], [0], threading.Lock()
+
+    def embed(text):
+        with lock:
+            n[0] += 1
+            if n[0] <= 2:  # each turn's live look
+                raise TimeoutError("embeds over 1000 ms")
+            live[0] += 1
+            peak[0] = max(peak[0], live[0])
+        time.sleep(0.3)
+        with lock:
+            live[0] -= 1
+        return EMBED(text)
+    tr = FakeTranscriber({"client": [RULES_NO, RULES_NO], "you": ["We can start in two weeks."]})
+    p = Pipeline("m1", tr, embed=embed)
+    out = list(p.run(TailSrc(_frames(client, you), lambda: p.rechecks["late trigger"] == 2)))
+    assert sorted(t.turn_id for t in out if isinstance(t, Trigger)) == [0, 1] and peak[0] == 1
 
 
 def test_newer_trigger_for_the_same_turn_supersedes_the_late_one():
     a, gap = _clip(1), _silence(1500)
     items = _frames(np.concatenate([_silence(500), a, gap, a, gap]))  # two client turns, no vendor speech between
-    p = Pipeline("m1", FakeTranscriber({"client": [RULES_NO, RULES_YES]}), embed=_down_for(1.5))
-    out = list(p.run(PacedSrc(items, 2500)))
+    p = Pipeline("m1", FakeTranscriber({"client": [RULES_NO, RULES_YES]}), embed=_down_for(1.0))
+    out = list(p.run(TailSrc(items, lambda: _outcome(p))))
     trig = [e for e in out if isinstance(e, Trigger)]
     assert [(t.question, t.late) for t in trig] == [(RULES_YES, False)]  # the rules caught the second turn first
     assert p.rechecks["superseded"] == 1
@@ -413,7 +469,43 @@ def test_a_new_client_turn_does_not_cancel_the_late_recheck():
     client = np.concatenate([_silence(500), a, gap, np.zeros_like(a), gap, a, gap])
     you = np.concatenate([_silence(500), np.zeros_like(a), gap, a, gap, np.zeros_like(a), gap])
     tr = FakeTranscriber({"client": [RULES_NO, "Okay, that works for us."], "you": ["We can start in two weeks."]})
-    p = Pipeline("m1", tr, embed=_down_for(1.5))
-    out = list(p.run(PacedSrc(_frames(client, you), 2500)))
+    p = Pipeline("m1", tr, embed=_down_for(1.0))
+    out = list(p.run(TailSrc(_frames(client, you), lambda: p.rechecks["late trigger"] > 0)))
     trig = [e for e in out if isinstance(e, Trigger)]
     assert [(t.question, t.late, t.turn_id) for t in trig] == [(RULES_NO, True, 0)]  # the vendor spoke since: still shown
+
+
+def test_a_recheck_still_waiting_at_the_end_is_counted_stopped():
+    out, p, _ = _one_turn(RULES_NO, _down_for(60), until=lambda p: p.rechecks["started"] > 0)
+    assert p.rechecks["stopped"] == 1 and p._stop.is_set()
+
+
+def test_a_run_that_dies_still_stops_its_rechecks():
+    p = Pipeline("m1", FakeTranscriber({"client": [RULES_NO]}), embed=_down_for(60))
+
+    def frames():
+        yield from TailSrc(_items(), lambda: p.rechecks["started"] > 0).frames()
+        raise OSError("capture died")
+    with pytest.raises(OSError):
+        list(p.run(type("S", (), {"frames": staticmethod(frames)})()))
+    assert p._stop.is_set() and p.rechecks["stopped"] == 1
+
+
+def test_production_recheck_uses_live_embed_late_with_the_long_timeout(monkeypatch):
+    """No injected embed: warm-up, the 1 s live look and the 5 s late look all go through live_embed, with the two
+    Ollama calls stubbed (embed_classify's httpx post and Embedder.embed_query)."""
+    from fleck_core import retrieval
+    timeouts = []
+
+    def classify_embed(texts, timeout=clf.EMBED_TIMEOUT_S):
+        timeouts.append(timeout)
+        if timeout == clf.EMBED_TIMEOUT_S:
+            raise clf.httpx.ConnectError("refused")  # the live look: opens the breaker for 10 s
+        return [EMBED(texts[0])[0] if texts[0] != "warm up" else [0.0]]
+    monkeypatch.setattr(clf, "embed_classify", classify_embed)
+    monkeypatch.setattr(retrieval.Embedder, "embed_query", lambda self, t: [0.2])
+    monkeypatch.setattr(pl, "digests_ok", lambda: True)
+    out, p, _ = _one_turn(RULES_NO, None)
+    assert timeouts[0] == 30 and clf.EMBED_TIMEOUT_S in timeouts and timeouts[-1] == pl.LATE_TIMEOUT_S
+    trig = [e for e in out if isinstance(e, Trigger)]
+    assert [(t.question, t.late, t.embedding) for t in trig] == [(RULES_NO, True, [0.2])]

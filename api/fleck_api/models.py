@@ -163,6 +163,7 @@ class Assist(Base):
     answer: Mapped[str] = mapped_column(Text, default="")
     kind: Mapped[str | None]  # library|reference|general|not_in_material
     from_brief: Mapped[bool] = mapped_column(Boolean, default=False)
+    late: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")  # found by the late recheck
     citations: Mapped[list[Any]] = mapped_column(JSONB, default=list)
     first_words_ms: Mapped[int | None] = mapped_column(Integer)
     full_ms: Mapped[int | None] = mapped_column(Integer)

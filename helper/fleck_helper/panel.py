@@ -27,6 +27,7 @@ class PanelView:
     index: int  # 1-based
     total: int
     asked_ms: int = 0  # meeting time of the question's last segment
+    late: bool = False  # the late recheck found it: an earlier question's answer (decision 128)
 
     @property
     def label(self) -> str:
@@ -42,6 +43,7 @@ class _Card:
     kind: str | None = None
     citations: list = field(default_factory=list)
     final: str | None = None  # done.text: the whole answer as shown
+    late: bool = False
 
 
 def _source_text(kind: str, citations) -> str:
@@ -74,7 +76,7 @@ class PanelModel:
                 return  # an answer thread of an earlier meeting finishing late
             card = next((c for c in self._cards if c.assist_id == e.assist_id), None)
             if e.phase == "thinking":
-                fresh = _Card(e.assist_id, " ".join(question_sentences(e.question)), _asked_ms(e.segment_id))
+                fresh = _Card(e.assist_id, " ".join(question_sentences(e.question)), _asked_ms(e.segment_id), late=e.late)
                 if card is None:  # a new question
                     self._cards.append(fresh)
                     self._i = len(self._cards) - 1
@@ -101,7 +103,8 @@ class PanelModel:
             c = self._cards[self._i]
             kind = c.kind or "thinking"  # streamed text is unlabelled until its checks pass
             text = c.final if c.final is not None else " ".join(t for _, t in sorted(c.sentences.items()) if t)
-            return PanelView(c.question, text, kind, _source_text(kind, c.citations), self._i + 1, len(self._cards), c.asked_ms)
+            return PanelView(c.question, text, kind, _source_text(kind, c.citations), self._i + 1, len(self._cards), c.asked_ms,
+                             c.late)
 
     def prev(self) -> None:
         with self._lock:
@@ -372,10 +375,18 @@ class AnswerPanel:
                 box.addSubview_(chip)
                 box.setAccessibilityLabel_(v.label)
                 self._root.addSubview_(box)
+                sx = x0 + cw + 8
+                if v.late:  # by now the vendor may be on a newer question: say which one this answers
+                    tag, _ = label("Late", 13, "#F2B95A", NSFontWeightBold, wrap=False, width=60)
+                    tag.sizeToFit()
+                    tag.setFrameOrigin_((sx, fy + 8))
+                    tag.setAccessibilityLabel_("Late answer, for an earlier question")
+                    self._root.addSubview_(tag)
+                    sx += tag.frame().size.width + 8
                 if v.source_text:
-                    src, sh = label(v.source_text, 14, "#D5DEE7", wrap=False, width=max(40, bx - (x0 + cw + 8) - 8))
+                    src, sh = label(v.source_text, 14, "#D5DEE7", wrap=False, width=max(40, bx - sx - 8))
                     src.cell().setLineBreakMode_(4)  # truncate tail
-                    src.setFrameOrigin_((x0 + cw + 8, fy + 7))
+                    src.setFrameOrigin_((sx, fy + 7))
                     self._root.addSubview_(src)
 
         stripe = NSView.alloc().initWithFrame_(((0, 0), (STRIPE_W, height)))

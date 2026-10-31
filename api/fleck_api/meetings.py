@@ -92,7 +92,7 @@ def get_meeting(meeting_id: int, _u: User = Depends(user_or_device), s: Session 
         "meeting": meeting_dict(s, m) | {"recorded_by_name": ((u := s.get(User, m.recorded_by)).name or u.email) if m.recorded_by else "", "library_clients": list(s.scalars(select(Client.name).order_by(Client.name)))},
         "segments": [_row(x, "segment_id", "stream", "start_ms", "end_ms", "text", "gate")
                      for x in s.scalars(select(Segment).where(Segment.meeting_id == m.id).order_by(Segment.start_ms, Segment.id))],
-        "assists": [_row(x, "assist_id", "segment_id", "question", "answer", "kind", "from_brief", "citations", "first_words_ms",
+        "assists": [_row(x, "assist_id", "segment_id", "question", "answer", "kind", "from_brief", "late", "citations", "first_words_ms",
                          "full_ms", "rejected", "used", "used_by") for x in s.scalars(select(Assist).where(Assist.meeting_id == m.id).order_by(Assist.id))],
         "notes": note.text if note else "",
         "summary": summary.items if summary else None,

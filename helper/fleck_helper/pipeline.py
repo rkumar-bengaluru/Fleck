@@ -32,6 +32,7 @@ SECOND_LOOK_MIN = 0.1  # under this the whole turn is decisively not a question:
 LATE_TIMEOUT_S = 5.0
 LATE_GIVE_UP_S = 30.0
 LATE_RETRY_S = 1.0
+_late_lock = threading.Lock()
 log = logging.getLogger(__name__)
 
 
@@ -124,34 +125,36 @@ class Pipeline:
         self._out: deque = deque()  # _Seg | _Turn | Gap | Unavailable, in audio order
         self._turn, self._client_open, self._recent_client = _Turn(), False, deque(maxlen=8)
         self._turn_no, self._last_verdict = 0, ((), None, False)  # (texts, verdict, rules decided) of the latest classification
-        for item in source.frames():
-            if isinstance(item, Frame):
-                self._rms.append((item.t_ms, _rms(item.you), _rms(item.client)))
-                for stream in ("client", "you"):
-                    for ev in segs[stream].push(item):
-                        self._handle(stream, ev)
-                if self._turn and not self._client_open and item.t_ms >= self._turn[-1].final.end_ms + MERGE_MS + PREROLL_MS:
-                    # an Open reaches us up to PREROLL_MS after its start_ms
-                    self._close_turn()
-            else:
-                if isinstance(item, Gap):  # audio cut off mid-turn is transcribed but never triggers, not even its first half
-                    if item.stream in ("client", "both"):
-                        self._turn = _Turn()
-                    for stream in ("client", "you") if item.stream == "both" else (item.stream,):
-                        for ev in segs[stream].flush():
-                            self._handle(stream, ev, cut=True)
-                self._out.append(item)
-            yield from self._ready(block=False)
-        for stream in ("client", "you"):
-            for ev in segs[stream].flush():
-                self._handle(stream, ev)
-        self._close_turn()
-        yield from self._ready(block=True)
-        self._stop.set()  # the meeting is over: a late answer has nowhere to go
-        if left := self.rechecks["started"] - sum(n for k, n in self.rechecks.items() if k != "started"):
-            self.rechecks["stopped"] += left
-            log.info("late recheck: %d still waiting when the run ended", left)
-        log.info("question classifier: %d rules fallbacks, late rechecks %s this run", self.fallbacks, dict(self.rechecks))
+        try:
+            for item in source.frames():
+                if isinstance(item, Frame):
+                    self._rms.append((item.t_ms, _rms(item.you), _rms(item.client)))
+                    for stream in ("client", "you"):
+                        for ev in segs[stream].push(item):
+                            self._handle(stream, ev)
+                    if self._turn and not self._client_open and item.t_ms >= self._turn[-1].final.end_ms + MERGE_MS + PREROLL_MS:
+                        # an Open reaches us up to PREROLL_MS after its start_ms
+                        self._close_turn()
+                else:
+                    if isinstance(item, Gap):  # audio cut off mid-turn is transcribed but never triggers, not even its first half
+                        if item.stream in ("client", "both"):
+                            self._turn = _Turn()
+                        for stream in ("client", "you") if item.stream == "both" else (item.stream,):
+                            for ev in segs[stream].flush():
+                                self._handle(stream, ev, cut=True)
+                    self._out.append(item)
+                yield from self._ready(block=False)
+            for stream in ("client", "you"):
+                for ev in segs[stream].flush():
+                    self._handle(stream, ev)
+            self._close_turn()
+            yield from self._ready(block=True)
+        finally:  # also when the source or the consumer dies: rechecks must not outlive the meeting
+            self._stop.set()  # the meeting is over: a late answer has nowhere to go
+            if left := self.rechecks["started"] - sum(n for k, n in self.rechecks.items() if k != "started"):
+                self.rechecks["stopped"] += left
+                log.info("late recheck: %d still waiting when the run ended", left)
+            log.info("question classifier: %d rules fallbacks, late rechecks %s this run", self.fallbacks, dict(self.rechecks))
 
     def _handle(self, stream, ev, cut=False):
         if isinstance(ev, Open) and stream == "client":
@@ -255,20 +258,34 @@ class Pipeline:
         threading.Thread(target=self._recheck, args=(self._texts(turn), info), daemon=True).start()
 
     def _recheck(self, texts, info):
-        embed = self.embed or partial(live_embed, timeout=LATE_TIMEOUT_S, late=True)
+        inner = self.embed or partial(live_embed, timeout=LATE_TIMEOUT_S, late=True)
+        give_up = _clf._clock() + LATE_GIVE_UP_S
+
+        def embed(text):
+            # one late embed in flight across all rechecks, so a hung Ollama gets no pile of stale requests
+            if not _late_lock.acquire(timeout=max(0.0, give_up - _clf._clock())):
+                raise TimeoutError("another late recheck holds the embedder")
+            try:
+                if self._stop.is_set() or _clf._clock() >= give_up:
+                    raise TimeoutError("late recheck over")  # nothing reaches Ollama after give-up or the run's end
+                return inner(text)
+            finally:
+                _late_lock.release()
         look = lambda t: classify(t, "client", embed)  # noqa: E731
-        give_up, tries = _clf._clock() + LATE_GIVE_UP_S, 0
         while True:
-            # an open breaker means a live look just timed out: wait it out rather than add to the load
-            pause = max(_clf._open_until - _clf._clock(), LATE_RETRY_S if tries else 0.0)
-            if _clf._clock() + pause >= give_up:
-                return self._late.put((info, "gave up", None))
-            if self._stop.wait(pause):
-                return
-            tries += 1
+            # the first try goes at once, open breaker or not: on its own threads it cannot trip the breaker
             v, fell = self._decide(texts, look)
+            if self._stop.is_set():
+                return
+            if _clf._clock() >= give_up:  # a try can take two 5 s looks: nothing fires past the limit
+                return self._late.put((info, "gave up", None))
             if not fell:
                 return self._late.put((info, "late trigger" if v else "not a question", v))
+            # then LATE_RETRY_S, and out an open breaker, re-read each time: a live look may reopen it meanwhile
+            retry_at = _clf._clock() + LATE_RETRY_S
+            while (now := _clf._clock()) < (until := min(max(retry_at, _clf._open_until), give_up)):
+                if self._stop.wait(until - now):
+                    return
 
     def _late_results(self):
         """Recheck outcomes, counted and logged on the loop thread; a late Trigger comes out here, between events."""

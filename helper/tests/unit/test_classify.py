@@ -2,6 +2,7 @@
 The learned score uses the committed CI embedding cache, so no Ollama is needed (decision 94)."""
 import json
 import logging
+import threading
 import time
 from pathlib import Path
 
@@ -318,3 +319,17 @@ def test_late_recheck_has_its_own_pool_and_never_touches_the_breaker(embed_stub)
         clf.live_embed("Who owns the code?", timeout=0.1, late=True)
     assert clf._open_until == 0.0
     assert clf._late_pool not in (clf._pool, clf._warm_pool)
+
+
+def test_timeout_cancels_embeds_still_queued(embed_stub):
+    release = threading.Event()
+    busy = [clf._late_pool.submit(release.wait) for _ in range(2)]  # both late workers taken
+    try:
+        with pytest.raises(TimeoutError):
+            clf.live_embed("Who owns the code?", timeout=0.1, late=True)
+    finally:
+        release.set()
+    for f in busy:
+        f.result()
+    time.sleep(0.1)
+    assert embed_stub.calls == 0  # cancelled while queued: a stale request never reaches Ollama

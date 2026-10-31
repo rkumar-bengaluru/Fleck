@@ -149,7 +149,7 @@ def _store_assist(s: Session, mid: int, ev: AssistEvent) -> bool:
             a = Assist(meeting_id=mid, assist_id=ev.assist_id)
             s.add(a)
         # a newer answer for the same turn replaces the card
-        a.segment_id, a.question, a.answer, a.kind = ev.segment_id, ev.question, "", None
+        a.segment_id, a.question, a.answer, a.kind, a.late = ev.segment_id, ev.question, "", None, ev.late
     elif ev.phase == "done":
         if a is None:
             return False

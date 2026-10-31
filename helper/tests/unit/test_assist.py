@@ -321,3 +321,36 @@ def test_brief_is_matched_only_after_a_trigger(monkeypatch):
     monkeypatch.setattr(a, "_brief_match", lambda *x: pytest.fail("brief matched before a trigger"))
     a.prepare(Q, [1.0, 0.0])
     time.sleep(0.2)
+
+
+# A late Trigger (Task 19b) is for an old turn: it gets its own card and leaves the current turn's state alone.
+def late(question="Who owns the code you write for us?", turn_id=0, seg="c-0"):
+    return Trigger(seg, question, 5_000, None, turn_id, late=True)
+
+
+def test_late_trigger_does_not_break_the_current_turns_supersede():
+    a = make(ollama=FakeOllama(("Mixed", " teams", " are", " common [1]."), delay=0.2))
+    y = a.handle(trig("Can you work with", turn_id=1, seg="c-1"), "m1")
+    y0 = next(y)
+    x = a.handle(late(), "m1")  # the recheck of turn 0 lands while turn 1 streams
+    assert next(x).assist_id != y0.assist_id
+    y2 = a.handle(trig(turn_id=1, seg="c-2"), "m1")  # the client goes on with turn 1
+    assert next(y) == Superseded() and next(y, None) is None
+    assert next(y2).assist_id == y0.assist_id  # still one card for turn 1
+
+
+def test_late_trigger_keeps_the_current_questions_prefill():
+    r, ol = FakeRetriever(delay=0.2), FakeOllama()
+    a = make(r, ol)
+    a.prepare(Q)  # the question the client is asking right now
+    list(a.handle(late(), "m1"))
+    ev = list(a.handle(trig(), "m1"))
+    assert r.calls.count(Q) == 1  # searched once, by prepare: the late answer did not drop it
+    assert ev[-1].kind == "library"
+
+
+def test_late_flag_is_on_the_thinking_event():
+    ev = list(make().handle(late(), "m1"))
+    assert ev[0].phase == "thinking" and ev[0].late
+    assert not any(e.late for e in ev[1:])
+    assert not list(make().handle(trig(), "m1"))[0].late

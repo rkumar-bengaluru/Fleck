@@ -183,3 +183,19 @@ def test_email_only_attendee_is_titlecased_for_redaction(env):
     people = client.post("/api/meetings", json={"event_id": event_id}).json()["people"]
     assert people == ["Anna Lee"]
     assert "Anna" not in question_only("Can Anna Lee join the next call?", [], people)
+
+
+def test_late_flag_is_stored_relayed_and_cleared_by_a_newer_answer(env):
+    client, _, make = env
+    auth = pair(env)
+    mid = new_meeting(client, auth)
+    with browser_of(client, mid) as browser, helper_of(client, auth) as helper:
+        helper.send_json(assist(mid, "thinking", late=True))
+        assert browser.receive_json()["late"] is True
+        with make() as s:
+            assert s.scalar(select(Assist.late)) is True
+        helper.send_json(assist(mid, "thinking"))  # a newer Trigger for the same turn replaces the late card
+        assert browser.receive_json()["late"] is False
+        helper.send_json(assist(mid, "done", kind="general", text="Yes."))
+        browser.receive_json()
+    assert client.get(f"/api/meetings/{mid}", headers=auth).json()["assists"][0]["late"] is False

@@ -79,7 +79,7 @@ class Assistant:
         self.people = list(people)
         self._lock = threading.Lock()
         self._prepared: _Prepared | None = None
-        self._live: _Live | None = None
+        self._live: dict[int, _Live] = {}  # by turn_id: a late Trigger for an old turn leaves the current one alone
 
     def prepare(self, text: str, embedding: list[float] | None = None) -> None:
         """Start search and prefill for a Candidate on a thread; returns at once. A newer call replaces this one."""
@@ -121,14 +121,22 @@ class Assistant:
         AssistEvent). first_words_ms and full_ms are measured from the question's end,
         `stream_start_wall + trigger.end_ms`, or from this call when stream_start_wall is None."""
         with self._lock:
-            prev = self._live
-            same = prev is not None and prev.turn_id == trigger.turn_id and not prev.finished.is_set()
+            prev = self._live.get(trigger.turn_id)
+            same = prev is not None and not prev.finished.is_set()
             if same:
                 prev.cancel.set()
-            live = self._live = _Live(trigger.turn_id, prev.assist_id if same else uuid.uuid4().hex, prev if same else None)
-            prep, self._prepared = self._prepared, None
-            if prep and prep.key != _norm(trigger.question):
-                self._drop(prep)  # the final text differs: search again, never prefill or show this one
+            self._live = {t: lv for t, lv in self._live.items() if not lv.finished.is_set()}
+            live = self._live[trigger.turn_id] = _Live(trigger.turn_id, prev.assist_id if same else uuid.uuid4().hex,
+                                                       prev if same else None)
+            prep = self._prepared
+            if prep and prep.key == _norm(trigger.question):
+                self._prepared = None
+            elif trigger.late:
+                prep = None  # the preparation is for the question being asked now, not this old one
+            else:
+                self._prepared = None
+                if prep:
+                    self._drop(prep)  # the final text differs: search again, never prefill or show this one
                 prep = None
         return self._run(trigger, meeting_id, live, prep, stream_start_wall)
 
@@ -197,7 +205,7 @@ class Assistant:
         ms = lambda: round((time.time() - q_end) * 1000)  # noqa: E731
         ev = partial(AssistEvent, type="assist", meeting_id=meeting_id, assist_id=assist_id,
                      segment_id=trig.segment_id, question=trig.question)
-        yield ev(phase="thinking")
+        yield ev(phase="thinking", late=trig.late)
         vector = trig.embedding
         if self.brief_items:
             item, vector = self._brief_match(trig.question, vector)

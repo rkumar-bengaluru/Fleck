@@ -3,7 +3,7 @@ import SourceChip from "./SourceChip";
 import type { Citation } from "../events";
 import type { Kind } from "./SourceChip";
 
-export interface Helped { assist_id: string; question: string; answer: string; kind: Kind; citations: Citation[]; used: boolean | null; used_by: string | null; at_ms: number }
+export interface Helped { assist_id: string; question: string; answer: string; kind: Kind; citations: Citation[]; used: boolean | null; used_by: string | null; at_ms: number; late?: boolean }
 
 const label = (a: Helped) => `${a.used ? "Used" : "Not used"}, ${a.used_by === "manual" ? "by hand" : "auto"}`;
 
@@ -21,7 +21,7 @@ export default function HelpedList({ items, canSeek, onSeek, onToggle }: { items
           <div className="helped-body">
             <div className="helped-q">{a.question}</div>
             {a.answer && <div className="helped-a">{a.answer}</div>}
-            <SourceChip kind={a.kind} citations={a.citations} />
+            <SourceChip kind={a.kind} citations={a.citations} late={a.late} />
           </div>
           <button type="button" className={`used ${a.used ? "on" : ""}`} onClick={() => onToggle(a)}>{label(a)}</button>
         </article>

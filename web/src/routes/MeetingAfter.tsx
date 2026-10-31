@@ -10,7 +10,7 @@ import type { Kind } from "../components/SourceChip";
 interface Detail {
   meeting: { id: number; title: string; status: string; failure_reason: string | null; started_at: string; ended_at: string | null; recorded_by_name: string };
   segments: (Line & { end_ms: number })[];
-  assists: { assist_id: string; segment_id: string; question: string; answer: string; kind: Kind; citations: Citation[]; used: boolean | null; used_by: string | null }[];
+  assists: { assist_id: string; segment_id: string; question: string; answer: string; kind: Kind; citations: Citation[]; used: boolean | null; used_by: string | null; late?: boolean }[];
   summary: Section[] | null;
   cost_usd: number;
 }

@@ -98,3 +98,12 @@ def test_saved_panel_position_is_kept_on_a_visible_screen():
     assert place((100.0, 600.0), screens, 540) == (100.0, 600.0)
     assert place((3000.0, 600.0), screens, 540) == default  # a display that is gone
     assert place((1200.0, 600.0), screens, 540) == (900.0, 600.0)  # partly off the right edge: pulled in
+
+
+def test_late_answer_is_marked_until_a_newer_answer_replaces_it():
+    m = PanelModel()
+    m.apply(ev("a", "thinking", late=True))
+    m.apply(ev("a", "done", kind="general", text="Answer a."))
+    assert m.current.late
+    m.apply(ev("a", "thinking"))  # a newer Trigger for the same turn
+    assert not m.current.late

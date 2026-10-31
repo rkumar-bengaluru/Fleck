@@ -175,3 +175,10 @@ test("the views are tabs with a panel", async () => {
   expect(screen.getByRole("tab", { name: "Notes" }).getAttribute("aria-selected")).toBe("true");
   expect(screen.getByRole("tabpanel")).toBeTruthy();
 });
+
+test("a late answer carries the Late tag after a reload", async () => {
+  state.assists.push(a(4, { late: true }));
+  await open();
+  expect(within(screen.getByRole("article", { name: "Question 4?" })).getByText("Late")).toBeTruthy();
+  expect(within(screen.getByRole("article", { name: "Question 1?" })).queryByText("Late")).toBeNull();
+});

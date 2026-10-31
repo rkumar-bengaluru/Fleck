@@ -8,7 +8,7 @@ export interface MeetingInfo { id: number; title: string; status: string; starte
 interface Snapshot {
   meeting: MeetingInfo; notes: string;
   segments: Omit<Seg, "final">[];
-  assists: { assist_id: string; segment_id: string; question: string; answer: string; kind: AssistView["kind"]; citations: Citation[]; first_words_ms: number | null }[];
+  assists: { assist_id: string; segment_id: string; question: string; answer: string; kind: AssistView["kind"]; citations: Citation[]; first_words_ms: number | null; late?: boolean }[];
 }
 interface Card extends AssistView { sentences: Record<number, string>; delta: Record<number, string> }
 export interface State { meeting: MeetingInfo | null; notes: string | null; status: string; segments: Seg[]; assists: Card[]; error: boolean }
@@ -22,7 +22,7 @@ function applyAssist(cards: Card[], e: AssistEvent): Card[] {
   const old = cards.find(c => c.assist_id === e.assist_id);
   const base: Card = old ?? { assist_id: e.assist_id, segment_id: e.segment_id, question: e.question, text: "", kind: null, citations: [], first_words_ms: null, sentences: {}, delta: {} };
   let c = { ...base };
-  if (e.phase === "thinking") c = { ...c, segment_id: e.segment_id, question: e.question, text: "", kind: null, citations: [], first_words_ms: null, sentences: {}, delta: {} };
+  if (e.phase === "thinking") c = { ...c, segment_id: e.segment_id, question: e.question, text: "", kind: null, citations: [], first_words_ms: null, late: e.late, sentences: {}, delta: {} };
   else if (e.phase === "delta" && e.sentence_index !== null) c.delta = { ...c.delta, [e.sentence_index]: (c.delta[e.sentence_index] ?? "") + e.text };
   else if (e.phase === "sentence" && e.sentence_index !== null) {
     c.sentences = { ...c.sentences, [e.sentence_index]: e.text };
@@ -48,7 +48,7 @@ export function reduce(s: State, a: Action): State {
     const live = s.assists.filter(x => !ids.has(x.assist_id));
     // a stored card still thinking (kind null) must not blank one already streaming on the socket
     const cards: Card[] = [...assists.map(x => (x.kind === null && s.assists.find(c => c.assist_id === x.assist_id)) || ({ assist_id: x.assist_id,
-      segment_id: x.segment_id, question: x.question, text: x.answer, kind: x.kind, citations: x.citations, first_words_ms: x.first_words_ms,
+      segment_id: x.segment_id, question: x.question, text: x.answer, kind: x.kind, citations: x.citations, first_words_ms: x.first_words_ms, late: x.late,
       sentences: {}, delta: {} })), ...live];
     return { meeting, notes: s.notes ?? notes, status: meeting.status, segments: merged, assists: cards, error: false };
   }

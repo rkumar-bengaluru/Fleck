@@ -210,10 +210,30 @@ def _reply(monkeypatch, text):
     ("It stays in iManage [1][9].", "It stays in iManage [1].", [1]),
 ])
 def test_citation_markers(chatenv, monkeypatch, reply, text, numbers):
-    mid = ready_meeting(chatenv, "Harbourline call", [(1_000, "iManage one"), (100_000, "iManage two")])
+    mid = ready_meeting(chatenv, "Harbourline call", [(1_000, "iManage one since 2024"), (100_000, "iManage two")])
     _reply(monkeypatch, reply)
     got = ask(chatenv, "Where?", mid)
     assert got["text"] == text and [c["n"] for c in got["citations"]] == numbers
+
+
+@pytest.mark.parametrize("reply,text", [
+    ("Notice is thirty days [1]. Senior engineers cost $5,200 a month [2].", "Notice is thirty days [1]. Senior engineers cost $5,200 a month [2]."),
+    ("Notice is 30 days [1].\n\nSenior engineers cost $9,999 a month [2]. It stays in iManage [1].",
+     f"Notice is 30 days [1].\n\nIt stays in iManage [1].\n\n{chat.FIGURE_DROPPED}"),                # figure not in [2]
+    ("Notice is 45 days [1].", f"{chat.FIGURE_DROPPED}\n\nNo sources cited."),                       # wrong figure, nothing left
+    ("Notice is thirty days.", f"{chat.FIGURE_DROPPED}\n\nNo sources cited."),                       # a figure with no citation
+    ("At 0:01 they asked about iManage [1].", "At 0:01 they asked about iManage [1]."),                # the cited timestamp counts
+])
+def test_chat_figures_checked_against_cited_sources(chatenv, monkeypatch, reply, text):
+    mid = ready_meeting(chatenv, "Harbourline call", [(1_000, "Termination needs thirty days of notice, iManage only.")])
+    coll = os.environ["FLECK_WEAVIATE_COLLECTION"]
+    with weaviate_client(WEAVIATE) as w:
+        ensure_schema(w, coll)
+        put_passages(w, [{"text": "Rate card FY2026\nSenior engineer: $5,200 a month", "doc_id": "42", "chunk_id": "42-0", "title": "Rate card FY2026",
+                          "client": None, "client_slug": None, "kind": "firm"}], [VEC], coll)
+    _reply(monkeypatch, reply)
+    got = ask(chatenv, "Notice and rates?", mid)
+    assert got["text"] == text
 
 
 def test_answer_without_sources_has_no_markers_and_no_note(chatenv, monkeypatch):

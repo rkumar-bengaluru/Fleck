@@ -2,7 +2,7 @@ import pytest
 
 from fleck_core.fallback import question_only
 from fleck_core.types import Passage
-from fleck_core.validate import check_fallback, check_library_answer
+from fleck_core.validate import check_fallback, check_library_answer, figures_in_sources
 
 # 1: real chunk of clients/_firm/rate-card.md (heading + Senior engineer row).
 # 2: real text of clients/_firm/delivery-faq.md (SLA answer).
@@ -326,3 +326,17 @@ def test_client_figure_allowed_only_when_attributed_and_not_a_price_question():
 @pytest.mark.parametrize("question", ["How did the investigation agent work?", "What feedback did Larkspur give?", "How was the project rated?"])
 def test_price_words_match_whole_words(question):
     assert check_library_answer("Larkspur saw USD 2.1M less lost sales [5].", [*P, LARK_CASE], ["Larkspur Retail Group"], question).ok
+
+
+@pytest.mark.parametrize("sentence,ok", [
+    ("Senior engineers cost $5,200 a month [2].", True),
+    ("Senior engineers cost five thousand two hundred dollars a month.", True),  # spoken form, same figure
+    ("Senior engineers cost $5,200 a year [2].", False),                         # wrong period
+    ("They need thirty days of notice [1].", True),
+    ("They need 45 days of notice [1].", False),
+    ("It stays in iManage [1].", True),                                          # no figure
+])
+def test_figures_in_sources(sentence, ok):
+    sources = ["[1] Meeting \"Harbourline call\", 0:01, transcript:\nClient: Termination needs 30 days of notice.",
+               "[2] Document \"Rate card FY2026\" (firm):\nSenior engineer: USD 5,200 per month"]
+    assert figures_in_sources(sentence, sources) is ok

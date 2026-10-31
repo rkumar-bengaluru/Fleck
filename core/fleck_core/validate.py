@@ -165,6 +165,18 @@ def _matches(fig: str, passage_figs: set[str], currencies: set[str]) -> bool:
     return False
 
 
+def figures_in_sources(sentence: str, sources: list[str]) -> bool:
+    """Every figure in the sentence is one the sources state: the live check's figure rule (normalized, units and
+    currencies compared), for answers whose sources are not Passages (chat, decision 134). No figure: True."""
+    figs = extract_figures(_MARK.sub("", sentence))
+    if not figs:
+        return True
+    texts = [_HEADING_NUM.sub("", t) for t in sources]
+    pfigs = set().union(*(extract_figures(t) for t in texts))
+    cur = set(_CODES.findall(" ".join(normalize_numbers(t) for t in texts)))
+    return all(_matches(f, pfigs, cur) for f in figs)
+
+
 @dataclass
 class SentenceCheck:
     text: str

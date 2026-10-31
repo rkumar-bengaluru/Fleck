@@ -9,6 +9,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from fleck_core.retrieval import (TENANT, Embedder, RetrievalError, Retriever, delete_document_passages, ensure_schema, put_passages,
                                   weaviate_client)
+from fleck_core.validate import figures_in_sources, split_sentences
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
@@ -137,6 +138,22 @@ def _markers(text: str, valid: set[int]) -> str:
     return MARKER.sub(fix, text)
 
 
+FIGURE_DROPPED = "A sentence was left out: its figures are not in the sources it cites."
+
+
+def _checked(text: str, blocks: dict[int, str]) -> str:
+    """Decision 134: a sentence whose figures are not in the sources it cites (prompt blocks, headers included, so a
+    cited timestamp counts) is left out, as on the live path. Line breaks are kept."""
+    lines, dropped = [], False
+    for line in text.split("\n"):
+        keep = [x for x in split_sentences(line)
+                if figures_in_sources(x, [blocks[int(n)] for n in re.findall(r"\[(\d+)\]", x) if int(n) in blocks])]
+        dropped |= len(keep) < len(split_sentences(line))
+        lines.append(" ".join(keep))
+    out = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+    return f"{out}\n\n{FIGURE_DROPPED}".strip() if dropped else out
+
+
 def _history(s: Session, thread_id: int) -> list[ChatMessage]:
     return list(s.scalars(select(ChatMessage).where(ChatMessage.thread_id == thread_id).order_by(ChatMessage.id)))
 
@@ -182,7 +199,7 @@ def post_chat(body: ChatIn, _u: User = Depends(current_user), s: Session = Depen
     except Exception:  # claude_call traced the failure; the key and the API's message stay out of the reply
         raise HTTPException(502, "Claude could not answer. Try again.")
     valid = {c["n"] for c in cites}
-    text = _markers(msg.text.strip(), valid)
+    text = _checked(_markers(msg.text.strip(), valid), {c["n"]: b for b, c in zip(blocks, cites)})
     used = {int(n) for n in re.findall(r"\[(\d+)\]", text)}
     citations = [c for c in cites if c["n"] in used]
     if cites and not citations:

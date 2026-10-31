@@ -98,6 +98,28 @@ def test_process_meeting_ready_and_failed(env, monkeypatch):
         assert s.get(Meeting, bad).status == "failed" and "no key" in s.get(Meeting, bad).failure_reason
 
 
+def test_rows_that_land_while_processing_runs_process_again(env, monkeypatch):
+    client, _, make = env
+    auth = pair(env)
+    mid = new_meeting(client, auth)
+    client.post(f"/api/meetings/{mid}/stop")
+    runs = []
+
+    def summarise(s, m):  # the helper's backlog lands mid-run, once
+        runs.append(m)
+        if len(runs) == 1:
+            s.add(Segment(meeting_id=m, segment_id="c-late", stream="client", start_ms=0, end_ms=900, text="One more thing?"))
+            s.commit()
+    monkeypatch.setattr(processing, "compute_used_markers", lambda s, m: None)
+    monkeypatch.setattr(processing, "summarise", summarise)
+    with make() as s:
+        processing.process_meeting(s, {"meeting_id": mid})
+        assert s.get(Meeting, mid).status == "processing"
+        assert s.scalar(select(func.count()).select_from(Job).where(Job.kind == "process_meeting", Job.status == "queued")) == 2  # Stop's and the re-run
+        processing.process_meeting(s, {"meeting_id": mid})
+        assert s.get(Meeting, mid).status == "ready" and runs == [mid, mid]
+
+
 class Fake:
     """Embeds a text as a one-hot over its words, so equal wording scores 1."""
     WORDS = ["thirty", "minutes", "team", "weeks", "code", "owner", "five", "days"]

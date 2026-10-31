@@ -2,7 +2,7 @@ import logging
 from collections.abc import Callable
 from datetime import datetime, timedelta
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from fleck_api.models import Job, Meeting
@@ -12,6 +12,7 @@ MAX_ATTEMPTS = 3
 BACKOFF_S = (5, 30)  # delay after failed attempt 1, 2
 RECORDING_RETRY = timedelta(minutes=2)  # indexing waits this long between checks while a meeting records
 ABANDONED_AFTER = timedelta(hours=3)  # a "recording" meeting older than this was left behind (meetings run <= 1 h)
+LATE_GRACE = timedelta(seconds=15)  # rows that land after processing are gathered this long before it runs again
 STALE_AFTER = timedelta(minutes=10)  # a running job locked longer than this lost its worker
 _handlers: dict[str, Callable[[Session, dict], None]] = {}
 _on_fail: dict[str, Callable[[Session, dict, str], None]] = {}
@@ -44,6 +45,17 @@ def wait_for_recording(session: Session, kind: str, payload: dict, delay: timede
     if not session.scalar(select(Job.id).where(Job.kind == kind, Job.status == "queued", Job.payload == payload).limit(1)):
         enqueue(session, kind, payload, func.now() + delay)  # DB clock, like the backoff
     return True
+
+
+def reprocess_late(session: Session, meeting_id: int) -> None:
+    """A row that lands after `ready` (a helper that missed the Stop, a backlog) puts the meeting through processing
+    again, so the summary, markers and recording include it (final review I1, decision 151). Rows that land while
+    process_meeting runs are caught by its own recount."""
+    if session.execute(update(Meeting).where(Meeting.id == meeting_id, Meeting.status == "ready")
+                       .values(status="processing").returning(Meeting.id)).first():
+        enqueue(session, "process_meeting", {"meeting_id": meeting_id}, func.now() + LATE_GRACE)  # commits
+    else:
+        session.commit()  # the caller's row
 
 
 def enqueue_once(session: Session, kind: str, payload: dict) -> int | None:

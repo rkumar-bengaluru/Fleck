@@ -12,7 +12,7 @@ from fleck_api.auth import current_user
 from fleck_api.config import get_settings
 from fleck_api.db import get_session
 from fleck_api.devices import current_device, user_or_device
-from fleck_api.jobs import enqueue, enqueue_once
+from fleck_api.jobs import enqueue, enqueue_once, reprocess_late
 from fleck_api.library import _minio
 from fleck_api.models import Assist, AudioChunk, Brief, BriefItem, CalendarEvent, Client, Device, LlmCall, Meeting, Note, Segment, Summary, User
 from fleck_api.realtime import hub
@@ -141,7 +141,8 @@ async def put_audio(meeting_id: int, seq: int, request: Request, d: Device = Dep
     if not mc.bucket_exists(BUCKET):
         mc.make_bucket(BUCKET)
     mc.put_object(BUCKET, key, io.BytesIO(data), len(data), content_type="audio/wav")  # same key: a resend overwrites
-    s.execute(insert(AudioChunk).values(meeting_id=meeting_id, seq=seq, blob_key=key).on_conflict_do_nothing())
+    if s.execute(insert(AudioChunk).values(meeting_id=meeting_id, seq=seq, blob_key=key).on_conflict_do_nothing().returning(AudioChunk.id)).first():
+        reprocess_late(s, meeting_id)  # commits the row too
     s.commit()
 
 

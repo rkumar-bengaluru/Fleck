@@ -363,3 +363,30 @@ def test_a_capture_gap_becomes_a_transcript_marker(make):
         ("gap-62000", "client", 62_000, 75_500, "Audio from the call was interrupted (1:02–1:15)", True, None),
         ("gap-600000", "client", 600_000, 601_000, "Your microphone was interrupted (10:00–10:01)", True, None),
         ("gap-3599000", "client", 3_599_000, 3_605_000, "Audio was interrupted (59:59–60:05)", True, None)]
+
+
+def test_a_menu_stop_the_api_missed_is_retried_and_offered_again_until_it_lands(make, tmp_path):
+    import httpx
+
+    class FlakyApi(FakeApi):
+        fails = 2
+
+        def post(self, path, json=None):
+            if path.endswith("/stop") and self.fails:
+                self.fails -= 1
+                raise httpx.ConnectError("api down")
+            return super().post(path, json)
+    r = make(FlakyApi())
+    r.stop_retries = (0.01, 0.01, 0.01)
+    r.start()
+    assert _until(lambda: (tmp_path / "current.json").exists())
+    r.stop()
+    r.wait(5)
+    assert r.api.posts[-1] == ("/api/meetings/101/stop", None) and not (tmp_path / "current.json").exists()
+    r = make(FlakyApi())
+    r.stop_retries = ()  # Quit: one try, and the state file stays so the next start offers the meeting again
+    r.start()
+    assert _until(lambda: (tmp_path / "current.json").exists())
+    r.stop()
+    r.wait(5)
+    assert json.loads((tmp_path / "current.json").read_text())["meeting_id"] == "101"

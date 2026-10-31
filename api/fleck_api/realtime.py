@@ -7,12 +7,14 @@ from fastapi import APIRouter, Cookie, Depends, WebSocket, WebSocketDisconnect
 from fleck_core.events import AssistEvent, SegmentEvent, parse_event
 from pydantic import ValidationError
 from sqlalchemy import select
+from sqlalchemy.exc import InterfaceError, OperationalError
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from fleck_api.auth import allowed_origins, current_user
 from fleck_api.db import get_session
 from fleck_api.devices import device_from_header
+from fleck_api.jobs import reprocess_late
 from fleck_api.models import Assist, LlmCall, Meeting, Segment
 
 log = logging.getLogger("fleck.realtime")
@@ -105,10 +107,18 @@ async def helper_ws(ws: WebSocket, s: Session = Depends(get_session)):
                 continue
             if isinstance(ev, (SegmentEvent, AssistEvent)):
                 try:
-                    await _handle(s, device.user_id, ev)
+                    status = await _handle(s, device.user_id, ev)
+                except (OperationalError, InterfaceError):  # the database is down, not the event bad: no ack, so the outbox sends it again (decision 152)
+                    s.rollback()
+                    log.exception("event %s %s not stored; the helper will resend it", ev.type, getattr(ev, "segment_id", ""))
+                    await ws.close(1011)
+                    return
                 except Exception:  # acked anyway, or the helper resends it first on every reconnect and the outbox wedges
                     s.rollback()
                     log.exception("event %s %s rejected", ev.type, getattr(ev, "segment_id", ""))
+                else:
+                    if status not in (None, "recording"):  # a Stop the helper missed (offline then): stop it now (decision 151)
+                        await ws.send_json({"type": "stop", "meeting_id": ev.meeting_id})
             await ws.send_json({"type": "ack"})  # one per message, duplicates and junk included: the helper resends what is unacked
     except WebSocketDisconnect:
         pass
@@ -116,18 +126,23 @@ async def helper_ws(ws: WebSocket, s: Session = Depends(get_session)):
         hub.helpers.remove(me)
 
 
-async def _handle(s: Session, user_id: int, ev: SegmentEvent | AssistEvent) -> None:
+async def _handle(s: Session, user_id: int, ev: SegmentEvent | AssistEvent) -> str | None:
+    """The meeting's status, or None for an event that isn't this device's."""
     try:
         mid = int(ev.meeting_id)
     except ValueError:
-        return
+        return None
     m = s.get(Meeting, mid)
     if m is None or m.recorded_by != user_id:
         log.warning("event for meeting %s that this device does not record", ev.meeting_id)
-        return
+        return None
+    status = m.status
     if (isinstance(ev, SegmentEvent) and not _store_segment(s, mid, ev)) or (isinstance(ev, AssistEvent) and not _store_assist(s, mid, ev)):
-        return  # a duplicate
+        return status  # a duplicate
+    if (ev.final if isinstance(ev, SegmentEvent) else ev.phase == "done"):
+        reprocess_late(s, mid)
     await hub.to_browsers(mid, ev.model_dump(mode="json"))
+    return status
 
 
 def _store_segment(s: Session, mid: int, ev: SegmentEvent) -> bool:

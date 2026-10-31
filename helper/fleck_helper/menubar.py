@@ -23,6 +23,7 @@ from fleck_helper.audio import CHUNK_FRAMES, AudioChunkWriter, Frame, Gap, Unava
 from fleck_helper.classify import CLASSIFY_MODEL
 from fleck_helper.pipeline import Candidate, Trigger
 
+STOP_RETRIES = (2, 5, 10, 20, 30, 60)  # seconds between tries of a Stop the api didn't take (~2 min, decision 151)
 MODELS = (ANSWER_MODEL, EMBED_MODEL, CLASSIFY_MODEL)  # loaded while recording, unloaded after (decision 123)
 CHUNKS = Path.home() / "Library/Application Support/Fleck/recordings"
 LOG = Path.home() / "Library/Logs/Fleck/helper.log"
@@ -185,6 +186,7 @@ class Recorder:
         self.title: str | None = None
         self.started_at: float | None = None
         self.degraded = False
+        self.stop_retries = STOP_RETRIES  # Quit sets () so it doesn't wait: the kept state file offers the Stop again
         self._lock = threading.RLock()
         self._thread = self._after = None
 
@@ -240,11 +242,23 @@ class Recorder:
         (self.chunks / "current.json").unlink(missing_ok=True)
         return None
 
-    def _post_stop(self, mid: str) -> None:
-        try:
-            self.api.post(f"/api/meetings/{mid}/stop")
-        except Exception as e:
-            log.warning("stop for meeting %s not sent: %r", mid, e)
+    def _post_stop(self, mid: str, retries=()) -> bool:
+        """True once the api has the Stop; a refusal (4xx) is not retried."""
+        for wait in (*retries, None):
+            try:
+                self.api.post(f"/api/meetings/{mid}/stop")
+                return True
+            except Exception as e:
+                log.warning("stop for meeting %s not sent: %r", mid, e)
+                if wait is None or (isinstance(e, httpx.HTTPStatusError) and e.response.status_code < 500):
+                    return False
+                time.sleep(wait)
+        return False
+
+    def _forget(self, mid: str) -> None:
+        with self._lock:
+            if self.recording != mid and self._state().get("meeting_id") == mid:
+                (self.chunks / "current.json").unlink(missing_ok=True)
 
     def stop(self, notify_api: bool = True, meeting_id: str | None = None) -> None:
         """`meeting_id`: stop only if that meeting is the one recording (a finished meeting thread never stops the next)."""
@@ -254,7 +268,8 @@ class Recorder:
             mid, th = self.recording, self._thread
             self.recording = self.started_at = None
             self._stop.set()
-            (self.chunks / "current.json").unlink(missing_ok=True)
+            if not notify_api:  # the api already has this Stop; otherwise the file goes once it does (a failed Stop is offered again)
+                (self.chunks / "current.json").unlink(missing_ok=True)
             self.panel.hide()
             self.power.release()
 
@@ -268,8 +283,8 @@ class Recorder:
                         self.ollama.unload(m)
                     except Exception as e:
                         log.warning("unload %s failed: %r", m, e)
-                if notify_api:
-                    self._post_stop(mid)
+                if notify_api and self._post_stop(mid, self.stop_retries):
+                    self._forget(mid)
             self._after = threading.Thread(target=after, daemon=True)
             self._after.start()
         self.on_change()
@@ -466,6 +481,7 @@ def _app_class():
 
         def _quit(self, _):
             if self.recorder and self.recorder.recording:
+                self.recorder.stop_retries = ()
                 self.recorder.stop()
                 self.recorder.wait(None)  # its thread waits up to 120 s for the pipeline, then unloads the models
             rumps.quit_application()

@@ -199,3 +199,54 @@ def test_late_flag_is_stored_relayed_and_cleared_by_a_newer_answer(env):
         helper.send_json(assist(mid, "done", kind="general", text="Yes."))
         browser.receive_json()
     assert client.get(f"/api/meetings/{mid}", headers=auth).json()["assists"][0]["late"] is False
+
+
+def test_an_event_for_a_stopped_meeting_stops_the_helper_and_late_rows_reprocess(env):
+    """A Stop the helper missed (offline then) reaches it with its next event; a row after `ready` processes again."""
+    from fleck_api.models import Job, Meeting
+    client, _, make = env
+    auth = pair(env)
+    mid = new_meeting(client, auth)
+    with make() as s:
+        s.get(Meeting, mid).status = "ready"
+        s.commit()
+    with helper_of(client, auth) as helper:
+        helper.send_json(seg(mid, 1))
+        assert helper.receive_json() == {"type": "stop", "meeting_id": str(mid)}
+        assert helper.receive_json() == {"type": "ack"}
+        helper.send_json(seg(mid, 2))  # the meeting is processing again: one job, still a stop
+        assert helper.receive_json() == {"type": "stop", "meeting_id": str(mid)}
+        assert helper.receive_json() == {"type": "ack"}
+    with make() as s:
+        assert s.get(Meeting, mid).status == "processing"
+        assert s.scalar(select(func.count()).select_from(Job).where(Job.kind == "process_meeting")) == 1
+        s.get(Meeting, mid).status = "ready"
+        s.commit()
+    assert client.put(f"/api/meetings/{mid}/audio/0", content=b"RIFF....", headers=auth).status_code == 204
+    with make() as s:
+        assert s.get(Meeting, mid).status == "processing"
+        assert s.scalar(select(func.count()).select_from(Job).where(Job.kind == "process_meeting")) == 2
+
+
+def test_an_event_the_database_could_not_take_is_not_acked(env, monkeypatch):
+    """Postgres down (a restart): no ack and the socket closes, so the helper's outbox sends it again."""
+    from sqlalchemy.exc import OperationalError
+
+    from fleck_api import realtime
+    client, _, make = env
+    auth = pair(env)
+    mid = new_meeting(client, auth)
+
+    def down(*a):
+        raise OperationalError("insert", {}, Exception("server closed the connection"))
+    with monkeypatch.context() as mp, helper_of(client, auth) as helper:
+        mp.setattr(realtime, "_store_segment", down)
+        helper.send_json(seg(mid, 1))
+        with pytest.raises(WebSocketDisconnect) as e:
+            helper.receive_json()
+        assert e.value.code == 1011
+    with helper_of(client, auth) as helper:
+        helper.send_json(seg(mid, 1))  # the resend
+        assert helper.receive_json() == {"type": "ack"}
+    with make() as s:
+        assert s.scalar(select(Segment.segment_id)) == "c-1"

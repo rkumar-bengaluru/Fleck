@@ -15,14 +15,14 @@ from fastapi.responses import StreamingResponse
 from fleck_core.retrieval import Embedder
 from fleck_core.validate import figures_in_sources
 from minio.error import S3Error
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from fleck_api.auth import current_user
 from fleck_api.claude import claude_call
 from fleck_api.config import get_settings, setting
 from fleck_api.db import get_session
-from fleck_api.jobs import enqueue, job
+from fleck_api.jobs import LATE_GRACE, enqueue, job
 from fleck_api.library import _minio
 from fleck_api.meetings import BUCKET, _meeting
 from fleck_api.models import Assist, AudioChunk, Meeting, Note, Segment, Summary, User
@@ -197,6 +197,10 @@ def summarise(s: Session, meeting_id: int) -> None:
     s.commit()
 
 
+def _row_count(s: Session, mid: int) -> int:
+    return sum(s.scalar(select(func.count()).select_from(t).where(t.meeting_id == mid)) for t in (Segment, AudioChunk, Assist))
+
+
 @job("process_meeting")
 def process_meeting(s: Session, payload: dict) -> None:
     """Idempotent: only a meeting still `processing` is worked on. A step error ends the meeting as `failed` (no job retry)."""
@@ -204,12 +208,17 @@ def process_meeting(s: Session, payload: dict) -> None:
     if m is None or m.status != "processing":
         return
     mid = m.id
+    rows = _row_count(s, mid)
     try:
         assemble_recording(s, mid)
         s.commit()
         compute_used_markers(s, mid)
         store_transcript(s, mid)  # after the markers: it carries used / used_by
         summarise(s, mid)
+        if _row_count(s, mid) != rows:  # rows landed while this ran: once more, with them (decision 151)
+            s.commit()
+            enqueue(s, "process_meeting", {"meeting_id": mid}, func.now() + LATE_GRACE)
+            return
         s.get(Meeting, mid).status = "ready"
         s.commit()
         enqueue(s, "index_meeting", {"meeting_id": mid})  # its own job: a slow Ollama must not fail the meeting

@@ -1,5 +1,6 @@
 import pytest
 
+from fleck_core.fallback import question_only
 from fleck_core.types import Passage
 from fleck_core.validate import check_fallback, check_library_answer
 
@@ -122,6 +123,15 @@ def test_sign_dates_and_us_dollars():
 ])
 def test_fallback_blocks(answer):
     assert not check_fallback(answer, ["Larkspur Retail Group"]).ok
+
+
+def test_generic_words_of_a_client_name_are_not_the_client():
+    # Task 22 soak: "the vendor's insurance" blocked a general answer as client_name:Brightwater Insurance
+    names = ["Brightwater Insurance", "Harbourline Legal", "Meridian Intelligence"]
+    assert check_fallback("Weigh the vendor's insurance and have legal review it; threat intelligence helps.", names).ok
+    assert question_only("Does your insurance cover legal costs?", names) == "Does your insurance cover legal costs?"
+    for answer in ("Brightwater did it.", "Harbourline's team.", "Meridian Intelligence uses it.", "brightwater insurance"):
+        assert not check_fallback(answer, names).ok, answer
 
 
 def test_fallback_allows_retry_advice():

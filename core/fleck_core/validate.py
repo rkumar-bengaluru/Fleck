@@ -278,7 +278,11 @@ _BLOCK = [
     ("sla", re.compile(rf"\b(?:SLA|respon\w*|restor\w*|resolv\w*|uptime|availability|turnaround)\b(?:\W+\w+){{0,5}}?\W+{_DUR}|{_DUR}(?:\W+\w+){{0,5}}?\W+\b(?:SLA|respon\w*|restor\w*|resolv\w*|uptime|availability)\b", re.I)),
     ("team_size", re.compile(rf"\b(?:team|pod|squad)\s+of\s+\d+|\b\d+\s+(?:{_PEOPLE})\b", re.I)),
 ]
-_NAME_STOP = {"group", "retail", "inc", "llc", "ltd", "corp", "company", "partners", "limited", "the", "and"}
+# company-form and industry words: "the vendor's insurance" is not Brightwater Insurance (Task 22 soak, decision 142)
+_NAME_STOP = {"group", "retail", "inc", "llc", "ltd", "corp", "company", "partners", "limited", "the", "and",
+              "insurance", "legal", "intelligence", "health", "healthcare", "bank", "banking", "capital", "finance",
+              "financial", "holdings", "services", "solutions", "systems", "technologies", "technology", "global",
+              "international", "consulting", "logistics", "energy", "media", "digital", "labs", "law", "pharma"}
 
 
 def check_fallback(answer: str, client_names: list[str]) -> FallbackCheck:

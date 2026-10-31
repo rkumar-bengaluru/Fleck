@@ -7,6 +7,9 @@ pytestmark = needs_bundle
 
 
 def test_panel_not_in_share(tmp_path):
+    import Quartz
+    # a locked screen captures the lock screen, so the control shot finds no panel (control_hits 0)
+    assert not (Quartz.CGSessionCopyCurrentDictionary() or {}).get("CGSSessionScreenIsLocked"), "unlock the screen first"
     out = tmp_path / "panel.json"
     run_in_bundle("--panel-test", "--out", str(out), timeout=60)
     r = json.loads(out.read_text())

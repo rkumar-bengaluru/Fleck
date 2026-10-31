@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import func, select, text, update
 
-from fleck_api import processing
+from fleck_api import chat, processing
 from fleck_api.claude import Message
 from fleck_api.jobs import run_once
 from fleck_api.meetings import BUCKET
@@ -257,6 +257,38 @@ def test_summary_falls_back_to_note_lines_and_retry_names_bad_lines(make_session
     with make_session() as s:
         processing.summarise(s, mid)
     assert '"Paraphrase of the SLA note"' in calls[1][2][0]["content"]
+
+
+def test_summary_drops_an_addition_whose_figure_is_not_in_the_transcript_or_notes(make_session, monkeypatch):
+    def reply(ai):
+        return {"sections": [{"heading": "Next steps", "items": [{"user_text": "Send the rate card", "ai_text": ai},
+                                                                 {"user_text": "Kickoff in May", "ai_text": "Kickoff is in May."}]}]}
+    made_up = reply("Send a revised quote at USD 12,000/month.")
+    mid, calls = _summary_env(make_session, monkeypatch, [made_up, made_up])
+    with make_session() as s:
+        processing.summarise(s, mid)
+    assert len(calls) == 2 and "12,000" in calls[1][2][0]["content"] and "figures" in calls[1][2][0]["content"]
+    assert _sections(make_session, mid)["Next steps"][:2] == [{"user_text": "Send the rate card", "ai_text": ""},
+                                                             {"user_text": "Kickoff in May", "ai_text": "Kickoff is in May."}]
+    mid, calls = _summary_env(make_session, monkeypatch, [made_up, reply("Send the card with the 99.9% SLA.")])
+    with make_session() as s:
+        s.add(Segment(meeting_id=mid, segment_id="c2", stream="client", start_ms=2000, end_ms=3000, text="We need 99.9 percent."))
+        s.commit()
+        processing.summarise(s, mid)
+    assert _sections(make_session, mid)["Next steps"][0]["ai_text"] == "Send the card with the 99.9% SLA."  # the retry's figure is said
+
+
+def test_a_gap_marker_is_labelled_fleck_not_client(make_session, monkeypatch):
+    mid, calls = _summary_env(make_session, monkeypatch, [_items("Asked for SLA in writing", "Send the rate card", "Kickoff in May")])
+    with make_session() as s:
+        s.add(Segment(meeting_id=mid, segment_id="gap-5000", stream="client", start_ms=5000, end_ms=9000,
+                      text="Audio from the call was interrupted (0:05–0:09)"))
+        s.commit()
+        processing.summarise(s, mid)
+        rows = chat.meeting_rows(s, s.get(Meeting, mid))
+    prompt = calls[0][2][0]["content"]
+    assert "Client: What is the SLA?" in prompt and "Fleck: Audio from the call was interrupted" in prompt
+    assert "Fleck: Audio from the call was interrupted" in rows[0]["text"]
 
 
 def test_stop_race_enqueues_once(env, monkeypatch):

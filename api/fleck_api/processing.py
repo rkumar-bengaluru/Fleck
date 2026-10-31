@@ -13,6 +13,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from fleck_core.retrieval import Embedder
+from fleck_core.validate import figures_in_sources
 from minio.error import S3Error
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -126,6 +127,11 @@ def _verbatim(user_text: str, lines: list[str]) -> bool:
     return bool(ut) and any(lines[k:k + len(ut)] == ut for k in range(len(lines)))
 
 
+def speaker(seg: Segment) -> str:
+    """A transcript line's label; a `gap-` line is Fleck's capture-outage marker (spec 7.7), not the client speaking."""
+    return "Fleck" if seg.segment_id.startswith("gap-") else "You" if seg.stream == "you" else "Client"
+
+
 def _shape(got: dict | None) -> list[dict] | None:
     """The tool input as a list of sections, or None when it is not the schema's shape."""
     try:
@@ -139,8 +145,9 @@ def _shape(got: dict | None) -> list[dict] | None:
 def summarise(s: Session, meeting_id: int) -> None:
     lines = _note_lines(s, meeting_id)
     segs = s.scalars(select(Segment).where(Segment.meeting_id == meeting_id).order_by(Segment.start_ms, Segment.id))
-    transcript = "\n".join(f"{'You' if x.stream == 'you' else 'Client'}: {x.text}" for x in segs)
+    transcript = "\n".join(f"{speaker(x)}: {x.text}" for x in segs)
     prompt = f"<notes>\n{chr(10).join(lines)}\n</notes>\n\n<transcript>\n{transcript}\n</transcript>"
+    sources = [transcript, "\n".join(lines)]
     sections: list[dict] = []
     for attempt in range(2):  # one retry, told what was wrong
         msg = claude_call("summary", [{"role": "user", "content": prompt}], get_settings().claude_model, meeting_id, session=s,
@@ -152,10 +159,17 @@ def summarise(s: Session, meeting_id: int) -> None:
         else:
             sections = got
             bad = [i["user_text"] for x in sections for i in x["items"] if i["user_text"] and not _verbatim(i["user_text"], lines)]
-            if not bad:
+            made_up = [i["ai_text"] for x in sections for i in x["items"] if not figures_in_sources(i["ai_text"], sources)]
+            if not bad and not made_up:
                 break
-            why = "These user_text values are not copied exactly from the note lines: " + "; ".join(f'"{b}"' for b in bad)
+            why = " ".join(([("These user_text values are not copied exactly from the note lines: " + "; ".join(f'"{b}"' for b in bad))] if bad else [])
+                           + ([("These ai_text values state figures that are not in the transcript or the notes: "
+                                + "; ".join(f'"{b}"' for b in made_up))] if made_up else []))
         prompt += f"\n\nYour previous reply was rejected. {why} Call write_summary again."
+    for x in sections:  # a figure still not in the transcript or the notes: the addition goes (spec 7.4's rule, decision 150)
+        for i in x["items"]:
+            if not figures_in_sources(i["ai_text"], sources):
+                i["ai_text"] = ""
     avail = Counter(lines)
     for x in sections:  # lines a valid item already carries
         for i in x["items"]:

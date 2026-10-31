@@ -23,7 +23,7 @@ from fleck_api.jobs import RECORDING_RETRY, enqueue, job, wait_for_recording
 from fleck_api.library import _collection
 from fleck_api.meetings import _meeting
 from fleck_api.models import ChatMessage, ChatThread, Job, Meeting, Segment, Summary, User
-from fleck_api.processing import _note_lines
+from fleck_api.processing import _note_lines, speaker
 
 log = logging.getLogger("fleck.chat")
 router = APIRouter(prefix="/api")
@@ -54,7 +54,7 @@ def meeting_rows(s: Session, m: Meeting) -> list[dict]:
     rows, windows = [], {}
     for x in s.scalars(select(Segment).where(Segment.meeting_id == m.id, Segment.text != "").order_by(Segment.start_ms, Segment.id)):
         w = windows.setdefault(x.start_ms // WINDOW_MS, {"start_ms": x.start_ms, "lines": []})
-        w["lines"].append(f"{'You' if x.stream == 'you' else 'Client'}: {x.text}")
+        w["lines"].append(f"{speaker(x)}: {x.text}")
     rows += [base | {"kind": "transcript", "start_ms": w["start_ms"], "text": "\n".join(w["lines"]), "chunk_id": f"m{m.id}-t{k}"} for k, w in windows.items()]
     rows += [base | {"kind": "note", "start_ms": 0, "text": ln, "chunk_id": f"m{m.id}-n{i}"} for i, ln in enumerate(_note_lines(s, m.id))]
     summary = s.scalar(select(Summary).where(Summary.meeting_id == m.id).order_by(Summary.version.desc()))

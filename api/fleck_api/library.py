@@ -7,6 +7,7 @@ import mimetypes
 import re
 import tempfile
 import uuid
+from collections import Counter
 from pathlib import Path
 
 from urllib.parse import quote
@@ -25,7 +26,7 @@ from fleck_api.auth import current_user
 from fleck_api.config import setting
 from fleck_api.db import get_session
 from fleck_api.jobs import enqueue, job
-from fleck_api.models import Client, Document
+from fleck_api.models import Assist, Client, Document
 
 log = logging.getLogger("fleck.library")
 BUCKET = "fleck-documents"
@@ -243,7 +244,12 @@ def index_document(session: Session, payload: dict) -> None:
         _fail(doc, "No indexable text found in the file.")
         return
     client = session.get(Client, doc.client_id) if doc.client_id else None
-    vectors = Embedder(setting("FLECK_OLLAMA_URL", "http://localhost:11434"), timeout=120).embed(chunks)
+    embedder, vectors = Embedder(setting("FLECK_OLLAMA_URL", "http://localhost:11434"), timeout=120), []
+    doc.progress_done, doc.progress_total = 0, len(chunks)
+    for i in range(0, len(chunks), 32):  # the Library page shows "Indexing, 32 of 120"
+        vectors += embedder.embed(chunks[i:i + 32])
+        doc.progress_done = len(vectors)
+        session.commit()
     rows = [{"text": c, "doc_id": str(doc.id), "chunk_id": f"{doc.id}-{i}", "title": title, "client": client.name if client else None,
              "client_slug": client.slug if client else None, "kind": doc.kind} for i, c in enumerate(chunks)]
     doc_id = doc.id
@@ -307,7 +313,7 @@ def _row(session: Session, d: Document) -> dict:
     c = session.get(Client, d.client_id) if d.client_id else None
     return {"id": d.id, "title": d.title, "filename": d.filename, "kind": d.kind, "client_id": d.client_id,
             "client": c.name if c else None, "status": d.status, "error": d.error, "chunk_count": d.chunk_count,
-            "used_count": d.used_count, "created_at": d.created_at}
+            "used_count": d.used_count, "progress_done": d.progress_done, "progress_total": d.progress_total, "created_at": d.created_at}
 
 
 # ---------- routes (plain def: sync DB work runs in FastAPI's threadpool) ----------
@@ -345,7 +351,8 @@ def list_documents(kind: str | None = None, q: str | None = None, s: Session = D
     if q:
         like = f"%{q}%"
         stmt = stmt.where(or_(Document.title.ilike(like), Document.filename.ilike(like)))
-    return [_row(s, d) for d in s.scalars(stmt)]
+    used = Counter(c.get("doc_id") for cs in s.scalars(select(Assist.citations)) for c in cs)  # assists citing each document
+    return [_row(s, d) | {"used_count": used[str(d.id)]} for d in s.scalars(stmt)]
 
 
 async def size_guard(request: Request, call_next):

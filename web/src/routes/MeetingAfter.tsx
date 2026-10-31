@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api, setTitle } from "../api";
+import ChatPanel from "../components/ChatPanel";
 import HelpedList, { type Helped } from "../components/HelpedList";
 import RecordingTimeline from "../components/RecordingTimeline";
 import SummaryNotes, { type Section } from "../components/SummaryNotes";
@@ -27,11 +29,19 @@ export default function MeetingAfter({ id }: { id: string }) {
   const [broken, setBroken] = useState(false);  // the audio element failed
   const [note, setNote] = useState("");  // an inline message after a failed save or retry
   const audio = useRef<HTMLAudioElement>(null);
+  const t = Number(useSearchParams()[0].get("t") ?? NaN);  // a chat citation opens the transcript at this time
   const load = useCallback(() => api<Detail>(`/api/meetings/${id}`).then(x => { setD(x); setError(false); }).catch(() => setError(true)), [id]);
   useEffect(() => { void load(); }, [load]);
   // the worker cannot push to browsers (decision 120d): poll until it is done
   const status = d?.meeting.status;
   useEffect(() => { if (status !== "processing") return; const t = setInterval(() => void load(), 3000); return () => clearInterval(t); }, [status, load]);
+  const ready = d?.meeting.status === "ready";
+  useEffect(() => {
+    if (Number.isNaN(t) || !d) return;
+    setTab("Transcript");
+    const a = audio.current;
+    if (a && ready) { a.currentTime = t / 1000; a.play().catch(() => {}); }
+  }, [t, ready, d !== null]);  // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (d) setTitle(d.meeting.title); }, [d?.meeting.title]);  // eslint-disable-line react-hooks/exhaustive-deps
   if (!d) return error ? <p className="error" role="alert">Couldn't load this meeting.</p> : null;
 
@@ -74,8 +84,8 @@ export default function MeetingAfter({ id }: { id: string }) {
       )}
       <div role="tabpanel" id="tabpanel" aria-labelledby={`tab-${tab}`} className="tabpanel">
         {tab === "Notes" && m.status !== "processing" && <><HelpedList items={items} canSeek={canSeek} onSeek={seek} onToggle={toggle} /><SummaryNotes sections={d.summary} /></>}
-        {tab === "Transcript" && <TranscriptView segments={d.segments} canSeek={canSeek} onSeek={seek} />}
-        {tab === "Chat" && <p className="after-card muted">Chat arrives in a later build</p>}
+        {tab === "Transcript" && <TranscriptView segments={d.segments} canSeek={canSeek} onSeek={seek} focusMs={Number.isNaN(t) ? undefined : t} />}
+        {tab === "Chat" && <ChatPanel meetingId={m.id} />}
       </div>
     </>
   );

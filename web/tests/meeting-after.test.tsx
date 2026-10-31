@@ -71,13 +71,13 @@ test("test_timeline_marker_per_assist", async () => {
   expect(marks[1].className).toContain("tl-general");
 });
 
-test("the Transcript tab lists lines with clickable timestamps; Chat is a placeholder", async () => {
+test("the Transcript tab lists lines with clickable timestamps; Chat is the meeting chat", async () => {
   await open();
   fireEvent.click(screen.getByRole("tab", { name: "Transcript" }));
   expect(screen.getByText("Line 2")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Play from 2:00" })).toBeTruthy();
   fireEvent.click(screen.getByRole("tab", { name: "Chat" }));
-  expect(screen.getByText("Chat arrives in a later build")).toBeTruthy();
+  expect(screen.getByRole("textbox", { name: "Ask about this meeting" })).toBeTruthy();
 });
 
 test("processing polls every 3 s until ready", async () => {
@@ -181,4 +181,12 @@ test("a late answer carries the Late tag after a reload", async () => {
   await open();
   expect(within(screen.getByRole("article", { name: "Question 4?" })).getByText("Late")).toBeTruthy();
   expect(within(screen.getByRole("article", { name: "Question 1?" })).queryByText("Late")).toBeNull();
+});
+
+test("a chat citation link opens the transcript at that time and seeks the audio", async () => {
+  render(<MemoryRouter initialEntries={["/meetings/5?t=120500"]}><Routes><Route path="/meetings/:id" element={<MeetingAfter id="5" />} /></Routes></MemoryRouter>);
+  await screen.findByRole("heading", { name: "Presales: Harbourline" });
+  await waitFor(() => expect(screen.getByRole("tab", { name: "Transcript" }).getAttribute("aria-selected")).toBe("true"));
+  await waitFor(() => expect(document.querySelector("audio")!.currentTime).toBe(120.5));
+  expect(screen.getByText("Line 2").closest("li")!.getAttribute("aria-current")).toBe("true");
 });

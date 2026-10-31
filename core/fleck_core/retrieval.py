@@ -135,13 +135,13 @@ class RetrievalTimeout(RetrievalError):
     pass
 
 
-def ensure_schema(client: httpx.Client, collection: str = COLLECTION) -> None:
-    """Idempotent: collection with multi-tenancy and the single tenant `default`."""
+def ensure_schema(client: httpx.Client, collection: str = COLLECTION, properties: list[dict] | None = None) -> None:
+    """Idempotent: collection with multi-tenancy and the single tenant `default`. `properties` replaces the Passage ones (MeetingText)."""
     if client.get(f"/v1/schema/{collection}").status_code == 404:
         txt = lambda n, tok="word": {"name": n, "dataType": ["text"], "tokenization": tok}  # noqa: E731
         r = client.post("/v1/schema", json={
             "class": collection, "vectorizer": "none", "multiTenancyConfig": {"enabled": True},
-            "properties": [txt("text"), txt("title"), txt("client"), txt("doc_id", "field"), txt("chunk_id", "field"),
+            "properties": properties or [txt("text"), txt("title"), txt("client"), txt("doc_id", "field"), txt("chunk_id", "field"),
                            txt("client_slug", "field"), txt("kind", "field")],
         })
         if r.status_code != 422 or "already exists" not in r.text:  # lost a creation race = fine
@@ -164,9 +164,9 @@ def put_passages(client: httpx.Client, rows: list[dict], vectors: list[list[floa
             raise RuntimeError(f"Weaviate rejected passages: {errs[0]}")
 
 
-def delete_document_passages(client: httpx.Client, doc_id: str, collection: str = COLLECTION) -> None:
+def delete_document_passages(client: httpx.Client, doc_id: str, collection: str = COLLECTION, prop: str = "doc_id") -> None:
     r = client.request("DELETE", "/v1/batch/objects", params={"tenant": TENANT}, json={
-        "match": {"class": collection, "where": {"path": ["doc_id"], "operator": "Equal", "valueText": doc_id}}})
+        "match": {"class": collection, "where": {"path": [prop], "operator": "Equal", "valueText": doc_id}}})
     r.raise_for_status()
 
 

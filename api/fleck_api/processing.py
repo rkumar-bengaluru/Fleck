@@ -21,7 +21,7 @@ from fleck_api.auth import current_user
 from fleck_api.claude import claude_call
 from fleck_api.config import get_settings, setting
 from fleck_api.db import get_session
-from fleck_api.jobs import job
+from fleck_api.jobs import enqueue, job
 from fleck_api.library import _minio
 from fleck_api.meetings import BUCKET, _meeting
 from fleck_api.models import Assist, AudioChunk, Meeting, Note, Segment, Summary, User
@@ -197,6 +197,8 @@ def process_meeting(s: Session, payload: dict) -> None:
         store_transcript(s, mid)  # after the markers: it carries used / used_by
         summarise(s, mid)
         s.get(Meeting, mid).status = "ready"
+        s.commit()
+        enqueue(s, "index_meeting", {"meeting_id": mid})  # its own job: a slow Ollama must not fail the meeting
     except Exception as e:
         s.rollback()
         m = s.get(Meeting, mid)

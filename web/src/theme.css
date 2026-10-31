@@ -157,3 +157,28 @@ h1 { margin: 0; font-size: 34px; line-height: 1.15; font-weight: 700; }
 .brief-card h3 { margin: 0; font-size: 17px; line-height: 1.35; }
 .brief-card p { margin: 0; font-size: 15px; line-height: 1.5; color: var(--body); }
 .brief-topic { font-size: 13px; color: var(--muted); }
+
+/* Library and chat, from WebLibrary.dc.html and WebAfter.dc.html */
+.lib-filters { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.lib-filters input, .lib-filters select, .chat-form input, .dialog-form input:not([type=file]), .dialog-form select { height: 40px; border: 1px solid var(--field); border-radius: 7px; padding: 0 12px; background: var(--card); font: inherit; }
+.lib-filters input { flex: 1 1 260px; }
+.lib-filters label { font-size: 14px; color: var(--muted); }
+.lib-table { background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow-x: auto; }
+.lib-table table { width: 100%; border-collapse: collapse; font-size: 15px; min-width: 640px; }
+.lib-table th { text-align: left; color: var(--muted); font-size: 14px; font-weight: 500; padding: 12px; border-bottom: 1px solid var(--line); }
+.lib-table td { padding: 12px; border-bottom: 1px solid var(--rule); }
+.lib-table tr:last-child td { border-bottom: none; }
+.lib-table tr[aria-current="true"] td { background: #F0F8F6; }
+.small { font-size: 13px; }
+.kind { background: #E8EDF2; color: #2A3540; font-size: 12px; font-weight: 700; padding: 2px 7px; border-radius: 5px; }
+.kind-client { background: #DDF1EE; color: #0B5A53; } .kind-reference { background: #ECE7F8; color: #4A3290; }
+.status-indexed { color: #1F6B47; } .status-indexing, .status-queued { color: #8A4B00; } .status-failed { color: #A3241D; }
+.dialog { max-width: 520px; }
+.dialog-form { display: flex; flex-direction: column; gap: 8px; }
+.dialog-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
+.chat-log { display: flex; flex-direction: column; gap: 12px; max-height: 60vh; overflow-y: auto; }
+.chat-msg { max-width: 70ch; } .chat-msg p { margin: 0; line-height: 1.5; }
+.chat-user { align-self: flex-end; background: var(--field-soft); border-radius: 10px; padding: 8px 12px; font-weight: 700; }
+.chat-cites { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 14px; }
+.chat-form { display: flex; gap: 8px; } .chat-form input { flex: 1; }
+.line[aria-current="true"] { background: #F0F8F6; }

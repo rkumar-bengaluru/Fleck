@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
-from fleck_api import auth, brief, calendar_sync, devices, library, meetings, processing, realtime
+from fleck_api import auth, brief, calendar_sync, chat, devices, library, meetings, processing, realtime
 from fleck_api.config import setting
 
 
@@ -29,6 +29,7 @@ def create_app() -> FastAPI:
         auth.check_google_config()
         try:
             library.ensure_index()
+            chat.ensure_meeting_index()
         except Exception:  # weaviate may still be starting; /api/health reports it and the indexer retries
             logging.getLogger("fleck.api").exception("could not create the Weaviate schema at startup")
         yield
@@ -43,6 +44,7 @@ def create_app() -> FastAPI:
         return await call_next(request)
     app.include_router(auth.router)
     app.include_router(library.router)
+    app.include_router(chat.router)
     app.include_router(calendar_sync.router)
     app.include_router(calendar_sync.helper_router)
     app.include_router(devices.router)

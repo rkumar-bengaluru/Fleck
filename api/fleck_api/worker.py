@@ -1,7 +1,7 @@
 import logging
 import time
 
-from fleck_api import brief, calendar_sync, library, processing  # noqa: F401  (importing registers the job handlers)
+from fleck_api import brief, calendar_sync, chat, library, processing  # noqa: F401  (importing registers the job handlers)
 from fleck_api.db import session_factory
 from fleck_api.jobs import run_once
 
@@ -13,6 +13,11 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO)
     make = session_factory()
     next_schedule = 0.0
+    try:
+        with make() as s:
+            chat.backfill(s)  # ready meetings from before chat existed
+    except Exception:
+        log.exception("index backfill failed")
     while True:
         try:
             with make() as s:

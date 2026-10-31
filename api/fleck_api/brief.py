@@ -145,9 +145,9 @@ def build_brief(s: Session, payload: dict) -> None:
     names = list(s.scalars(select(Client.name))) + ([client.name] if client else [])
     titles = list(s.scalars(select(Document.title).where(Document.client_id == client.id, Document.status == "indexed")
                             .order_by(Document.title))) if client else []
-    # the title alone without a client; with one, the invite and the client's documents. Names go first (privacy rule).
+    # the redacted invite (title and description), plus the client's documents when one is linked. Names go first (privacy rule).
     title = _safe(ev.title, people, names)
-    desc = _safe(ev.description, people, names) if client and ev.description else None
+    desc = _safe(ev.description, people, names) if ev.description else None
     asked = b.questions
     if asked and datetime.fromisoformat(asked["at"]) > datetime.now(timezone.utc) - QUESTIONS_TTL:
         questions = asked["items"]  # a retry after a failed answer step: Sonnet was already paid for
@@ -164,7 +164,7 @@ def build_brief(s: Session, payload: dict) -> None:
     b.doc_count = len(titles)
     b.context = (f"{client.name}: {len(titles)} library document{'s' * (len(titles) != 1)} ({', '.join(titles[:6])})." if titles
                  else f"New prospect: no documents for {client.name} in the library." if client
-                 else "No client is linked to this event, so the questions come from the invite title only.")
+                 else "No client is linked to this event, so the questions come from the invite alone.")
     b.status, b.updated_at, b.questions = "ready", func.now(), None
     s.commit()
 

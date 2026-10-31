@@ -111,12 +111,18 @@ def test_brief_figure_not_in_passage_is_rejected(env, stubbed, monkeypatch):
 
 
 def test_brief_without_client(env, stubbed, monkeypatch):
+    """Spec goal 2 (decision 129's follow-up): with no client, the redacted description goes too, redacted as with one."""
     sent = Sent(monkeypatch, QS)
-    eid = make_event(env, title="Intro call", description="Bring the Orion deck", client=False)
+    eid = make_event(env, title="Intro call", client=False, attendees=[{"email": "priya@x.test", "name": "Priya Shah"}],
+                     description="Priya Shah wants our data residency answers. She worked with Harbourline Legal before.")
+    with env[2]() as s:  # a library client the event is not linked to
+        s.add(Client(name="Harbourline Legal", slug="harbourline-legal"))
+        s.commit()
     build(env, eid)
     assert len(items(env, eid)) == 2
     prompt = sent[0]["messages"][0]["content"]
-    assert "Intro call" in prompt and "Orion" not in prompt  # the title only
+    assert "Intro call" in prompt and "data residency answers" in prompt
+    assert not any(n in prompt for n in ("Priya", "Shah", "Harbourline")) and "someone" in prompt and "a client" in prompt
     assert all(slug is None for _, slug in stubbed.calls)
     assert "No client" in env[0].get(f"/api/events/{eid}/brief").json()["context"]
 

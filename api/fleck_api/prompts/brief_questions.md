@@ -4,4 +4,4 @@ Call the `propose_questions` tool once with up to 8 questions the prospect is li
 
 - Write each question the way the prospect would say it aloud, in one sentence.
 - Ask about what the invite and the documents suggest. Do not answer the questions. Do not invent facts, prices or names.
-- When there are no documents or passages, use the invite title alone.
+- When there are no documents or passages, use the invite (its title and description) alone.

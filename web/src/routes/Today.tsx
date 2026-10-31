@@ -33,6 +33,13 @@ export function MeetingCard({ event, clients, me, next, now, onChange }: {
   onChange: (e: CalendarEvent, created?: ClientRef) => void;
 }) {
   const navigate = useNavigate();
+  const [recordError, setRecordError] = useState<string | null>(null);
+  const record = () => {
+    setRecordError(null);
+    api<{ id: number }>("/api/meetings", { method: "POST", body: { event_id: event.id, start_helper: true } })
+      .then(m => navigate(`/meetings/${m.id}`))
+      .catch(e => { if (!(e instanceof Unauthorized)) setRecordError(String(e.message).endsWith(": 409") ? "Desktop app not connected" : "Couldn't start the recording. Try again."); });
+  };
   const myDomain = domain(me.email);
   const mins = Math.ceil((new Date(event.start_at).getTime() - now) / 60_000);
   const open = !event.cancelled && new Date(event.end_at).getTime() > now;
@@ -54,10 +61,10 @@ export function MeetingCard({ event, clients, me, next, now, onChange }: {
           {open && <>
             <span className="spacer" />
             <Link className="btn-primary" to={`/events/${event.id}/brief`}>Open brief</Link>
-            {/* Task 16 wires Record to POST /api/meetings; until then it opens the event. */}
-            <button type="button" className="btn" onClick={() => navigate(`/events/${event.id}`)}>Record</button>
+            <button type="button" className="btn" onClick={record}>Record</button>
           </>}
         </div>
+        {recordError && <p className="error" role="alert">{recordError}</p>}
       </div>
     </article>
   );
@@ -170,7 +177,7 @@ export default function Today({ me }: { me: Me }) {
   );
 }
 
-/** The event a meeting card links to (Record, Open brief) until Brief (Task 18) and recording (Task 16) arrive. */
+/** The event a meeting card links to (Record, Open brief) until Brief (Task 18) arrives. */
 export function EventPage({ me }: { me: Me }) {
   const { id } = useParams();
   const [event, setEvent] = useState<CalendarEvent | null>(null);

@@ -1,5 +1,6 @@
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*  # the worker assembles recordings
 COPY pyproject.toml uv.lock .python-version ./
 COPY core core
 COPY api api

@@ -1,16 +1,17 @@
 """Meetings: create (from the web or the helper), the live record, audio chunks, notes (spec 7.6)."""
 import io
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from fleck_api.auth import current_user
 from fleck_api.db import get_session
 from fleck_api.devices import current_device, user_or_device
+from fleck_api.jobs import enqueue
 from fleck_api.library import _minio
 from fleck_api.models import Assist, AudioChunk, Brief, BriefItem, CalendarEvent, Client, Device, Meeting, Note, Segment, Summary, User
 from fleck_api.realtime import hub
@@ -134,11 +135,12 @@ def put_client(meeting_id: int, body: ClientIn, _u: User = Depends(current_user)
 @router.post("/meetings/{meeting_id}/stop", status_code=204)
 async def stop_meeting(meeting_id: int, u: User = Depends(current_user), s: Session = Depends(get_session)):
     m = _meeting(s, meeting_id)
+    sent = await hub.to_helper(m.recorded_by or u.id, {"type": "stop", "meeting_id": str(m.id)})
     if m.status == "recording":
         m.status, m.ended_at = "processing", datetime.now(timezone.utc)
-        s.commit()
+        # 15 s for the helper's last chunks to arrive; nothing to wait for when it is offline
+        enqueue(s, "process_meeting", {"meeting_id": m.id}, func.now() + timedelta(seconds=15) if sent else None)
         await hub.to_browsers(m.id, {"type": "meeting_state", "meeting_id": str(m.id), "status": m.status})
-    await hub.to_helper(m.recorded_by or u.id, {"type": "stop", "meeting_id": str(m.id)})
 
 
 class UsedIn(BaseModel):

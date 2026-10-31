@@ -27,7 +27,7 @@ def job(kind: str, on_fail: Callable[[Session, dict, str], None] | None = None):
 
 def enqueue(session: Session, kind: str, payload: dict, run_after: datetime | None = None) -> int:
     # run_after=None lets Postgres stamp now(); all scheduling comparisons use the DB clock.
-    j = Job(kind=kind, payload=payload, **({"run_after": run_after} if run_after else {}))
+    j = Job(kind=kind, payload=payload, **({"run_after": run_after} if run_after is not None else {}))
     session.add(j)
     session.commit()
     return j.id

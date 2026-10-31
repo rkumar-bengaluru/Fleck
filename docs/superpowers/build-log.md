@@ -499,3 +499,24 @@ Follow-ups that must be done before the MVP is done:
 - Vitest: the five brief tests pass; whole web suite 16 passed. `tsc --noEmit` clean. Python untouched, so no pytest run.
 - Playwright `replay-live.spec.ts` (two runs; the first only found my own 120 s wait too short for a question that is 152 s into the audio): passed, 2.7 min, **Our material** chip citing **Rate card FY2026** 1.2 s after the question's `end_ms` (clock taken from the first transcript line; the chip's own "First words" figure is on the page). The device was paired through `/api/devices/pairing-code` and a file keyring backend (`web/e2e/support/file_keyring.py` via `PYTHON_KEYRING_BACKEND`), so the real keychain was never touched. Rebuilt api, worker and web images (new `websockets` dependency).
 - Not done: Today's **Record** button still opens the event page (starting a meeting from the web is Task 17); after-meeting view for non-recording status shows only the header state.
+
+### Task 17: Stop, recording assembly, used-it markers and summary (2026-10-31)
+
+- Tests first (`test_processing.py`, `test_claude_trace.py`, two Vitest tests for Record), failing on the missing modules, then `claude.py`, `processing.py`, `prompts/summary.md`, the stop endpoint, the worker import, ffmpeg in the api/worker Dockerfile, `FLECK_USED_THRESHOLD` and `FLECK_PRICES` in `.env.example`.
+- One full replay of `conversation.wav` (meeting 3, about 6.5 min), exported to `fixtures/conversation/replayed_meeting.json` (57 segments, 8 assists). It ran without the API key, so q_general was "Not in our material"; its answer is one real Haiku reply (decision 120h). The replay uploads no audio. Not the Playwright spec (it cannot double as this run).
+- Used-marker scores (best cosine in the 15 s after the card), threshold 0.75 failing three of four:
+
+  | question | reference used | score | at 0.75 | at 0.55 |
+  |---|---|---|---|---|
+  | q_rate | yes | 0.883 | yes | yes |
+  | q_start | yes | 0.586 | no | yes |
+  | q_ip | no | 0.411 | no | no |
+  | q_sla ("30 minutes.") | no | 0.372 | no | no |
+  | q_case | yes | 0.708 | no | yes |
+  | q_general | yes | 0.736 | no | yes |
+  | q_liability, q_price | no | 0 (no answer) | no | no |
+
+  Short repeats of "30 minutes.": "We respond within thirty minutes." 0.667, "Our response time is 30 minutes for a serious fault." 0.625, "Thirty minutes, any time of day." 0.806, unrelated sentences 0.36-0.47. So 0.75 cannot clear a short answer; the default is 0.55 (decision 118).
+- Real Sonnet summary on the replayed meeting 3 through the rebuilt worker (stop, 15 s grace skipped as the helper was offline): `ready`, one `llm_calls` row, 2,795 in / 1,519 out tokens, $0.021. The first attempt failed with a 400 (Sonnet 5.5 refuses a forced `tool_choice` and `thinking: disabled`), found only by this live call; stubs hid it.
+- Tests: the new api tests 7 pass (the `ollama` one included), `test_claude_trace.py` 3 pass (one real Haiku call, marked `claude`); Vitest 24 pass (the whole web suite); `uv run pytest -m "not ollama" -q`: 521 passed. Rebuilt api, worker and web images.
+

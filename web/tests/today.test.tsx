@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { safeNext, session, type CalendarEvent } from "../src/api";
 import { domainStem, newClientName } from "../src/components/ClientSelect";
@@ -204,4 +204,24 @@ test("page titles and the sign-in heading", async () => {
   cleanup();
   render(<MemoryRouter><Settings me={me} /></MemoryRouter>);
   expect(document.title).toBe("Fleck: Settings");
+});
+
+const recordAt = () => render(<MemoryRouter><Routes><Route path="/" element={<Today me={me} />} /><Route path="/meetings/:id" element={<h1>Live 42</h1>} /></Routes></MemoryRouter>);
+
+test("Record starts the helper and opens the live meeting", async () => {
+  override["/api/meetings"] = () => new Response(JSON.stringify({ id: 42 }), { status: 200 });
+  recordAt();
+  fireEvent.click((await screen.findAllByRole("button", { name: "Record" }))[0]);
+  expect(await screen.findByRole("heading", { name: "Live 42" })).toBeTruthy();
+  const post = calls.find(c => c.method === "POST")!;
+  expect(post.url).toBe("/api/meetings");
+  expect(JSON.parse(post.body!)).toEqual({ event_id: 7, start_helper: true });
+});
+
+test("Record says so when the desktop app is not connected", async () => {
+  override["/api/meetings"] = () => new Response("{}", { status: 409 });
+  recordAt();
+  fireEvent.click((await screen.findAllByRole("button", { name: "Record" }))[0]);
+  expect((await screen.findByRole("alert")).textContent).toBe("Desktop app not connected");
+  expect(screen.queryByRole("heading", { name: "Live 42" })).toBeNull();
 });

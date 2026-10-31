@@ -1,5 +1,18 @@
 # Manual checks for rupak.k
 
+## Task 18: before hand-over (spec §9), first
+
+Claude cannot hold a real call, so these are the checks only a person can do (decision 124). Build first: `make helper-app`, then `fleck-helper set-claude-key --from-env .env` once (or pair again from the repo folder), and start the app with `open "dist/Fleck Helper.app"`. Logs: `~/Library/Logs/Fleck/helper.log`.
+
+1. **Real Google Meet call on speakers (browser).** Join a Meet with a second device or colleague as the client, no headset. Have the client ask two or three questions from `fixtures/conversation/reference.json` (q_rate, q_start, q_general). Expect: each shows **Thinking…** within about a second of the client finishing, then an answer with its label; your own voice never triggers; the web transcript has no You line that repeats the client's words. Then share your **full screen** in Meet and look at the shared view on the other device: the answer panel must not appear in it. Note any echoed You lines and the time to first words.
+2. **Real Zoom call on speakers (desktop app).** Same as 1 in the Zoom app, with a full-screen share. Zoom's own echo cancellation differs from the browser's: note any client words that reach the You stream.
+3. **Notification Record.** Put an event with a Meet link 6 to 10 minutes ahead in the calendar (gsim or Google), wait for the "Starts in 5 min." notification, press **Record**: recording starts for that event (menu shows **Recording 00:0x** and the event title). Repeat with a tap on the notification's body (not the button): it also starts recording.
+4. **⌥⌘F anywhere.** The global shortcut needs Accessibility permission for Fleck Helper (System Settings > Privacy & Security > Accessibility). Without it ⌥⌘F works only while Fleck's menu is open; **Hide answer panel** in the menu always works.
+5. **Permissions after a rebuild.** After `make helper-app`, Microphone, Screen & System Audio Recording and Notifications should still be granted (same bundle id and certificate).
+6. **Resume.** While recording, force-quit Fleck Helper (Activity Monitor), reopen it and choose **Start recording now**: it asks to resume the meeting; **Resume** keeps one meeting with one transcript, **Start new** sends the old one to processing.
+7. **Sleep.** While recording, `pmset -g assertions` lists "Fleck is recording a meeting" (PreventUserIdleSystemSleep); after Stop it is gone.
+
+
 ## Task 2b: helper permissions (system audio, notification action)
 
 1. `make helper-app`

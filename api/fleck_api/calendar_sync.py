@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from fleck_api import auth
 from fleck_api.auth import current_user
 from fleck_api.config import setting
+from fleck_api.devices import user_or_device
 from fleck_api.db import get_session
 from fleck_api.jobs import enqueue_once, job
 from fleck_api.models import Brief, CalendarEvent, Client, GoogleToken, Job, Meeting, User
@@ -188,6 +189,7 @@ def schedule_syncs(s: Session) -> int:
 # ---------- routes (plain def: sync DB work runs in FastAPI's threadpool) ----------
 
 router = APIRouter(prefix="/api", dependencies=[Depends(current_user)])
+helper_router = APIRouter(prefix="/api")  # also open to a paired helper's device token (the menu's Today list)
 
 
 def _row(s: Session, e: CalendarEvent) -> dict:
@@ -206,9 +208,9 @@ def _repeats(s: Session, e: CalendarEvent) -> str | None:
     return {timedelta(days=1): "daily", timedelta(days=7): "weekly"}.get(gap)
 
 
-@router.get("/events")
+@helper_router.get("/events")
 def list_events(range: Literal["today", "upcoming"] = "today", tz: str | None = None,
-                u: User = Depends(current_user), s: Session = Depends(get_session)):
+                u: User = Depends(user_or_device), s: Session = Depends(get_session)):
     try:
         zone = ZoneInfo(tz or setting("TZ", "")) if tz or setting("TZ", "") else datetime.now().astimezone().tzinfo
     except (ZoneInfoNotFoundError, ValueError):

@@ -44,6 +44,7 @@ def create_app() -> FastAPI:
     app.include_router(auth.router)
     app.include_router(library.router)
     app.include_router(calendar_sync.router)
+    app.include_router(calendar_sync.helper_router)
     app.include_router(devices.router)
     app.include_router(meetings.router)
     app.include_router(processing.router)

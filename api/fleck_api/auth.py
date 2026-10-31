@@ -203,9 +203,3 @@ def logout(response: Response, fleck_session: str | None = Cookie(None), _u: Use
     s.execute(delete(UserSession).where(UserSession.token_hash == _hash(fleck_session or "")))
     s.commit()
     response.delete_cookie(COOKIE)
-
-
-@router.get("/me")
-def me(u: User = Depends(current_user)):
-    return {"id": u.id, "email": u.email, "name": u.name}
-

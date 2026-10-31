@@ -1,4 +1,4 @@
-"""fleck-helper pair | replay | status | run."""
+"""fleck-helper pair | replay | status | set-claude-key | run."""
 import argparse
 import os
 import socket
@@ -10,6 +10,7 @@ import httpx
 import keyring
 
 SERVICE, ACCOUNT = "ai.fleck.helper", "device_token"
+CLAUDE_ACCOUNT = "anthropic_api_key"  # the live fallback's key, for an app started from Finder with no .env (decision 123)
 
 
 def api_url() -> str:
@@ -26,6 +27,33 @@ def pair(code: str) -> None:
         sys.exit(r.json().get("detail", f"pairing failed ({r.status_code})"))
     keyring.set_password(SERVICE, ACCOUNT, r.json()["device_token"])
     print("Paired.")
+    if Path(".env").exists() and _dotenv_key(Path(".env")):
+        set_claude_key(Path(".env"))
+
+
+def _dotenv_key(path: Path) -> str:
+    for line in path.read_text().splitlines():
+        k, _, v = line.partition("=")
+        if k.strip() == "ANTHROPIC_API_KEY":
+            return v.strip().strip("'\"")
+    return ""
+
+
+def set_claude_key(env_file: Path | None) -> None:
+    """Stores the Claude key in the login keychain, from a .env file or typed in; never echoes it."""
+    import getpass
+    key = _dotenv_key(env_file) if env_file else getpass.getpass("Claude API key: ").strip()
+    if not key:
+        sys.exit(f"No ANTHROPIC_API_KEY in {env_file}" if env_file else "No key given.")
+    keyring.set_password(SERVICE, CLAUDE_ACCOUNT, key)
+    print("Saved the Claude key to your login keychain.")
+
+
+def load_claude_key() -> bool:
+    """Puts the keychain's Claude key in the environment unless one is set there. True if a key is now set."""
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        os.environ["ANTHROPIC_API_KEY"] = keyring.get_password(SERVICE, CLAUDE_ACCOUNT) or ""
+    return bool(os.environ["ANTHROPIC_API_KEY"])
 
 
 def status() -> None:
@@ -40,22 +68,27 @@ def status() -> None:
     print(f"unsent: {len(list(OUTBOX.glob('*.evt'))) + len(list(OUTBOX.glob('*.chunk'))) if OUTBOX.exists() else 0}")
 
 
-def replay(wav: Path, meeting: str, fallback: str) -> None:
-    """A WAV through the live path (pipeline, assistant) to the api, as if it were a call."""
+def make_assistant(m: dict, fallback: str):
+    """The live Assistant for a meeting (the api's `GET /api/meetings/{id}` "meeting")."""
     from fleck_core.answer import OllamaClient
-    from fleck_core.events import SegmentEvent
     from fleck_core.retrieval import Embedder, Retriever
     from fleck_helper.assist import Assistant
+    # the meeting's client is redacted like a library client; attendees on either side are "someone" (decision 109a)
+    names = m["library_clients"] + ([m["client_name"]] if m["client_name"] else [])
+    return Assistant(Retriever("http://localhost:8080", Embedder("http://localhost:11434")), OllamaClient(), fallback, names, [],
+                     people=m["people"])
+
+
+def replay(wav: Path, meeting: str, fallback: str) -> None:
+    """A WAV through the live path (pipeline, assistant) to the api, as if it were a call."""
+    from fleck_core.events import SegmentEvent
     from fleck_helper.audio import ReplaySource
     from fleck_helper.pipeline import Candidate, Pipeline, Trigger
     from fleck_helper.transport import Transport
 
     token = load_token() or sys.exit("Not paired: run fleck-helper pair <code>")
     m = httpx.get(f"{api_url()}/api/meetings/{meeting}", headers={"Authorization": f"Bearer {token}"}, timeout=10).raise_for_status().json()["meeting"]
-    # the meeting's client is redacted like a library client; attendees on either side are "someone" (decision 109a)
-    names = m["library_clients"] + ([m["client_name"]] if m["client_name"] else [])
-    assistant = Assistant(Retriever("http://localhost:8080", Embedder("http://localhost:11434")), OllamaClient(), fallback, names, [],
-                          people=m["people"])
+    assistant = make_assistant(m, fallback)
     transport = Transport(api_url(), token)
     threads = []
     for e in Pipeline(meeting).run(ReplaySource(wav, realtime=True)):
@@ -81,6 +114,7 @@ def main(argv: list[str] | None = None) -> None:
     r.add_argument("--meeting", required=True)
     r.add_argument("--fallback", choices=("claude", "off"), default="claude")
     sub.add_parser("status")
+    sub.add_parser("set-claude-key").add_argument("--from-env", type=Path, help="read ANTHROPIC_API_KEY from this .env file")
     sub.add_parser("run")
     a = ap.parse_args(argv)
     if a.cmd == "pair":
@@ -89,8 +123,11 @@ def main(argv: list[str] | None = None) -> None:
         status()
     elif a.cmd == "replay":
         replay(a.wav, a.meeting, a.fallback)
+    elif a.cmd == "set-claude-key":
+        set_claude_key(a.from_env)
     else:
-        sys.exit("The menu-bar app arrives with Task 18.")
+        from fleck_helper.menubar import main as run
+        run()
 
 
 if __name__ == "__main__":

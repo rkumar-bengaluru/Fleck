@@ -46,6 +46,11 @@ class MeetingIn(BaseModel):
     start_helper: bool = False
 
 
+@router.get("/me")
+def me(u: User = Depends(user_or_device)):  # the helper's "Connected as" too
+    return {"id": u.id, "email": u.email, "name": u.name}
+
+
 @router.post("/meetings")
 async def create_meeting(body: MeetingIn, u: User = Depends(user_or_device), s: Session = Depends(get_session)):
     ev = s.get(CalendarEvent, body.event_id) if body.event_id else None
@@ -68,7 +73,7 @@ async def create_meeting(body: MeetingIn, u: User = Depends(user_or_device), s: 
 
 
 @router.get("/meetings")
-def list_meetings(_u: User = Depends(current_user), s: Session = Depends(get_session)):
+def list_meetings(_u: User = Depends(user_or_device), s: Session = Depends(get_session)):
     return [meeting_dict(s, m) for m in s.scalars(select(Meeting).order_by(Meeting.started_at.desc(), Meeting.id.desc()))]
 
 
@@ -133,7 +138,7 @@ def put_client(meeting_id: int, body: ClientIn, _u: User = Depends(current_user)
 
 
 @router.post("/meetings/{meeting_id}/stop", status_code=204)
-async def stop_meeting(meeting_id: int, u: User = Depends(current_user), s: Session = Depends(get_session)):
+async def stop_meeting(meeting_id: int, u: User = Depends(user_or_device), s: Session = Depends(get_session)):
     m = _meeting(s, meeting_id)
     sent = await hub.to_helper(m.recorded_by or u.id, {"type": "stop", "meeting_id": str(m.id)})
     # the transition is one conditional UPDATE, so only one of any number of Stops gets the row back and enqueues

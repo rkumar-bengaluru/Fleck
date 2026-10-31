@@ -1,6 +1,8 @@
-"""Capability probe: proves menu bar, mic, system audio and notification action work from the signed bundle.
+"""The signed bundle's entry point: the menu-bar app, or with a flag one of the checks that need its permissions.
 
-Run as `open -W -n "dist/Fleck Helper.app" --args --probe --out /path/probe.json`.
+Capability probe (menu bar, mic, system audio, notification action):
+`open -W -n "dist/Fleck Helper.app" --args --probe --out /path/probe.json`. `--capture-test` and `--panel-test` are
+the Mac tests' in-bundle halves (tests/mac).
 macOS-only imports are lazy so Linux CI can import this module.
 """
 import json
@@ -171,40 +173,180 @@ def probe_notification(out: dict) -> None:
     out["action_received"] = _wait(lambda: "record" in received, ACTION_WAIT)
 
 
-def run_probe(out_path: str) -> None:
+def _run_in_app(work) -> None:
+    """Runs `work(app)` on a thread inside a menu-bar app (AppKit, SCK and AVFoundation want a running main loop)."""
     import rumps
-    from AppKit import NSApplication
 
-    result: dict = {"menubar": False, "mic_rms": None, "system_rms": None,
-                    "notification_authorized": False, "action_received": False}
     app = rumps.App("Fleck", title="Fleck", quit_button=None)
-
-    def work():
-        try:
-            for step in (probe_mic, probe_system_audio, probe_notification):
-                try:
-                    step(result)
-                except Exception as e:  # record, keep probing the other edges
-                    result[f"{step.__name__}_exception"] = repr(e)
-            Path(out_path).write_text(json.dumps(result, indent=2))
-        finally:
-            rumps.quit_application()
 
     def start(_):
         t.stop()
-        result["menubar"] = app._nsapp.nsstatusitem is not None
-        threading.Thread(target=work, daemon=True).start()
+        threading.Thread(target=lambda: _finish(work, app), daemon=True).start()
 
     t = rumps.Timer(start, 0.5)
     t.start()
     app.run()
 
 
+def _finish(work, app) -> None:
+    import rumps
+    try:
+        work(app)
+    finally:
+        rumps.quit_application()
+
+
+def run_probe(out_path: str) -> None:
+    result: dict = {"menubar": False, "mic_rms": None, "system_rms": None,
+                    "notification_authorized": False, "action_received": False}
+
+    def work(app):
+        result["menubar"] = app._nsapp.nsstatusitem is not None
+        for step in (probe_mic, probe_system_audio, probe_notification):
+            try:
+                step(result)
+            except Exception as e:  # record, keep probing the other edges
+                result[f"{step.__name__}_exception"] = repr(e)
+        Path(out_path).write_text(json.dumps(result, indent=2))
+    _run_in_app(work)
+
+
+def capture_test(play: str, out_dir: str) -> None:
+    """Mac test helper (tests/mac/test_live_capture.py): LiveSource while `afplay` plays `play` through the speakers;
+    writes capture.wav (left You, right Client, 16 kHz) and capture.json. Runs in the signed bundle, which holds
+    the Screen Recording permission."""
+    import numpy as np
+    from fleck_helper.audio import Frame, Gap, LiveSource, Unavailable
+
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    def work(app):
+        you, client, info = [], [], {"gaps": [], "unavailable": [], "play_start_ms": None, "play_end_ms": None}
+        player, t_ms = None, 0
+        try:
+            for item in LiveSource().frames():
+                if isinstance(item, Frame):
+                    t_ms = item.t_ms
+                    you.append(item.you)
+                    client.append(item.client)
+                    if player is None and t_ms >= 1500:  # capture is up: play
+                        player, info["play_start_ms"] = subprocess.Popen(["afplay", play]), t_ms
+                    if player is not None and info["play_end_ms"] is None and player.poll() is not None:
+                        info["play_end_ms"] = t_ms
+                    if info["play_end_ms"] is not None and t_ms >= info["play_end_ms"] + 2000:
+                        break
+                    if t_ms > 60_000:
+                        break
+                elif isinstance(item, Gap):
+                    info["gaps"].append([item.start_ms, item.end_ms, item.stream])
+                elif isinstance(item, Unavailable):
+                    info["unavailable"].append(item.reason)
+        except Exception as e:
+            info["error"] = repr(e)
+        pcm = np.clip(np.column_stack([np.concatenate(you or [np.zeros(0)]), np.concatenate(client or [np.zeros(0)])]) * 32768,
+                      -32768, 32767).astype("<i2")
+        with wave.open(str(out / "capture.wav"), "wb") as w:
+            w.setnchannels(2)
+            w.setsampwidth(2)
+            w.setframerate(16000)
+            w.writeframes(pcm.tobytes())
+        (out / "capture.json").write_text(json.dumps(info, indent=2))
+    _run_in_app(work)
+
+
+STRIPE_RGB = (0x2F, 0xB8, 0xA8)
+
+
+def _screenshot_rgba(display):
+    """A full-display ScreenCaptureKit screenshot as an (h, w, 4) sRGB uint8 array, top row first."""
+    import numpy as np
+    import Quartz as Q
+    import ScreenCaptureKit as SC
+
+    flt = SC.SCContentFilter.alloc().initWithDisplay_excludingWindows_(display, [])
+    cfg = SC.SCStreamConfiguration.alloc().init()
+    cfg.setWidth_(display.width() * 2)
+    cfg.setHeight_(display.height() * 2)
+    got = []
+    SC.SCScreenshotManager.captureImageWithFilter_configuration_completionHandler_(flt, cfg, lambda img, e: got.append((img, e)))
+    if not _wait(lambda: got, 10) or got[0][0] is None:
+        raise RuntimeError(f"screenshot failed: {got and got[0][1]}")
+    img = got[0][0]
+    w, h = Q.CGImageGetWidth(img), Q.CGImageGetHeight(img)
+    buf = bytearray(w * h * 4)
+    ctx = Q.CGBitmapContextCreate(buf, w, h, 8, w * 4, Q.CGColorSpaceCreateWithName(Q.kCGColorSpaceSRGB),
+                                  Q.kCGImageAlphaPremultipliedLast)
+    Q.CGContextDrawImage(ctx, ((0, 0), (w, h)), img)
+    del ctx
+    return np.frombuffer(bytes(buf), np.uint8).reshape(h, w, 4)
+
+
+def stripe_hits(rgba, box, tol: int = 24) -> int:
+    """Pixels in box (x0, y0, x1, y1, image pixels) within `tol` of the library stripe colour on every channel."""
+    import numpy as np
+    x0, y0, x1, y1 = box
+    region = rgba[y0:y1, x0:x1, :3].astype(int)
+    return int((np.abs(region - np.array(STRIPE_RGB)).max(axis=2) <= tol).sum())
+
+
+def panel_test(out_path: str) -> None:
+    """Mac test helper (tests/mac/test_panel_not_in_share.py): shows the panel with an "Our material" answer, takes a
+    full-screen ScreenCaptureKit screenshot and counts stripe-coloured pixels where the panel is. A control shot
+    with sharing allowed proves the colour would be found."""
+    import ScreenCaptureKit as SC
+    from AppKit import NSScreen, NSWindowSharingNone, NSWindowSharingReadOnly
+    from PyObjCTools import AppHelper
+
+    from fleck_core.events import AssistEvent
+    from fleck_core.types import Citation
+    from fleck_helper.panel import AnswerPanel
+
+    def work(app):
+        result = {}
+        try:
+            panel = AnswerPanel()
+            cit = Citation(doc_id="d1", chunk_id="d1-0", title="Rate card FY2026", client=None, kind="firm")
+            ev = dict(type="assist", meeting_id="t", assist_id="a1", segment_id="client-61000",
+                      question="What does a senior engineer cost per month, offshore?")
+            panel.apply(AssistEvent(phase="thinking", **ev))
+            panel.apply(AssistEvent(phase="done", kind="library", citations=[cit],
+                                    text="$5,200 a month offshore in Bengaluru, $13,500 onsite.", **ev))
+            panel.show()
+            time.sleep(1.5)
+            shareable = []
+            SC.SCShareableContent.getShareableContentWithCompletionHandler_(lambda c, e: shareable.append((c, e)))
+            if not _wait(lambda: shareable, 10) or shareable[0][0] is None:
+                raise RuntimeError(f"no shareable content: {shareable and shareable[0][1]}")
+            display = shareable[0][0].displays()[0]
+            f, screen = panel._panel.frame(), NSScreen.screens()[0].frame()
+            k = display.width() * 2 / screen.size.width
+            box = (int(f.origin.x * k), int((screen.size.height - f.origin.y - f.size.height) * k),
+                   int((f.origin.x + f.size.width) * k), int((screen.size.height - f.origin.y) * k))
+            result.update(panel_frame=[f.origin.x, f.origin.y, f.size.width, f.size.height], box=box)
+            result["hidden_hits"] = stripe_hits(_screenshot_rgba(display), box)
+            AppHelper.callAfter(panel._panel.setSharingType_, NSWindowSharingReadOnly)
+            time.sleep(0.5)
+            result["control_hits"] = stripe_hits(_screenshot_rgba(display), box)
+            AppHelper.callAfter(panel._panel.setSharingType_, NSWindowSharingNone)
+        except Exception as e:
+            result["error"] = repr(e)
+        Path(out_path).write_text(json.dumps(result, indent=2))
+    _run_in_app(work)
+
+
 def main(argv=None) -> None:
     argv = list(sys.argv[1:] if argv is None else argv)
+    arg = lambda name, default=None: argv[argv.index(name) + 1] if name in argv else default  # noqa: E731
     if "--probe" in argv:
-        out = argv[argv.index("--out") + 1] if "--out" in argv else "probe.json"
-        run_probe(out)
+        run_probe(arg("--out", "probe.json"))
+    elif "--capture-test" in argv:
+        capture_test(arg("--play"), arg("--out"))
+    elif "--panel-test" in argv:
+        panel_test(arg("--out"))
+    else:  # the app itself
+        from fleck_helper.menubar import main as run
+        run()
 
 
 if __name__ == "__main__":

@@ -95,14 +95,17 @@ class Pipeline:
         self.min_confidence = trigger_threshold() if min_confidence is None else min_confidence
 
     def run(self, source) -> Iterator[SegmentEvent | Candidate | Trigger | Gap | Unavailable]:
+        self.degraded = False  # the rules decided the latest classification, or will (the menu bar shows it)
         if self.embed is None:
             try:  # load the embedding model before the first question, not during it
                 if digests_ok():
                     live_embed("warm up", timeout=30)
                 else:
                     self.embed = rules_only
+                    self.degraded = True
             except Exception as e:
                 log.warning("embedder warm-up failed: %r", e)
+                self.degraded = True
         self.fallbacks = 0  # classify calls the rules decided this run (embedder down, slow, or wrong digest)
         segs = {"you": Segmenter("you"), "client": Segmenter("client")}
         # (t_ms, you, client) per frame: the longest segment plus the silence that ends it
@@ -216,7 +219,10 @@ class Pipeline:
 
     def _classify(self, text):
         v = classify(text, "client", self.embed)
-        self.fallbacks += v.reason.startswith("rules fallback")
+        fell = v.reason.startswith("rules fallback")
+        self.fallbacks += fell
+        if v.reason != "no question-shaped sentence":  # that one never asked the embedder
+            self.degraded = fell
         return v
 
     def _queued_client(self) -> list[SegmentEvent]:

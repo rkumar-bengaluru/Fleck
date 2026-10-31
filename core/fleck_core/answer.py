@@ -44,8 +44,19 @@ class OllamaClient:
                 if d.get("done"):
                     return
 
+    def warm(self, model: str) -> None:
+        """Loads `model` and keeps it loaded (keep_alive -1) without generating."""
+        self._keep(model, -1)
+
     def unload(self, model: str) -> None:
-        self._c.post("/api/chat", json={"model": model, "messages": [], "keep_alive": 0}).raise_for_status()
+        self._keep(model, 0)
+
+    def _keep(self, model: str, keep_alive: int) -> None:
+        # an embedding model rejects /api/chat ("does not support chat"); an empty /api/embed loads or unloads it
+        if "embedding" in model:
+            self._c.post("/api/embed", json={"model": model, "input": [], "keep_alive": keep_alive}).raise_for_status()
+        else:
+            self._c.post("/api/chat", json={"model": model, "messages": [], "keep_alive": keep_alive}).raise_for_status()
 
 
 @dataclass

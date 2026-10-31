@@ -250,3 +250,16 @@ def test_turn_id_changes_only_when_the_vendor_speaks():
     out = list(Pipeline("m1", tr, embed=EMBED).run(Src(_frames(client, you))))
     ids = [e.turn_id for e in out if isinstance(e, Trigger)]
     assert len(ids) == 3 and ids[0] == ids[1] != ids[2]  # no vendor speech between the first two
+
+
+def test_degraded_while_the_rules_decide():
+    def down(text):
+        raise ConnectionError("ollama down")
+    items = _frames(np.concatenate([_silence(500), _clip(1), _silence(1500)]))
+    q = "Who owns the code you write for us?"
+    p = Pipeline("m1", FakeTranscriber({"client": [q]}), embed=down)
+    list(p.run(Src(items)))
+    assert p.degraded and p.fallbacks >= 1
+    p = Pipeline("m1", FakeTranscriber({"client": [q]}), embed=EMBED)
+    list(p.run(Src(items)))
+    assert not p.degraded and p.fallbacks == 0

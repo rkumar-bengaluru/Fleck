@@ -16,6 +16,9 @@ helper-app:
 	scripts/make_cert.sh
 	rm -rf build dist
 	cd helper/packaging && uv run --package fleck-helper python setup.py py2app  # cwd without pyproject.toml: py2app rejects install_requires
+	# mlx is a namespace package, which py2app cannot collect: copy it in (without its C headers and cmake files)
+	rsync -a --exclude include --exclude cmake --exclude share --exclude __pycache__ \
+	  "$$(uv run --package fleck-helper python -c 'import mlx; print(mlx.__path__[0])')" "dist/Fleck Helper.app/Contents/Resources/lib/python3.12/"
 	helper/packaging/sign.sh "dist/Fleck Helper.app"
 
 gen-types:

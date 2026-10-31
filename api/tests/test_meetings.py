@@ -86,3 +86,19 @@ def test_audio_put_is_for_the_recording_device_only(env):
     token = client.post("/api/devices/pair", json={"code": code, "name": "Priya's Mac"}).json()["device_token"]
     r = client.put(f"/api/meetings/{mid}/audio/0", content=WAV, headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 403
+
+
+def test_the_helper_reads_me_events_meetings_and_stops_with_its_device_token(env):
+    """The menu bar's Today list, "Connected as", resume and Stop recording (Task 18)."""
+    client, _, _ = env
+    auth = pair(env)
+    client.cookies.clear()
+    assert client.get("/api/me", headers=auth).json()["email"] == "rupak@northbeam.test"
+    assert client.get("/api/events?range=today", headers=auth).status_code == 200
+    m = client.post("/api/meetings", json={"title": "Ad hoc"}, headers=auth).json()
+    [row] = [x for x in client.get("/api/meetings", headers=auth).json() if x["id"] == m["id"]]
+    assert row["status"] == "recording" and row["recorded_by"] == m["recorded_by"]
+    assert client.post(f"/api/meetings/{m['id']}/stop", headers=auth).status_code == 204
+    assert client.get(f"/api/meetings/{m['id']}", headers=auth).json()["meeting"]["status"] == "processing"
+    for path in ("/api/me", "/api/events", "/api/meetings"):
+        assert client.get(path, headers={"Authorization": "Bearer nope"}).status_code == 401

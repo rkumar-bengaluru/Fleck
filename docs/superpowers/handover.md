@@ -1,5 +1,9 @@
 # Hand-over notes
 
+## First: checks only rupak.k can do
+
+Before anything else, run the Task 18 list at the top of `manual-checks.md`: a real Google Meet call and a real Zoom call on speakers with a full-screen share (the panel must be absent, no echoed You lines), a real notification's **Record**, and ⌥⌘F with Accessibility. Claude could not hold a real call (decision 124). The menu-bar app needs the Claude key in the login keychain once: `fleck-helper set-claude-key --from-env .env`.
+
 ## Retraining the question classifier
 
 The live trigger (spec §7.2, decisions 93–95) has two stages.

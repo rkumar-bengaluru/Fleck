@@ -11,6 +11,7 @@ log = logging.getLogger("fleck.jobs")
 MAX_ATTEMPTS = 3
 BACKOFF_S = (5, 30)  # delay after failed attempt 1, 2
 RECORDING_RETRY = timedelta(minutes=2)  # indexing waits this long between checks while a meeting records
+ABANDONED_AFTER = timedelta(hours=3)  # a "recording" meeting older than this was left behind (meetings run <= 1 h)
 STALE_AFTER = timedelta(minutes=10)  # a running job locked longer than this lost its worker
 _handlers: dict[str, Callable[[Session, dict], None]] = {}
 _on_fail: dict[str, Callable[[Session, dict, str], None]] = {}
@@ -36,8 +37,9 @@ def enqueue(session: Session, kind: str, payload: dict, run_after: datetime | No
 
 def wait_for_recording(session: Session, kind: str, payload: dict, delay: timedelta) -> bool:
     """True while any meeting records: Ollama is left to the live path and the job is queued again `delay` later
-    (once: an identical queued job is not duplicated). The caller returns without doing its work."""
-    if not session.scalar(select(Meeting.id).where(Meeting.status == "recording").limit(1)):
+    (once: an identical queued job is not duplicated). The caller returns without doing its work. A meeting left
+    `recording` by a crash that was never resumed stops counting after ABANDONED_AFTER, so it cannot block forever."""
+    if not session.scalar(select(Meeting.id).where(Meeting.status == "recording", Meeting.started_at > func.now() - ABANDONED_AFTER).limit(1)):
         return False
     if not session.scalar(select(Job.id).where(Job.kind == kind, Job.status == "queued", Job.payload == payload).limit(1)):
         enqueue(session, kind, payload, func.now() + delay)  # DB clock, like the backoff

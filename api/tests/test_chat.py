@@ -1,6 +1,7 @@
 import os
 import re
 import uuid
+from datetime import timedelta
 
 import httpx
 import pytest
@@ -242,3 +243,13 @@ def test_index_meeting_waits_while_a_meeting_records(chatenv, monkeypatch):
         chat.index_meeting(s, {"meeting_id": mid})
         [j] = s.scalars(select(Job).where(Job.kind == "index_meeting", Job.status == "queued"))
         assert j.payload == {"meeting_id": mid} and j.run_after > s.scalar(select(func.now()))
+
+
+def test_an_abandoned_recording_does_not_block_indexing(chatenv, monkeypatch):
+    mid = ready_meeting(chatenv, "Harbourline call", HARBOUR)
+    with chatenv[2]() as s:
+        s.add(Meeting(title="crashed this morning", status="recording", started_at=func.now() - jobs.ABANDONED_AFTER - timedelta(minutes=1)))
+        s.commit()
+        chat.index_meeting(s, {"meeting_id": mid})
+        assert s.scalar(select(Job).where(Job.kind == "index_meeting", Job.status == "queued")) is None
+    assert len(_rows(mid)) == 3

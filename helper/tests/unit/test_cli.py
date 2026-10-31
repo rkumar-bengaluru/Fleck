@@ -1,3 +1,5 @@
+import time
+
 import keyring
 import pytest
 from keyring.backend import KeyringBackend
@@ -107,7 +109,9 @@ def test_replay_uploads_its_audio_in_10_s_chunks(tmp_path):
         w.writeframes(b"\x01\x00" * 2 * 16000 * 25)
     sent = []
     src = cli.UploadingSource(ReplaySource(tmp_path / "a.wav", realtime=False), AudioChunkWriter(tmp_path / "c"), lambda seq, p: sent.append((seq, p.exists())))
+    t = time.time()
     assert len(list(src.frames())) == 1250
+    assert t - 1 < src.t0_wall < time.time()  # the first frame's wall time, for timing answers from the question's end
     assert sent == [(0, True), (1, True), (2, True)]  # two full chunks and the 5 s tail
 
 

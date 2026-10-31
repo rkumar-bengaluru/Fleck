@@ -104,11 +104,14 @@ class UploadingSource:
 
     def __init__(self, source, writer, upload):
         self.source, self.writer, self.upload = source, writer, upload
+        self.t0_wall = None  # wall time of t_ms 0: answers are timed from the question's end, as in the app
 
     def frames(self):
         from fleck_helper.audio import Frame
         try:
             for item in self.source.frames():
+                if isinstance(item, Frame) and self.t0_wall is None:
+                    self.t0_wall = time.time() - item.t_ms / 1000
                 if isinstance(item, Frame) and (done := self.writer.push(item)):
                     self.upload(*done)
                 yield item
@@ -117,7 +120,7 @@ class UploadingSource:
                 self.upload(*done)
 
 
-def replay(wav: Path, meeting: str, fallback: str) -> None:
+def replay(wav: Path, meeting: str, fallback: str, loops: int = 1) -> None:
     """A WAV through the live path (pipeline, assistant) to the api, as if it were a call."""
     from fleck_core.events import SegmentEvent
     from fleck_helper.audio import AudioChunkWriter, ReplaySource
@@ -132,7 +135,7 @@ def replay(wav: Path, meeting: str, fallback: str) -> None:
     transport = Transport(api_url(), token)
     threads = []
     chunks = tempfile.TemporaryDirectory()  # the transport deletes each chunk once the api has it
-    source = UploadingSource(ReplaySource(wav, realtime=True), AudioChunkWriter(Path(chunks.name)),
+    source = UploadingSource(ReplaySource(wav, realtime=True, loops=loops), AudioChunkWriter(Path(chunks.name)),
                              lambda seq, path: transport.upload_chunk(meeting, seq, path))
     for e in Pipeline(meeting).run(source):
         if isinstance(e, SegmentEvent):
@@ -140,7 +143,7 @@ def replay(wav: Path, meeting: str, fallback: str) -> None:
         elif isinstance(e, Candidate):
             assistant.prepare(e.text, e.embedding)
         elif isinstance(e, Trigger):
-            threads.append(assistant.start(e, meeting, transport.send))
+            threads.append(assistant.start(e, meeting, transport.send, source.t0_wall))
     for th in threads:
         th.join(timeout=30)
     while transport.pending():  # let the outbox drain before exiting
@@ -156,7 +159,8 @@ def main(argv: list[str] | None = None) -> None:
     r = sub.add_parser("replay")
     r.add_argument("wav", type=Path)
     r.add_argument("--meeting", required=True)
-    r.add_argument("--fallback", choices=("claude", "off"), default="claude")
+    r.add_argument("--fallback", choices=("claude", "off"), default=os.environ.get("FLECK_LIVE_FALLBACK", "claude"))
+    r.add_argument("--loops", type=int, default=1, help="play the WAV this many times into the meeting (the soak run)")
     sub.add_parser("status")
     sub.add_parser("set-claude-key").add_argument("--from-env", type=Path, help="read ANTHROPIC_API_KEY from this .env file")
     sub.add_parser("run")
@@ -166,7 +170,9 @@ def main(argv: list[str] | None = None) -> None:
     elif a.cmd == "status":
         status()
     elif a.cmd == "replay":
-        replay(a.wav, a.meeting, a.fallback)
+        # the classifier's slow calls, breaker and end-of-run counts go to stderr (Task 22 reads them)
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+        replay(a.wav, a.meeting, a.fallback, a.loops)
     elif a.cmd == "set-claude-key":
         set_claude_key(a.from_env)
     else:

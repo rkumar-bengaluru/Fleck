@@ -454,3 +454,4 @@ Live §8 questions (title, kind, nearest-vector distance):
   - R1-1: fallback deltas stop at the last whitespace.
   - Win 1 (decision 109 b) withdrawn and its code and tests removed: Claude is called only after the library route came up empty. The no-content HEAD warm (decision 110) stays.
   - Tests: not ollama and helper unit only, no replays.
+- Task 14 fix round 4 (290a84c + controller tweak): meta lead-ins kept and cut ("According to the documents, X" shows "X"), "source code" no longer a source noun, no half words in the fallback, Win 1 withdrawn (109b). Controller tightened `_META` so "It is in scope [1]." stays an answer. `pytest -m "not ollama"`: 481 passed. e2e 1 run after the Win 1 revert: library first words max 2002 ms (done 2425), Claude first words max 2374 ms (started ~1.2–1.4 s after the question's end), not_in_material 1316 ms; spec 8 outcomes all as expected. Task 14 closed.

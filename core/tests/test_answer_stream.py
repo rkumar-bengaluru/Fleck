@@ -371,3 +371,9 @@ def test_passage_n_in_prose_is_not_a_citation():
     assert not ev[-1].check.ok  # "passage 2" names a passage, it does not cite one
     ev = run(["Mixed teams are common, see passage. 2"])  # nor a bare number right after "passage"
     assert not ev[-1].check.ok
+
+
+def test_it_is_in_scope_is_an_answer():
+    from fleck_core.answer import _meta
+    assert _meta("It is in scope [1].") == "It is in scope [1]."
+    assert _meta("It is from [1].") is None and _meta("This is from passage [1].") is None

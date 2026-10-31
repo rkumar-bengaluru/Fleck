@@ -86,8 +86,9 @@ _NUMBER_WORD_TAIL = re.compile(r"\s*\b(?:one|two|an?)\s*$", re.I)  # "need one" 
 # A sentence only about the passages ("This is from passage [1].") is never shown (reason "meta"); a lead-in
 # ("According to the documents, …") is cut off and the rest kept
 _SRC = r"(?:provided |given |above |cited )?(?:passages?|sources?|documents?)\b"
-_META = re.compile(rf"\b(?:this|that|it) (?:is|comes|was) (?:taken |mentioned |stated )?(?:from|in)(?: (?:the )?{_SRC})?"
-                   rf"|\b(?:the|this|that) {_SRC} do(?:es)? not\b", re.I)
+_META = re.compile(rf"\b(?:this|that|it) (?:is|comes|was) (?:taken |mentioned |stated )?(?:from|in) (?:the )?{_SRC}"
+                   r"|^\W*(?:this|that|it) (?:is|comes|was) (?:taken |mentioned |stated )?(?:from|in)\W*(?:\[\d+\]\W*)*$"
+                   rf"|\b(?:the|this|that) {_SRC} do(?:es)? not\b", re.I)  # "It is in scope [1]." is an answer
 _LEAD_IN = re.compile(rf"^\W*(?:(?:according to|based on) (?:the )?{_SRC}|(?:the|this|that) {_SRC} "
                       r"(?:says?|states?|mentions?|shows?|notes?|indicates?)(?: that)?)\W*", re.I)
 

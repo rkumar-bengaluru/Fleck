@@ -59,6 +59,13 @@ All from Task 22 on this Mac (M5, 24 GB), with the demo brief built first. Detai
 - Memory, by your ruling (decision 143): measured from after loop 1, the footprint grew 50 MB (3015 → 3065 MB). Pass. From 60 s it grew 573 MB, all during the first loop, as MLX filled its cache.
 - Outcomes, by your ruling (decision 143): 0 wrong, with 1 Claude timeout (loop 5, `q_liability`, Haiku hit the 5 s limit). Pass, reported as `claude_timeouts`.
 
+**Meeting video (2026-11-01, build log "Meeting video").** Measured on a Chrome test window titled "Meet - test", not a real call.
+- 10 fps (9.94–10.04), 1152–1248 × 720, H.264. The assembled file with audio: 1.33–1.35 MB per minute, **about 80 MB per hour** (pieces alone: 1.78 MB per minute, 107 MB per hour). A real call with moving faces will cost more, at most about 675 MB per hour (the 1.5 Mbit/s cap).
+- Sync: picture 0.22 s behind the sound at the start and at the end of a 3-minute recording (gate 0.5 s).
+- Ready with video about 60 s after Stop.
+- Load: with video recording, library first words p95 3.20 s, full 4.31 s, Claude first words 3.14 s; with no recording, 3.93 s, 4.34 s and 2.48 s. Each misses the 3.0 s first-words gate on one slow question; video adds no measurable delay (medians 1.50 s against 1.35 s).
+- A closed window switches the menu to **Video: none (audio only)**.
+
 **Used markers (decision 118, threshold 0.52, kept by your ruling: decision 159).** Correct on 7 of 8 cards in every run. `q_liability` scored 0.519, 0.526, 0.555 and 0.527 (load run), so it is falsely marked **Used** in 3 of 4 runs.
 
 ## 3. Checks only you can do
@@ -72,7 +79,8 @@ Claude cannot hold a real call (decision 124). Run these from `manual-checks.md`
 5. **Permissions after a rebuild**: Microphone, Screen & System Audio Recording and Notifications stay granted after `make helper-app`.
 6. **Resume**: force-quit the app while recording, reopen it, **Start recording now**, and check **Resume** and **Start new**.
 7. **Sleep**: while recording, `pmset -g assertions` lists "Fleck is recording a meeting"; after Stop it's gone.
-8. **Real Google sign-in and calendar**: the Google Cloud setup is in the user guide, step 4b.
+8. **Video on a real Meet call** (`manual-checks.md` item 8): the menu's **Video:** line, the **Video | Audio only** switch, lips in step with the voice, the MB per hour of a real call.
+9. **Real Google sign-in and calendar**: the Google Cloud setup is in the user guide, step 4b.
 
 **The echo ratio.** The gate allows mic bleed up to 0.3× the client's level (`FLECK_GATE_BLEED_MAX`). The only hardware measurement so far is **0.138**, with afplay playing through the speakers into the signed app. No real call has been measured.
 
@@ -127,6 +135,14 @@ The older Task 2b and Task 11 checks are further down `manual-checks.md` (captur
 - Device tokens never expire and can't be revoked in the app (M8). Fine for one Mac on localhost; needed before a shared deployment.
 - `make reset` asks you to type RESET (decision 155). It doesn't clear the helper's outbox or state file, which can then land in a new meeting with the same id: quit the helper and empty `~/Library/Application Support/Fleck/outbox` and `recordings/current.json` before a reset.
 - A remote colleague on the call is heard through call audio and treated as **Client** (spec §7.2).
+
+**Meeting video**
+- Only a Zoom desktop window with "Meeting" in its title, or a Chrome window whose title starts with "Meet", is recorded. Teams, Webex, Safari and Meet in a language whose tab title doesn't start with "Meet" are not.
+- Fleck takes the first matching window and keeps it. With several Meet windows open it may take the wrong one. A Chrome window on Fleck's own page is never taken (titles starting "Fleck"), but another Meet tab is.
+- The window is recorded as it looks. Switch that Chrome window to another tab (Fleck's meeting page, your email) and that tab is in the video. Keep Meet in its own window.
+- There is no on/off setting: every recording with a call window records video.
+- Only a test page has been measured. A real call's size per hour and sync are manual check 8.
+- A rebuilt app (`make helper-app`) stops at a login-keychain password prompt when it first reads its token; press **Always Allow**.
 
 **Your own audio (found in your test recordings, 31 Oct)**
 - Recording no longer turns other apps' audio down (decision 163); the call and videos keep their volume.

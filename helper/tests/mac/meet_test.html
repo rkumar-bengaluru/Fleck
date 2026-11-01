@@ -1,0 +1,32 @@
+<!doctype html>
+<!-- A stand-in call window for the video Mac test (test_video_capture.py) and the hand checks: the title matches
+     pick_window's Meet rule. On every whole wall-clock second it flashes white and plays a 100 ms 1 kHz beep, from
+     the same timer, so the beep (audio) and the flash/counter (video) can be lined up in a recording. -->
+<meta charset="utf-8">
+<title>Meet - test</title>
+<style>
+  body { margin: 0; height: 100vh; display: grid; place-items: center; background: #111; color: #eee;
+         font: 160px/1 ui-monospace, Menlo, monospace; }
+  body.flash { background: #fff; color: #000; }
+</style>
+<div id="t">--</div>
+<script>
+  const t = document.getElementById("t");
+  const ac = new AudioContext();  // needs --autoplay-policy=no-user-gesture-required (or one click) to sound
+  function beep() {
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.frequency.value = 1000; g.gain.value = 0.3;
+    o.connect(g).connect(ac.destination);
+    o.start(); o.stop(ac.currentTime + 0.1);
+  }
+  function tick() {
+    const now = Date.now();
+    t.textContent = new Date(now).toISOString().slice(14, 21);  // mm:ss.d, wall clock (UTC)
+    document.body.classList.add("flash");
+    beep();
+    setTimeout(() => document.body.classList.remove("flash"), 100);
+    setTimeout(tick, 1000 - (Date.now() % 1000));
+  }
+  setInterval(() => { if (!document.body.classList.contains("flash")) t.textContent = new Date().toISOString().slice(14, 21); }, 100);
+  setTimeout(tick, 1000 - (Date.now() % 1000));
+</script>

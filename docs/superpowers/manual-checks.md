@@ -12,6 +12,7 @@ Claude cannot hold a real call, so these are the checks only a person can do (de
 6. **Resume.** While recording, force-quit Fleck Helper (Activity Monitor), reopen it and choose **Start recording now**: it asks to resume the meeting; **Resume** keeps one meeting with one transcript, **Start new** sends the old one to processing.
 7. **Sleep.** While recording, `pmset -g assertions` lists "Fleck is recording a meeting" (PreventUserIdleSystemSleep); after Stop it is gone.
 
+8. **A real Meet call with video (meeting video, 2026-11-01).** During check 1, with the Meet tab in front in Chrome: the **Fleck** menu shows **Video: Meet - …** within 2 s of Record (helper.log has a `meeting N: Video: Meet - …` line). After Stop: the meeting shows **· Video** in **Meetings**; on its page **Video** plays the call window (your tile and the client's, a shared screen if any) with sound, in step with the transcript (click a transcript line: the picture and sound jump together); **Audio only** plays sound alone. Check that the lips match the voice at the start and the end. Note the video's size (the browser's network panel, request `/api/meetings/N/video`) and the call's length: a real call's MB per hour is not measured yet (the test page gave about 80–110 MB/hour). Then, in a second short recording, close the Meet window mid-call: the menu should change to **Video: none (audio only)** and the audio keep recording.
 
 ## Task 2b: helper permissions (system audio, notification action)
 

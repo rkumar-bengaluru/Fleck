@@ -107,3 +107,15 @@ def test_late_answer_is_marked_until_a_newer_answer_replaces_it():
     assert m.current.late
     m.apply(ev("a", "thinking"))  # a newer Trigger for the same turn
     assert not m.current.late
+
+
+def test_panel_hidden_from_capture_unless_demo_opts_in(monkeypatch):
+    from fleck_helper.panel import hidden_from_capture
+
+    monkeypatch.delenv("FLECK_PANEL_SHAREABLE", raising=False)
+    assert hidden_from_capture()
+    for off in ("", "0", "yes", "true"):
+        monkeypatch.setenv("FLECK_PANEL_SHAREABLE", off)
+        assert hidden_from_capture()  # only the exact opt-in value shows it
+    monkeypatch.setenv("FLECK_PANEL_SHAREABLE", "1")
+    assert not hidden_from_capture()

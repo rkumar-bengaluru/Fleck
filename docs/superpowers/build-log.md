@@ -776,7 +776,7 @@ From the final whole-branch review (final-review.md) and the Milestone H critiqu
 
 ## Meeting video (2026-11-01)
 
-Spec `specs/2026-11-01-meeting-video-design.md`, decisions 165–174. Measured on this Mac (M5, 24 GB) with a stand-in call window: `helper/tests/mac/meet_test.html`, a Chrome window titled "Meet - test" that shows the wall clock (mm:ss.d) and, on every whole second, flashes white and beeps 1 kHz from the same timer.
+Spec `specs/2026-11-01-meeting-video-design.md`, decisions 165–175. Measured on this Mac (M5, 24 GB) with a stand-in call window: `helper/tests/mac/meet_test.html`, a Chrome window titled "Meet - test" that shows the wall clock (mm:ss.d) and, on every whole second, flashes white and beeps 1 kHz from the same timer.
 
 **Where it ran.** A terminal has no Screen Recording (TCC -3801), so the Mac test runs `VideoRecorder` inside the signed bundle (`--video-test`, decision 174). The end-to-end runs used the signed app, started with `open --env` and a throwaway file keyring (a `keyringrc.cfg` under a scratch `XDG_CONFIG_HOME`), paired as its own device: a rebuilt bundle otherwise stops at the login keychain's password prompt, and the real keychain was never written.
 
@@ -789,7 +789,7 @@ Spec `specs/2026-11-01-meeting-video-design.md`, decisions 165–174. Measured o
 - *Meeting 9 (before the fix):* a bug. Video starts about 2 s before audio sets meeting time 0; those frames were clamped to `start_ms` 0, so the first minute played about 2.1 s late (counter 10:09.8 at 0:30.5 and 11:11.9 at 1:30.5: 62.1 s of clock in 60 s of file) and overlapped the second piece. **Fixed** (decision 172): frames before t0 are dropped. Test `test_frames_before_t0_are_dropped`.
 - *Meeting 10 (after the fix):* pieces at 59, 60127 and 120205 ms. The assembled file: H.264 1248×720 + AAC, 178.8 s, 1780 frames (10.0 fps), 4.03 MB: **1.35 MB per minute, about 81 MB per hour.**
 - **Sync:** the flash came 0.22 s after the beep at the start (0–15 s) and 0.22 s at the end (165–180 s); every 15 s window was between +0.12 and +0.32 s. Within 0.5 s. The counter agreed with the file's time at 0:01.5, 0:30.5, 1:30.5 and 2:55.5 to within 0.2 s (one or two frames).
-- The meeting reached `ready` with `has_video` about 60 s after Stop. The page shows **Video | Audio only** (code from Task 5; the page itself was not opened in a browser in this run).
+- The meeting reached `ready` with `has_video` about 60 s after Stop. The page shows **Video | Audio only** (checked afterwards in headless Chrome: the player loads 1248×720, 178.8 s, plays from 0:30, and Audio only swaps in the audio player; note the recorded window includes Chrome's tab strip, so other tab titles show).
 - helper.log now carries the menu's state (decision 173): `meeting 10: Video: waiting for call window`, then `meeting 10: Video: Meet - test` 54 ms later.
 - The app used about 0.6 % CPU while recording the window (top, every 20 s for 2 min).
 

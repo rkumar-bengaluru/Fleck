@@ -295,7 +295,7 @@ def process_meeting(s: Session, payload: dict) -> None:
         enqueue(s, "index_meeting", {"meeting_id": mid})  # its own job: a slow Ollama must not fail the meeting
         # counted after the commit: with put_video's post-commit status read, one side always sees the other
         if s.scalar(select(func.count()).select_from(VideoChunk).where(VideoChunk.meeting_id == mid)):
-            enqueue_once(s, "assemble_video", {"meeting_id": mid})
+            enqueue_once(s, "assemble_video", {"meeting_id": mid}, active=("queued",))
     except Exception as e:
         s.rollback()
         m = s.get(Meeting, mid)

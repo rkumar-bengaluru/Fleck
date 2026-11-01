@@ -233,6 +233,20 @@ def test_late_piece_requeues_only_assemble_video(env):
         assert s.get(Meeting, mid).status == "ready"
 
 
+def test_piece_during_a_running_assembly_queues_another(env):
+    # the running job listed its pieces already; skipping would leave this piece out of the video for good
+    client, make, auth, mid = _video_meeting(env)
+    with make() as s:
+        s.get(Meeting, mid).status = "ready"
+        s.add(Job(kind="assemble_video", payload={"meeting_id": mid}, status="running"))
+        s.commit()
+    assert client.put(f"/api/meetings/{mid}/video/0", content=b"abc", headers=auth).status_code == 204
+    assert client.put(f"/api/meetings/{mid}/video/1", content=b"abc", headers=auth).status_code == 204
+    with make() as s:
+        statuses = sorted(s.scalars(select(Job.status).where(Job.kind == "assemble_video")))
+        assert statuses == ["queued", "running"]  # one more, not one per piece
+
+
 def test_meeting_dict_has_video(env):
     client, make, auth, mid = _video_meeting(env)
     assert client.get(f"/api/meetings/{mid}").json()["meeting"]["has_video"] is False

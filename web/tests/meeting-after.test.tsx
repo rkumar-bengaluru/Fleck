@@ -95,12 +95,26 @@ test("processing polls every 3 s until ready", async () => {
   state.meeting.status = "processing"; state.summary = null;
   render(<MemoryRouter><MeetingAfter id="5" /></MemoryRouter>);
   await screen.findByText("Processing the recording…");
-  state.meeting.status = "ready";
+  state.meeting.status = "ready"; state.meeting.has_video = true;
   await act(async () => { await vi.advanceTimersByTimeAsync(3100); });
   await waitFor(() => expect(screen.queryByText("Processing the recording…")).toBeNull());
   const n = calls.length;
   await act(async () => { await vi.advanceTimersByTimeAsync(7000); });
   expect(calls.length).toBe(n);  // stopped polling
+});
+
+test("ready without video keeps checking until the video appears, then stops", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try { localStorage.removeItem("fleck.recordingView"); } catch { /* none */ }
+  render(<MemoryRouter><MeetingAfter id="5" /></MemoryRouter>);
+  await screen.findByRole("heading", { level: 1 });
+  expect(screen.queryByRole("radio", { name: "Video" })).toBeNull();
+  state.meeting.has_video = true;
+  await act(async () => { await vi.advanceTimersByTimeAsync(5100); });
+  expect(await screen.findByRole("radio", { name: "Video" })).toBeTruthy();
+  const n = calls.length;
+  await act(async () => { await vi.advanceTimersByTimeAsync(11000); });
+  expect(calls.length).toBe(n);
 });
 
 test("failed shows the reason and Try again re-enqueues", async () => {

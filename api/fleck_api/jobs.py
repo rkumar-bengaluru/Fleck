@@ -58,11 +58,12 @@ def reprocess_late(session: Session, meeting_id: int) -> None:
         session.commit()  # the caller's row
 
 
-def enqueue_once(session: Session, kind: str, payload: dict) -> int | None:
-    """enqueue unless an identical job is already queued or running; returns None when skipped.
+def enqueue_once(session: Session, kind: str, payload: dict, active: tuple[str, ...] = ("queued", "running")) -> int | None:
+    """enqueue unless an identical job is already in one of `active`; returns None when skipped.
+    A job that reads its inputs once at the start passes ("queued",): a running one may have missed the new input.
     shortcut: check-then-insert, two callers racing can both enqueue; fine while handlers are idempotent."""
     if session.scalar(select(Job.id).where(Job.kind == kind, Job.payload == payload,
-                                           Job.status.in_(("queued", "running"))).limit(1)):
+                                           Job.status.in_(active)).limit(1)):
         return None
     return enqueue(session, kind, payload)
 

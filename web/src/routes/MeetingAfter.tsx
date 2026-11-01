@@ -48,6 +48,13 @@ export default function MeetingAfter({ id }: { id: string }) {
   // the worker cannot push to browsers (decision 120d): poll until it is done
   const status = d?.meeting.status;
   useEffect(() => { if (status !== "processing") return; const t = setInterval(() => void load(), 3000); return () => clearInterval(t); }, [status, load]);
+  // the video is assembled ~60 s after ready: keep checking for 3 minutes so it appears without a reload
+  const waitVideo = status === "ready" && !d?.meeting.has_video;
+  useEffect(() => {
+    if (!waitVideo) return;
+    const t = setInterval(() => void load(), 5000), end = setTimeout(() => clearInterval(t), 180_000);
+    return () => { clearInterval(t); clearTimeout(end); };
+  }, [waitVideo, load]);
   const ready = d?.meeting.status === "ready";
   useEffect(() => {
     if (Number.isNaN(t) || !d) return;

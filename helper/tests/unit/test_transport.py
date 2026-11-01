@@ -109,3 +109,50 @@ def test_an_uploaded_chunk_is_deleted_locally(tmp_path, monkeypatch):
     assert wav.exists() and t.pending() == 1
     t._upload(t._items()[0])
     assert not wav.exists() and t.pending() == 0  # the api has it: about 230 MB an hour no longer piles up
+
+
+def test_video_upload_does_not_block_events(tmp_path, monkeypatch):
+    import httpx
+
+    from fleck_helper import transport
+
+    def slow_put(url, **k):
+        time.sleep(2)
+        return httpx.Response(204)
+    monkeypatch.setattr(transport.httpx, "put", slow_put)
+    api = FakeApi(drop_after=99)
+    t = Transport(api.url, "tok", tmp_path / "box")
+    mp4 = tmp_path / "piece.mp4"
+    mp4.write_bytes(b"mp4")
+    t.upload_video("7", 0, mp4)
+    time.sleep(0.1)  # the video PUT is under way
+    t.send({"type": "segment", "segment_id": "c-0"})
+    deadline = time.time() + 0.5
+    while not api.got and time.time() < deadline:
+        time.sleep(0.01)
+    got = list(api.got)
+    t.close()
+    api.close()
+    assert [e["segment_id"] for e in got] == ["c-0"]
+
+
+def test_video_upload_retries_then_deletes(tmp_path, monkeypatch):
+    import httpx
+
+    from fleck_helper import transport
+    codes, calls = iter([503, 204]), []
+
+    def put(url, **k):
+        calls.append((url, k["headers"]["Content-Type"], k["timeout"]))
+        return httpx.Response(next(codes))
+    monkeypatch.setattr(transport.httpx, "put", put)
+    t = Transport("http://127.0.0.1:1", "tok", tmp_path / "box")
+    mp4 = tmp_path / "piece-000061000.mp4"
+    mp4.write_bytes(b"mp4")
+    t.upload_video("7", 61000, mp4)
+    deadline = time.time() + 3
+    while (mp4.exists() or list((tmp_path / "box").glob("*.vchunk"))) and time.time() < deadline:
+        time.sleep(0.02)
+    t.close()
+    assert calls == [("http://127.0.0.1:1/api/meetings/7/video/61000", "video/mp4", 120)] * 2
+    assert not mp4.exists() and not list((tmp_path / "box").glob("*.vchunk"))

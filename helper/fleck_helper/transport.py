@@ -1,4 +1,4 @@
-"""The helper's line to the api (spec 7.6): events over a websocket, audio chunks by HTTP PUT.
+"""The helper's line to the api (spec 7.6): events over a websocket, audio chunks and video pieces by HTTP PUT.
 
 Every item is written to the outbox first and removed only when the api has taken it (an `ack` per websocket message,
 a 2xx for a chunk), so a drop, a crash or a restart resends what is left, in order, with exponential backoff. The api
@@ -31,6 +31,8 @@ class Transport:
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
+        self._vthread = threading.Thread(target=self._run_video, daemon=True)  # video never waits on acks, nor events on it
+        self._vthread.start()
 
     def send(self, event) -> None:
         """Queue a SegmentEvent / AssistEvent (or its dict); returns at once."""
@@ -41,12 +43,17 @@ class Transport:
         deleted once the api has it."""
         self._put("chunk", json.dumps({"meeting_id": meeting_id, "seq": seq, "path": str(path)}))
 
+    def upload_video(self, meeting_id: str, start_ms: int, path: Path) -> None:
+        """Queue an MP4 piece for `PUT /api/meetings/{id}/video/{start_ms}`, on its own thread; deleted once uploaded."""
+        self._put("vchunk", json.dumps({"meeting_id": meeting_id, "start_ms": start_ms, "path": str(path)}))
+
     def pending(self) -> int:
         return len(self._items())
 
     def close(self) -> None:
         self._stop.set()
         self._thread.join(timeout=5)
+        self._vthread.join(timeout=5)
 
     def _put(self, kind: str, body: str) -> None:
         with self._lock:
@@ -73,6 +80,21 @@ class Transport:
                 log.exception("transport error; retrying in %.1f s", delay)
             self._stop.wait(delay)
             delay = min(delay * 2, MAX_BACKOFF_S)
+
+    def _run_video(self) -> None:
+        delay = MIN_BACKOFF_S
+        while not self._stop.is_set():
+            nxt = min((p for p in self.outbox.iterdir() if p.suffix == ".vchunk"), default=None)
+            if nxt is None:
+                self._stop.wait(0.2)
+                continue
+            try:
+                self._upload(nxt)
+                delay = MIN_BACKOFF_S
+            except Exception as e:
+                log.info("video upload failed (%r); retrying in %.1f s", e, delay)
+                self._stop.wait(delay)
+                delay = min(delay * 2, MAX_BACKOFF_S)
 
     def _session(self, ws) -> None:
         inflight: deque[Path] = deque()
@@ -113,16 +135,19 @@ class Transport:
 
     def _upload(self, item: Path) -> None:
         job = json.loads(item.read_text())
+        video = item.suffix == ".vchunk"
+        key = job["start_ms"] if video else job["seq"]
         path = Path(job["path"])
         if not path.exists():
-            log.warning("chunk %s/%s: %s is gone; dropped", job["meeting_id"], job["seq"], path)
+            log.warning("chunk %s/%s: %s is gone; dropped", job["meeting_id"], key, path)
         else:
-            r = httpx.put(f"{self.api_url}/api/meetings/{job['meeting_id']}/audio/{job['seq']}", content=path.read_bytes(),
-                          headers={"Authorization": f"Bearer {self.token}", "Content-Type": "audio/wav"}, timeout=30)
+            r = httpx.put(f"{self.api_url}/api/meetings/{job['meeting_id']}/{'video' if video else 'audio'}/{key}",
+                          content=path.read_bytes(), timeout=120 if video else 30,
+                          headers={"Authorization": f"Bearer {self.token}", "Content-Type": "video/mp4" if video else "audio/wav"})
             if r.status_code >= 500 or r.status_code in (401, 429):
                 raise httpx.HTTPError(f"upload {r.status_code}")  # try again after the backoff
             if r.status_code >= 400:
-                log.warning("api refused chunk %s/%s (%s); dropped", job["meeting_id"], job["seq"], r.status_code)
+                log.warning("api refused chunk %s/%s (%s); dropped", job["meeting_id"], key, r.status_code)
             else:
                 path.unlink(missing_ok=True)  # the api stored it; resume numbering is kept in the recorder's state file
         item.unlink(missing_ok=True)

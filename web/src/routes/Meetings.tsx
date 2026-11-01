@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, setTitle } from "../api";
 
-interface Row { id: number; title: string; status: string; client_name: string | null; started_at: string }
+interface Row { id: number; title: string; status: string; client_name: string | null; started_at: string; has_video?: boolean }
 const STATUS: Record<string, string> = { recording: "Recording", processing: "Processing", ready: "Ready", failed: "Failed" };
 
 export default function Meetings() {
@@ -21,7 +21,7 @@ export default function Meetings() {
               <span className="upcoming-when">{new Date(r.started_at).toLocaleString("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
               <Link className="upcoming-title" to={`/meetings/${r.id}`}>{r.title}</Link>
               <span className="upcoming-client">{r.client_name ?? ""}</span>
-              <span className="upcoming-note">{STATUS[r.status] ?? r.status}</span>
+              <span className="upcoming-note">{STATUS[r.status] ?? r.status}{r.has_video && " · Video"}</span>
             </li>
           ))}
         </ul>

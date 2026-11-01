@@ -6,6 +6,9 @@ Material Fleck answers from during a presales meeting. One folder per client, pl
 |---|---|---|
 | `_firm/` | Rate card, capabilities, delivery FAQ for **Northbeam Digital**, a fictional consulting firm | Simulated |
 | `larkspur-retail/` | A past engagement with a fictional retailer: proposal, SOW, case study | Simulated |
+| `calloway-marsh/` | Case study: legal redline assistant (not approved to be named in writing) | Simulated |
+| `meridian-intel/` | Case study: investigation research agent | Simulated |
+| `brightwater-insurance/` | Case study: contract-extraction pipeline | Simulated |
 | `_reference/` | Real commercial contracts (MSA, hosting, maintenance, consulting, outsourcing) filed with the SEC, one folder per filing company. Reference only: Fleck may quote their terms as examples, never present them as Northbeam's past work | CUAD v1, see below |
 | `jf/` | rupak.k's own SOWs | Private, not committed (see `.gitignore`) |
 

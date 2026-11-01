@@ -1,0 +1,373 @@
+import uuid
+from types import SimpleNamespace
+from pathlib import Path
+
+import httpx
+import pytest
+from fastapi.testclient import TestClient
+from fleck_core.retrieval import TENANT, Table, Text, chunk_blocks
+from fleck_core.types import Passage
+from fleck_core.validate import check_library_answer
+from sqlalchemy import func, select
+
+from fleck_api import jobs, library
+from fleck_api.auth import current_user
+from fleck_api.db import get_session
+from fleck_api.main import create_app
+from fleck_api.models import Document, Meeting
+
+ROOT = Path(__file__).parents[2]
+FIX = Path(__file__).parent / "fixtures"
+BODY = " ".join(["The delivery team starts within four weeks of signature and reports progress every single week."] * 2)
+WEAVIATE = "http://localhost:8080"
+
+
+def _chunks(path: Path) -> list[str]:
+    blocks = library.parse_document(path)
+    return chunk_blocks(blocks, library.document_title(path, blocks))
+
+
+def test_xlsx_header_and_currency_kept():
+    # fixture rows: Engagement manager, Senior engineer, ML engineer, QA engineer (no Tech lead)
+    xl = _chunks(FIX / "rate-card.xlsx")
+    assert any("Senior engineer · Offshore (Bengaluru): $5,200" in c and "(USD per person per month)" in c.splitlines()[0] for c in xl)
+    md = _chunks(ROOT / "clients/_firm/rate-card.md")
+    assert any("Tech lead · Offshore (Bengaluru): 6,900" in c for c in md)
+    row = next(c for c in md if "Senior engineer · Offshore (Bengaluru): 5,200" in c)
+    assert "(USD per person per month)" in row.splitlines()[0] and "|" not in row
+
+
+def test_pptx_table_rows_keep_header():
+    c = _chunks(FIX / "rate-card.pptx")
+    assert any("ML engineer · Onsite (US/UK): 17,000" in x and "USD per person per month" in x.splitlines()[0] for x in c)
+
+
+def test_pdf_text_extracted():
+    assert any("Bank of America" in c for c in _chunks(ROOT / "clients/_reference/cardlytics/maintenance-agreement.pdf"))
+
+
+def test_titles():
+    p = ROOT / "clients/_firm/rate-card.md"
+    assert library.document_title(p, library.parse_document(p)) == "Rate card FY2026"
+    assert library.document_title(FIX / "rate-card.xlsx", []) == "Rate card"
+
+
+@pytest.mark.parametrize("answer,ok", [("A senior engineer is $13,500 offshore. [1]", False), ("A senior engineer is $13,500 onsite. [1]", True),
+                                       ("A senior engineer is $5,200 offshore. [1]", True)])
+def test_label_binding_on_real_rate_card_chunks(answer, ok):
+    chunk = next(c for c in _chunks(ROOT / "clients/_firm/rate-card.md") if "Senior engineer · Offshore" in c)
+    p = Passage(n=1, doc_id="d", chunk_id="c", title="Rate card FY2026", client=None, kind="firm", text=chunk)
+    assert check_library_answer(answer, [p]).ok is ok
+
+
+@pytest.fixture
+def api(make_session, monkeypatch):
+    coll = f"PassageT{uuid.uuid4().hex[:8]}"
+    monkeypatch.setenv("FLECK_WEAVIATE_COLLECTION", coll)
+    monkeypatch.setattr(library.Embedder, "embed", lambda self, texts: [[0.1, 0.2, 0.3, 0.4]] * len(texts))
+    app = create_app()
+
+    def sess():
+        with make_session() as s:
+            yield s
+    app.dependency_overrides[get_session] = sess
+    app.dependency_overrides[current_user] = lambda: None  # auth is covered in test_auth.py
+    yield TestClient(app), make_session, coll
+    with make_session() as s:
+        for d in s.scalars(select(Document)):
+            try:
+                library._minio().remove_object(library.BUCKET, d.blob_key)
+            except Exception:
+                pass
+    httpx.delete(f"{WEAVIATE}/v1/schema/{coll}")
+
+
+def _count(coll: str) -> int:
+    q = f'{{Aggregate{{{coll}(tenant:"{TENANT}"){{meta{{count}}}}}}}}'
+    return httpx.post(f"{WEAVIATE}/v1/graphql", json={"query": q}).json()["data"]["Aggregate"][coll][0]["meta"]["count"]
+
+
+def _upload(c, name, data, kind="firm"):
+    r = c.post("/api/library/documents", files={"file": (name, data)}, data={"kind": kind})
+    assert r.status_code == 202, r.text
+    return r.json()
+
+
+def _drain(make_session):
+    with make_session() as s:
+        while jobs.run_once(s):
+            pass
+
+
+def test_bad_upload_marked_failed(api):
+    c, make_session, _ = api
+    bad1 = _upload(c, "empty.pdf", b"")
+    bad2 = _upload(c, "corrupt.xlsx", b"not a zip")
+    good = _upload(c, "faq.md", f"# Delivery FAQ\n\n{BODY}\n".encode())
+    _drain(make_session)
+    docs = {d["id"]: d for d in c.get("/api/library/documents").json()}
+    assert docs[bad1["id"]]["status"] == "failed" and docs[bad1["id"]]["error"] == "The file is empty."
+    assert docs[bad2["id"]]["status"] == "failed" and docs[bad2["id"]]["error"].startswith("Could not read the file")
+    assert docs[good["id"]]["status"] == "indexed" and docs[good["id"]]["title"] == "Delivery FAQ" and docs[good["id"]]["chunk_count"] == 1
+    assert [d["id"] for d in c.get("/api/library/documents", params={"q": "faq"}).json()] == [good["id"]]
+
+
+def test_failed_job_marks_document_failed_with_readable_error(api, monkeypatch):
+    c, make_session, _ = api
+    monkeypatch.setattr(library.Embedder, "embed", lambda self, texts: (_ for _ in ()).throw(httpx.ConnectError("ollama down")))
+    d = _upload(c, "a.md", f"# A\n\n{BODY}\n".encode())
+    with make_session() as s:
+        for _ in range(3):
+            jobs.run_once(s)
+            s.execute(jobs.Job.__table__.update().values(run_after=func.now()))
+            s.commit()
+    row = c.get("/api/library/documents").json()[0]
+    assert row["id"] == d["id"] and row["status"] == "failed" and "ollama down" in row["error"]
+
+
+def test_reindex_replaces_passages_and_file_streams(api):
+    c, make_session, coll = api
+    d = _upload(c, "a.md", f"# A\n\n{BODY}\n".encode())
+    _drain(make_session)
+    n = _count(coll)
+    with make_session() as s:
+        jobs.enqueue(s, "index_document", {"document_id": d["id"]})
+    _drain(make_session)
+    assert n >= 1 and _count(coll) == n
+    assert c.get(f"/api/library/documents/{d['id']}/file").content == f"# A\n\n{BODY}\n".encode()
+
+
+def test_delete_removes_passages(api):
+    c, make_session, coll = api
+    d = _upload(c, "a.md", f"# A\n\n{BODY}\n".encode())
+    _drain(make_session)
+    assert _count(coll) >= 1
+    assert c.delete(f"/api/library/documents/{d['id']}").status_code == 204
+    assert _count(coll) == 0 and c.get("/api/library/documents").json() == []
+
+
+def test_clients_roundtrip(api):
+    c, *_ = api
+    a = c.post("/api/clients", json={"name": "Acme Corp"}).json()
+    assert c.post("/api/clients", json={"name": "Acme Corp"}).json() == a
+    assert c.get("/api/clients").json() == [a]
+
+
+def test_seed_skips_jf(api, tmp_path):
+    _, make_session, _ = api
+    for rel in ("jf/x.md", "_firm/a.md", "acme-co/b.md", "_reference/foo/c.md", "README.md"):
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text(f"# T\n\n{BODY}\n")
+    with make_session() as s:
+        library.seed_library(s, tmp_path)
+        library.seed_library(s, tmp_path)  # idempotent
+        got = sorted((d.kind, d.filename) for d in s.scalars(select(Document)))
+    assert got == [("client", "b.md"), ("firm", "a.md"), ("reference", "c.md")]
+
+
+@pytest.mark.parametrize("fmt,v,want", [
+    ("[$€-407]#,##0", 5200, "€5,200"), ("[$₹-4009] #,##0", 5200, "₹5,200"), ('#,##0,,"M"', 5200000, "5M"), ('0.0,,"M"', 5200000, "5.2M"), ('#,##0,"k"', 5200, "5k"),
+    ("0.00E+00", 5200, "5.20E+03"), ('#,##0 "USD"', 5200, "5,200 USD"), ("# ?/?", 5200, "5,200"), ("[$£-809]#,##0.00", 5200, "£5,200.00"),
+    ('_($* #,##0_);_($* (#,##0);_($* "-"??_);_(@_)', 5200, "$5,200"), ('_($* #,##0_);_($* (#,##0)', -5200, "-$5,200"),
+    ('"$"#,##0.00_);[Red]("$"#,##0.00)', 5200, "$5,200.00"), ("0.0%", 0.05, "5.0%"), ('"$"#,##0', 9800, "$9,800"), ("General", 5200.0, "5200"),
+])
+def test_excel_display_values(fmt, v, want):
+    assert library._display(SimpleNamespace(value=v, number_format=fmt)) == want
+
+
+def test_xlsx_blank_corner_header(tmp_path):
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["Rates (INR lakh per year)", None, None])
+    ws.append([None, "Offshore", "Onsite"])
+    ws.append(["Tech lead", 52, 90])
+    ws.append(["Senior engineer", 40, 70])
+    wb.save(tmp_path / "m.xlsx")
+    c = _chunks(tmp_path / "m.xlsx")
+    assert len(c) == 1 and "Tech lead · Offshore: 52" in c[0] and "Senior engineer · Onsite: 70" in c[0] and "INR lakh per year" in c[0].splitlines()[0]
+
+
+def test_caption_keeps_parent_heading_units(tmp_path):
+    (tmp_path / "r.md").write_text("# Rates\n\n## Rates (INR lakh per year)\n\n### Offshore\n\n| Role | Rate |\n|---|---|\n| Tech lead | 52 |\n| Senior engineer | 40 |\n| Solution architect | 61 |\n| Engagement manager | 70 |\n")
+    c = _chunks(tmp_path / "r.md")
+    assert c[-1].splitlines()[0] == "Rates · Rates (INR lakh per year) · Offshore"
+
+
+def test_upload_rules(api, tmp_path):
+    c, *_ = api
+    (tmp_path / "x.key").write_text("k")
+    with pytest.raises(library.ParseError, match="^" + library.UNSUPPORTED.replace(".", r"\.") + "$"):
+        library.parse_document(tmp_path / "x.key")
+    assert c.post("/api/library/documents", files={"file": ("x.key", b"k")}, data={"kind": "firm"}).json()["detail"] == library.UNSUPPORTED
+    assert c.post("/api/library/documents", files={"file": ("x.html", b"<b>")}, data={"kind": "firm"}).status_code == 415
+    assert c.post("/api/library/documents", files={"file": ("x.md", b"# x")}, data={"kind": "client"}).status_code == 422
+    big = c.post("/api/library/documents", files={"file": ("x.md", b"x")}, data={"kind": "firm"}, headers={"content-length": str(60 * 1024 * 1024)})
+    assert big.status_code == 413
+
+
+def test_download_non_ascii_name_is_attachment(api):
+    c, make_session, _ = api
+    d = _upload(c, "Rate card \u2013 FY26.md", b"# Rates\n")
+    r = c.get(f"/api/library/documents/{d['id']}/file")
+    assert r.status_code == 200 and r.content == b"# Rates\n"
+    assert r.headers["content-disposition"].startswith("attachment;") and "filename*=UTF-8''Rate%20card%20%E2%80%93%20FY26.md" in r.headers["content-disposition"]
+    assert r.headers["x-content-type-options"] == "nosniff"
+
+
+def test_delete_removes_blob(api):
+    c, make_session, _ = api
+    d = _upload(c, "a.md", f"# A\n\n{BODY}\n".encode())
+    with make_session() as s:
+        key = s.get(Document, d["id"]).blob_key
+    c.delete(f"/api/library/documents/{d['id']}")
+    with pytest.raises(Exception):
+        library._minio().stat_object(library.BUCKET, key)
+
+
+def test_delete_during_indexing_leaves_no_passages(api, monkeypatch):
+    c, make_session, coll = api
+    d = _upload(c, "a.md", f"# A\n\n{BODY}\n".encode())
+
+    def embed_then_delete(self, texts):
+        c.delete(f"/api/library/documents/{d['id']}")  # the user deletes while the worker is embedding
+        return [[0.1, 0.2, 0.3, 0.4]] * len(texts)
+    monkeypatch.setattr(library.Embedder, "embed", embed_then_delete)
+    _drain(make_session)
+    assert _count(coll) == 0
+
+
+def _texts(coll):
+    q = f'{{Get{{{coll}(tenant:"{TENANT}"){{text}}}}}}'
+    return [o["text"] for o in httpx.post(f"{WEAVIATE}/v1/graphql", json={"query": q}).json()["data"]["Get"][coll]]
+
+
+def test_seed_reindexes_changed_file_and_drops_removed(api, tmp_path):
+    _, make_session, coll = api
+    (tmp_path / "_firm").mkdir()
+    rc, gone = tmp_path / "_firm/rates.md", tmp_path / "_firm/old.md"
+    rc.write_text("# Rates\n\n## T&M (USD per month)\n\n| Role | Offshore | Onsite |\n|---|---|---|\n| Senior engineer | 5,200 | 13,500 |\n| Engineer | 3,900 | 11,000 |\n")
+    gone.write_text(f"# Old\n\n{BODY}\n")
+    with make_session() as s:
+        assert len(library.seed_library(s, tmp_path)) == 2
+        _drain(make_session)
+        assert library.seed_library(s, tmp_path) == []  # unchanged
+        rc.write_text(rc.read_text().replace("5,200", "5,600"))
+        gone.unlink()
+        assert len(library.seed_library(s, tmp_path)) == 1
+        _drain(make_session)
+        assert [d.filename for d in s.scalars(select(Document))] == ["rates.md"]
+    t = " ".join(_texts(coll))
+    assert "5,600" in t and "5,200" not in t and "Old\n" not in t
+
+
+def test_junk_chunks_dropped(tmp_path):
+    # shapes seen in the Cardlytics PDF: form labels, a blank-header grid, page footers
+    assert chunk_blocks([Text("number:"), Text("Source: CARDLYTICS, INC., S-1, 1/12/2018"),
+                         Text(": Function\nHours: required\nEstimated: Cost\nTarget: date\n: Comments"),
+                         Text("Estimated effort (to be filled in by Systems Analyst) Estimate for CO Request Only")], "Maintenance agreement") == []
+    (tmp_path / "f.md").write_text("# Form\n\n| | | |\n|---|---|---|\n| Approved by: | | |\n| Date: | | |\n")
+    assert not [b for b in library.parse_document(tmp_path / "f.md") if isinstance(b, Table)]
+
+
+def test_bad_content_length_is_400(api):
+    c, *_ = api
+    assert c.post("/api/library/documents", files={"file": ("x.md", b"x")}, data={"kind": "firm"}, headers={"content-length": "abc"}).status_code == 400
+
+
+def test_seed_refuses_empty_folder(api, tmp_path):
+    _, make_session, _ = api
+    (tmp_path / "_firm").mkdir()
+    (tmp_path / "_firm/a.md").write_text(f"# A\n\n{BODY}\n")
+    with make_session() as s:
+        library.seed_library(s, tmp_path)
+        (tmp_path / "_firm/a.md").unlink()
+        with pytest.raises(library.SeedError):
+            library.seed_library(s, tmp_path)
+        with pytest.raises(library.SeedError):
+            library.seed_library(s, tmp_path / "missing")
+        assert s.scalar(select(func.count()).select_from(Document)) == 1
+
+
+def test_text_chunk_carries_its_section_heading(tmp_path):
+    (tmp_path / "t.md").write_text(f"# Rates\n\nIntro line.\n\n## Discounts\n\n{BODY}\n\n## Other terms\n\n{BODY} Payment: net 45 days.\n")
+    heads = [c.splitlines()[0] for c in _chunks(tmp_path / "t.md")]
+    assert "Rates · Other terms" in heads  # the tiny intro merges with Discounts; Other terms is its own block
+
+
+@pytest.fixture(scope="module")
+def live_like_index():
+    """The demo library (everything under clients/ except jf/) indexed with the real embedder into a throwaway collection."""
+    from fleck_core.retrieval import Embedder, Retriever, ensure_schema, put_passages, weaviate_client
+    coll = f"PassageT{uuid.uuid4().hex[:8]}"
+    emb = Embedder("http://localhost:11434", timeout=120)
+    with weaviate_client(WEAVIATE) as w:
+        ensure_schema(w, coll)
+        for i, f in enumerate(sorted(p for p in (ROOT / "clients").rglob("*") if p.suffix in library.SUPPORTED and "jf" not in p.parts and p.name != "README.md")):
+            blocks = library.parse_document(f)
+            title = library.document_title(f, blocks)
+            chunks = chunk_blocks(blocks, title)
+            rows = [{"text": c, "doc_id": str(i), "chunk_id": f"{i}-{j}", "title": title, "client": None, "client_slug": None,
+                     "kind": "firm" if "_firm" in f.parts else "reference" if "_reference" in f.parts else "client"} for j, c in enumerate(chunks)]
+            put_passages(w, rows, emb.embed(chunks), coll)
+        yield Retriever(WEAVIATE, emb, coll)
+        w.delete(f"/v1/schema/{coll}")
+
+
+@pytest.mark.ollama
+def test_live_like_questions(live_like_index):
+    r = live_like_index
+    assert "Delivery FAQ" in [p.title for p in r.search("how fast can you start a team")]
+    assert any("Tech lead · Onsite" in p.text for p in r.search("what does a tech lead cost onsite"))
+    assert r.search("what is the capital of Peru") == []
+    assert any(p.title.endswith("Brightwater Insurance") for p in r.search("do you have a case study in insurance"))
+    assert any("Payment: net 45 days" in p.text for p in r.search("what are your payment terms"))
+
+
+def test_faq_answers_are_separate_passages_and_sections_keep_their_heading():
+    faq = _chunks(ROOT / "clients/_firm/delivery-faq.md")
+    sla = next(c for c in faq if "P1: response 30 min" in c)
+    start = next(c for c in faq if "within 2 weeks of signing" in c)
+    assert sla != start and sla.splitlines()[0].endswith("What SLAs do you offer for support?") and "2 weeks" not in sla
+    rc = _chunks(ROOT / "clients/_firm/rate-card.md")
+    month = next(c for c in rc if "A month is 160 billable hours" in c)
+    assert "Discounts" not in month and "Time and materials" in month.splitlines()[0]
+
+
+def test_reference_titles_come_from_the_map(api):
+    c, make_session, _ = api
+    with make_session() as s:
+        d = library.store_document(s, "msa-part1.md", f"# Whatever\n\n{BODY}\n".encode(), "firm", None, "_reference/kubient/msa-part1.pdf", "h")
+        did = d.id
+    _drain(make_session)
+    with make_session() as s:
+        assert s.get(Document, did).title == "Kubient MSA, part 1"
+
+
+@pytest.mark.ollama
+def test_price_and_ip_questions_are_not_crowded_by_contracts(live_like_index):
+    price = live_like_index.search("Ballpark, what would the whole project cost us?")
+    assert any(("Fixed price" in p.text or "Discovery is a fixed" in p.text) for p in price if p.kind == "firm")
+    assert not any("Cardlytics" in p.title or "Maintenance" in p.title for p in price)
+    ip = live_like_index.search("Who owns the IP in what you build?")
+    assert sum(p.kind == "reference" for p in ip) <= 1 and (ip[-1].kind == "reference" or all(p.kind != "reference" for p in ip))
+    assert any("Who owns the IP" in p.text for p in ip)
+
+
+def test_indexing_waits_while_a_meeting_records(api, monkeypatch):
+    c, make_session, coll = api
+    d = _upload(c, "a.md", f"# A\n\n{BODY}\n".encode())
+    with make_session() as s:
+        m = Meeting(title="live", status="recording")
+        s.add(m)
+        s.commit()
+        monkeypatch.setattr(library.Embedder, "embed", lambda self, texts: pytest.fail("Ollama touched during a recording"))
+        assert jobs.run_once(s) and not jobs.run_once(s)  # ran once, then re-queued for later, not now
+        [queued] = s.scalars(select(jobs.Job).where(jobs.Job.status == "queued"))
+        assert queued.payload == {"document_id": d["id"]} and s.get(Document, d["id"]).status != "indexing"
+        m.status = "ready"
+        queued.run_after = func.now()
+        s.commit()
+    monkeypatch.setattr(library.Embedder, "embed", lambda self, texts: [[0.1, 0.2, 0.3, 0.4]] * len(texts))
+    _drain(make_session)
+    assert c.get("/api/library/documents").json()[0]["status"] == "indexed"

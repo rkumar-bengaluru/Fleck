@@ -1,0 +1,153 @@
+import time
+
+import keyring
+import pytest
+from keyring.backend import KeyringBackend
+
+from fleck_helper import cli
+
+
+class MemoryKeyring(KeyringBackend):
+    priority = 1
+
+    def __init__(self):
+        self.store = {}
+
+    def get_password(self, service, username):
+        return self.store.get((service, username))
+
+    def set_password(self, service, username, password):
+        self.store[(service, username)] = password
+
+    def delete_password(self, service, username):
+        self.store.pop((service, username), None)
+
+
+@pytest.fixture
+def kr():
+    old = keyring.get_keyring()
+    keyring.set_keyring(MemoryKeyring())  # never the real or System keychain
+    yield keyring.get_keyring()
+    keyring.set_keyring(old)
+
+
+class Resp:
+    def __init__(self, code, body):
+        self.status_code, self._b = code, body
+
+    def json(self):
+        return self._b
+
+
+def test_pair_stores_the_token_in_the_keychain(kr, monkeypatch):
+    monkeypatch.setattr(cli.httpx, "post", lambda url, json, timeout: Resp(200, {"device_token": "secret"}))
+    cli.pair("ABCD-1234")
+    assert kr.store == {("ai.fleck.helper", "device_token"): "secret"} and cli.load_token() == "secret"
+
+
+def test_pair_with_a_bad_code_stores_nothing(kr, monkeypatch):
+    monkeypatch.setattr(cli.httpx, "post", lambda url, json, timeout: Resp(400, {"detail": "wrong or expired"}))
+    with pytest.raises(SystemExit):
+        cli.pair("ABCD-0000")
+    assert kr.store == {}
+
+
+def test_claude_key_from_dotenv_goes_to_the_keychain_unprinted(kr, tmp_path, capsys, monkeypatch):
+    env = tmp_path / ".env"
+    env.write_text("FLECK_SECRET_KEY=x\nANTHROPIC_API_KEY='sk-ant-test-123'\n")
+    cli.main(["set-claude-key", "--from-env", str(env)])
+    assert kr.store[("ai.fleck.helper", "anthropic_api_key")] == "sk-ant-test-123"
+    out = capsys.readouterr()
+    assert "sk-ant" not in out.out + out.err and "Saved" in out.out
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    assert cli.load_claude_key() is True
+    import os
+    assert os.environ["ANTHROPIC_API_KEY"] == "sk-ant-test-123"
+
+
+def test_environment_key_wins_and_missing_key_is_reported(kr, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "from-env")
+    kr.store[("ai.fleck.helper", "anthropic_api_key")] = "from-keychain"
+    assert cli.load_claude_key() is True
+    import os
+    assert os.environ["ANTHROPIC_API_KEY"] == "from-env"
+    monkeypatch.delenv("ANTHROPIC_API_KEY")
+    kr.store.clear()
+    assert cli.load_claude_key() is False
+
+
+def test_pair_never_stores_the_claude_key(kr, monkeypatch, tmp_path):
+    (tmp_path / ".env").write_text("ANTHROPIC_API_KEY=sk-ant-pair\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cli.httpx, "post", lambda url, json, timeout: Resp(200, {"device_token": "secret"}))
+    cli.pair("ABCD-1234")
+    assert ("ai.fleck.helper", "anthropic_api_key") not in kr.store  # only set-claude-key stores it
+
+
+def test_dotenv_parsing_matches_dotenv(tmp_path):
+    env = tmp_path / ".env"
+    env.write_text("ANTHROPIC_API_KEY=old\n# ANTHROPIC_API_KEY=commented\nexport ANTHROPIC_API_KEY=sk-new  # rotated\n")
+    assert cli._dotenv_key(env) == "sk-new"
+    env.write_text('ANTHROPIC_API_KEY="sk-a #b" # quoted\n')
+    assert cli._dotenv_key(env) == "sk-a #b"
+    env.write_text("OTHER=1\n")
+    assert cli._dotenv_key(env) == ""
+
+
+def test_a_key_saved_after_launch_is_picked_up(kr, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    assert cli.load_claude_key() is False  # launched without a key: the menu warns
+    kr.store[("ai.fleck.helper", "anthropic_api_key")] = "sk-later"  # fleck-helper set-claude-key meanwhile
+    assert cli.load_claude_key() is True  # the next menu refresh or recording start clears the warning
+
+
+def test_a_denied_keychain_prompt_means_no_key_not_a_crash(kr, monkeypatch):
+    from keyring.errors import KeyringLocked
+    def denied(service, username):
+        raise KeyringLocked("Can't get password from keychain: denied")  # macOS keyring on Deny
+    monkeypatch.setattr(kr, "get_password", denied)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    assert cli.load_claude_key() is False  # the menu warns "No Claude key"; general answers end Not in our material
+    assert cli.load_token() is None  # the menu says Not paired
+
+
+def test_replay_uploads_its_audio_in_10_s_chunks(tmp_path):
+    import wave
+    from fleck_helper.audio import AudioChunkWriter, ReplaySource
+    with wave.open(str(tmp_path / "a.wav"), "wb") as w:
+        w.setnchannels(2); w.setsampwidth(2); w.setframerate(16000)
+        w.writeframes(b"\x01\x00" * 2 * 16000 * 25)
+    sent = []
+    src = cli.UploadingSource(ReplaySource(tmp_path / "a.wav", realtime=False), AudioChunkWriter(tmp_path / "c"), lambda seq, p: sent.append((seq, p.exists())))
+    t = time.time()
+    assert len(list(src.frames())) == 1250
+    assert t - 1 < src.t0_wall < time.time()  # the first frame's wall time, for timing answers from the question's end
+    assert sent == [(0, True), (1, True), (2, True)]  # two full chunks and the 5 s tail
+
+
+ITEM = {"question": "What do your people cost?", "answer": "$5,200 a month [1].", "kind": "library",
+        "citations": [{"doc_id": "d1", "chunk_id": "d1-0", "title": "Rate card", "client": None, "kind": "firm"}],
+        "question_vector": [1.0, 0.0]}
+
+
+def test_load_brief_items_for_the_assistant():
+    got = cli.load_brief(lambda path: {"items": [ITEM]} if path == "/api/meetings/7/brief" else pytest.fail(path), "7")
+    assert [(b.question, b.question_vector, b.citations[0].title) for b in got] == [(ITEM["question"], [1.0, 0.0], "Rate card")]
+    m = {"library_clients": [], "client_name": None, "people": []}
+    assert cli.make_assistant(m, "off", got).brief_items == got
+
+
+def test_the_apis_off_switch_reaches_the_assistant():
+    """.env's FLECK_LIVE_FALLBACK=off reaches the app through the meeting: no Claude call, no warm-up HEAD."""
+    m = {"library_clients": [], "client_name": None, "people": [], "live_fallback": "off"}
+    assert cli.make_assistant(m, "claude").fallback_mode == "off"
+    assert cli.make_assistant(m | {"live_fallback": "claude"}, "claude").fallback_mode == "claude"
+    assert cli.make_assistant(m | {"live_fallback": "claude"}, "off").fallback_mode == "off"  # the helper's own off holds
+
+
+def test_load_brief_never_stops_a_recording(caplog):
+    def down(path):
+        raise OSError("api down")
+    assert cli.load_brief(down, "7") == []
+    assert cli.load_brief(lambda path: {"items": [{"question": "x"}]}, "7") == []  # a malformed item: no brief, not a crash
+    assert "brief" in caplog.text

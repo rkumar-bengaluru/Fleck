@@ -1,0 +1,477 @@
+{
+ "duration_ms": 382473,
+ "turns": [
+  {
+   "speaker": "you",
+   "start_ms": 0,
+   "end_ms": 4719,
+   "text": "Good morning Dana, good morning Marcus. Thanks for making the time today.",
+   "question_id": null
+  },
+  {
+   "speaker": "client",
+   "start_ms": 5319,
+   "end_ms": 7283,
+   "text": "Morning. Can you hear me okay?",
+   "question_id": null
+  },
+  {
+   "speaker": "you",
+   "start_ms": 7883,
+   "end_ms": 11720,
+   "text": "Loud and clear. Can you hear me alright on your side?",
+   "question_id": null
+  },
+  {
+   "speaker": "client",
+   "start_ms": 12320,
+   "end_ms": 15801,
+   "text": "Yes, perfectly. The line is much better than last week.",
+   "question_id": null
+  },
+  {
+   "speaker": "you",
+   "start_ms": 16401,
+   "end_ms": 21541,
+   "text": "Good. I know you were travelling on Monday, how was the trip back from Manchester?",
+   "question_id": null
+  },
+  {
+   "speaker": "client",
+   "start_ms": 22141,
+   "end_ms": 26744,
+   "text": "Long, honestly. The train was delayed by an hour and then it rained the whole way home.",
+   "question_id": null
+  },
+  {
+   "speaker": "you",
+   "start_ms": 27344,
+   "end_ms": 31071,
+   "text": "That sounds exhausting. I hope the weekend made up for it.",
+   "question_id": null
+  },
+  {
+   "speaker": "client",
+   "start_ms": 31671,
+   "end_ms": 36706,
+   "text": "It did. We went to my sister's place and I did absolutely nothing, which was the plan.",
+   "question_id": null
+  },
+  {
+   "speaker": "you",
+   "start_ms": 37306,
+   "end_ms": 45162,
+   "text": "That is the best kind of weekend. We had a bit of monsoon here in Bengaluru, so the traffic was a nightmare as usual.",
+   "question_id": null
+  },
+  {
+   "speaker": "client",
+   "start_ms": 45762,
+   "end_ms": 50549,
+   "text": "I can imagine. Marcus is just dialling in from the other office, he says hello.",
+   "question_id": null
+  },
+  {
+   "speaker": "you",
+   "start_ms": 51149,
+   "end_ms": 57773,
+   "text": "Hello Marcus. Lovely to have you both. Let me share my screen so we have the agenda in front of us.",
+   "question_id": null
+  },
+  {
+   "speaker": "client",
+   "start_ms": 58373,
+   "end_ms": 64441,
+   "text": "Can you see my screen? No, sorry, that is the wrong way round. Can you see yours, I mean.",
+   "question_id": null
+  },
+  {
+   "speaker": "you",
+   "start_ms": 65041,
+   "end_ms": 69661,
+   "text": "I can see mine, and I am sharing it now. Can you see my screen?",
+   "question_id": null
+  },
+  {
+   "speaker": "client",
+   "start_ms": 70261,
+   "end_ms": 73088,
+   "text": "Yes, it is up. The text is a good size.",
+   "question_id": null
+  },
+  {
+   "speaker": "you",
+   "start_ms": 73688,
+   "end_ms": 85724,
+   "text": "Great. The agenda has four items. First, what you are trying to fix. Second, how we have done this before. Third, how a project would work. Fourth, next steps.",
+   "question_id": null
+  },
+  {
+   "speaker": "client",
+   "start_ms": 86324,
+   "end_ms": 90388,
+   "text": "That works for us. Shall we take ten minutes at the end for next steps?",
+   "question_id": null
+  },
+  {
+   "speaker": "you",
+   "start_ms": 90988,
+   "end_ms": 95213,
+   "text": "Yes, absolutely, I will keep ten minutes at the end for that.",
+   "question_id": null
+  },
+  {
+   "speaker": "client",
+   "start_ms": 95813,
+   "end_ms": 107023,
+   "text": "So, as Dana mentioned in the invite, our associates spend far too long on first pass review of contracts. We receive about four hundred N D A s a quarter, and every one is read by hand.",
+   "question_id": null
+  },
+  {
+   "speaker": "you",
+   "start_ms": 107823,
+   "end_ms": 113148,
+   "text": "Four hundred a quarter is a serious backlog. And what matters most to you in fixing it?",
+   "question_id": null
+  },
+  {
+   "speaker": "client",
+   "start_ms": 112748,
+   "end_ms": 119706,
+   "text": "Speed matters, of course, but Marcus is firm that nothing may leave iManage. No copies in outside storage, ever.",
+   "question_id": null
+  },
+  {
+   "speaker": "you",
+   "start_ms": 120306,
+   "end_ms": 130439,
+   "text": "Understood, everything stays inside iManage. Let me note that down. Let me also tell you what we propose to do, then I will take your questions as we go.",
+   "question_id": null
+  },
+  {
+   "speaker": "you",
+   "start_ms": 131039,
+   "end_ms": 146497,
+   "text": "We would build a review assistant inside your document system. It reads an incoming agreement, proposes tracked changes against your own playbook, and every suggestion shows the playbook clause behind it. Your people accept or reject each change.",
+   "question_id": null
+  },
+  {
+   "speaker": "client",
+   "start_ms": 147097,
+   "end_ms": 151972,
+   "text": "That is roughly what we had in mind. Before we go further, let me ask about the team.",
+   "question_id": null
+  },
+  {
+   "speaker": "client",
+   "start_ms": 152572,
+   "end_ms": 155718,
+   "text": "What does a senior engineer cost per month, offshore?",
+   "question_id": "q_rate"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 158218,
+   "end_ms": 168072,
+   "text": "A senior engineer working offshore from Bengaluru is five thousand two hundred dollars a month. The onsite rate is higher, but most of the team would be offshore.",
+   "question_id": null
+  },
+  {
+   "speaker": "client",
+   "start_ms": 168672,
+   "end_ms": 171101,
+   "text": "Okay. That is about what we expected.",
+   "question_id": null
+  },
+  {
+   "speaker": "client",
+   "start_ms": 171701,
+   "end_ms": 174028,
+   "text": "How quickly could you have a team working on this?",
+   "question_id": "q_start"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 176528,
+   "end_ms": 188297,
+   "text": "A pod of up to six people can start within two weeks of signing. If you needed twenty people, that takes four weeks. If we agree in time, we could begin on the fifteenth of November.",
+   "question_id": null
+  },
+  {
+   "speaker": "client",
+   "start_ms": 188897,
+   "end_ms": 193591,
+   "text": "The fifteenth of November would suit us. We close our budget cycle just before that.",
+   "question_id": null
+  },
+  {
+   "speaker": "client",
+   "start_ms": 194191,
+   "end_ms": 195950,
+   "text": "Who owns the code you write for us?",
+   "question_id": "q_ip"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 198450,
+   "end_ms": 213026,
+   "text": "Before that, one thing on iManage, because I think it decides the architecture. We would run the whole assistant inside your iManage environment, so no document is copied anywhere outside it. Is that how Marcus pictures it?",
+   "question_id": null
+  },
+  {
+   "speaker": "client",
+   "start_ms": 213626,
+   "end_ms": 217396,
+   "text": "Yes, that is exactly the picture. Nothing outside iManage.",
+   "question_id": null
+  },
+  {
+   "speaker": "you",
+   "start_ms": 217996,
+   "end_ms": 220227,
+   "text": "Good, then we are aligned on that.",
+   "question_id": null
+  },
+  {
+   "speaker": "client",
+   "start_ms": 220827,
+   "end_ms": 224037,
+   "text": "If something breaks at night, how fast do you respond?",
+   "question_id": "q_sla"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 226537,
+   "end_ms": 237330,
+   "text": "We run a support rota that covers your hours, so a serious fault at night reaches a person quickly and not a queue. I will send the full support terms in writing after the call.",
+   "question_id": null
+  },
+  {
+   "speaker": "client",
+   "start_ms": 236930,
+   "end_ms": 239365,
+   "text": "That is fine, as long as it is written down.",
+   "question_id": null
+  },
+  {
+   "speaker": "you",
+   "start_ms": 239965,
+   "end_ms": 243828,
+   "text": "It will be. Let me move on to the work we have done in your field.",
+   "question_id": null
+  },
+  {
+   "speaker": "client",
+   "start_ms": 244428,
+   "end_ms": 247527,
+   "text": "Have you automated redline review for a law firm before?",
+   "question_id": "q_case"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 250027,
+   "end_ms": 266153,
+   "text": "Yes. For a mid size law firm we built a redline assistant that proposes tracked changes against the firm's playbook. First pass review went from about three hours to forty minutes per agreement, and most of the proposed changes were accepted without edits.",
+   "question_id": null
+  },
+  {
+   "speaker": "client",
+   "start_ms": 266753,
+   "end_ms": 271592,
+   "text": "That is encouraging. Our partners are cautious about anything that sounds like a black box.",
+   "question_id": null
+  },
+  {
+   "speaker": "you",
+   "start_ms": 272192,
+   "end_ms": 281531,
+   "text": "We also learned a lesson there. We split the playbook into one entry per clause position before the pilot started, which saved weeks of work on matching.",
+   "question_id": null
+  },
+  {
+   "speaker": "client",
+   "start_ms": 282131,
+   "end_ms": 288382,
+   "text": "Our playbook is a single long document, so that is useful to know. Marcus can tell you how it is organised.",
+   "question_id": null
+  },
+  {
+   "speaker": "client",
+   "start_ms": 288982,
+   "end_ms": 292244,
+   "text": "How do you stop the model inventing clauses in a contract?",
+   "question_id": "q_general"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 294744,
+   "end_ms": 309291,
+   "text": "You keep the model tied to the text in front of it, make it point to the exact clause it used for every suggestion, and have a person accept or reject every change. If it cannot point to a clause, it should say so instead of guessing.",
+   "question_id": null
+  },
+  {
+   "speaker": "client",
+   "start_ms": 309891,
+   "end_ms": 312556,
+   "text": "Good. That is the answer the partners want to hear.",
+   "question_id": null
+  },
+  {
+   "speaker": "client",
+   "start_ms": 313156,
+   "end_ms": 316090,
+   "text": "Is it all right if I send you our playbook after this call?",
+   "question_id": null
+  },
+  {
+   "speaker": "you",
+   "start_ms": 316690,
+   "end_ms": 320666,
+   "text": "Please do. I will keep it inside the secure folder we agreed.",
+   "question_id": null
+  },
+  {
+   "speaker": "client",
+   "start_ms": 321266,
+   "end_ms": 323807,
+   "text": "Would you cap liability at twelve months of fees?",
+   "question_id": "q_liability"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 326307,
+   "end_ms": 334914,
+   "text": "That is one for the contract discussion. We are open to a cap, and our lawyers will want to see your draft before we agree anything.",
+   "question_id": null
+  },
+  {
+   "speaker": "client",
+   "start_ms": 335514,
+   "end_ms": 338348,
+   "text": "Fair enough. We will send our draft with the playbook.",
+   "question_id": null
+  },
+  {
+   "speaker": "client",
+   "start_ms": 338948,
+   "end_ms": 341712,
+   "text": "Ballpark, what would the whole project cost us?",
+   "question_id": "q_price"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 344212,
+   "end_ms": 352116,
+   "text": "I would rather not guess. We would scope that properly in a paid discovery phase, and then give you a fixed price you can hold us to.",
+   "question_id": null
+  },
+  {
+   "speaker": "client",
+   "start_ms": 352716,
+   "end_ms": 356133,
+   "text": "That is reasonable. Dana will want to see the discovery plan.",
+   "question_id": null
+  },
+  {
+   "speaker": "you",
+   "start_ms": 356733,
+   "end_ms": 368535,
+   "text": "Good. Let me use the last minutes for next steps. I will send the support terms and a discovery plan, you send the playbook and your draft contract, and we meet again next week.",
+   "question_id": null
+  },
+  {
+   "speaker": "client",
+   "start_ms": 369135,
+   "end_ms": 370936,
+   "text": "Does Thursday work for the follow up?",
+   "question_id": null
+  },
+  {
+   "speaker": "you",
+   "start_ms": 371536,
+   "end_ms": 374478,
+   "text": "Thursday works. I will send the invite today.",
+   "question_id": null
+  },
+  {
+   "speaker": "client",
+   "start_ms": 375078,
+   "end_ms": 377480,
+   "text": "Thank you both. This was a useful call.",
+   "question_id": null
+  },
+  {
+   "speaker": "you",
+   "start_ms": 378080,
+   "end_ms": 382473,
+   "text": "Thank you, Dana. Thank you, Marcus. Speak on Thursday.",
+   "question_id": null
+  }
+ ],
+ "questions": [
+  {
+   "id": "q_rate",
+   "text": "What does a senior engineer cost per month, offshore?",
+   "end_ms": 155718,
+   "expect": "library",
+   "doc": "Rate card FY2026",
+   "used": true
+  },
+  {
+   "id": "q_start",
+   "text": "How quickly could you have a team working on this?",
+   "end_ms": 174028,
+   "expect": "library",
+   "doc": "Delivery FAQ",
+   "used": true
+  },
+  {
+   "id": "q_ip",
+   "text": "Who owns the code you write for us?",
+   "end_ms": 195950,
+   "expect": "library",
+   "doc": "Delivery FAQ",
+   "used": false
+  },
+  {
+   "id": "q_sla",
+   "text": "If something breaks at night, how fast do you respond?",
+   "end_ms": 224037,
+   "expect": "library",
+   "doc": "Delivery FAQ",
+   "used": false
+  },
+  {
+   "id": "q_case",
+   "text": "Have you automated redline review for a law firm before?",
+   "end_ms": 247527,
+   "expect": "library",
+   "doc": "Case study: Calloway & Marsh",
+   "used": true
+  },
+  {
+   "id": "q_general",
+   "text": "How do you stop the model inventing clauses in a contract?",
+   "end_ms": 292244,
+   "expect": "general",
+   "doc": null,
+   "used": true
+  },
+  {
+   "id": "q_liability",
+   "text": "Would you cap liability at twelve months of fees?",
+   "end_ms": 323807,
+   "expect": "reference",
+   "doc": "Photronics outsourcing agreement",
+   "used": false
+  },
+  {
+   "id": "q_price",
+   "text": "Ballpark, what would the whole project cost us?",
+   "end_ms": 341712,
+   "expect": "not_in_material",
+   "doc": null,
+   "used": false
+  }
+ ]
+}

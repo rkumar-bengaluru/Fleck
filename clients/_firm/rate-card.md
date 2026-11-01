@@ -1,8 +1,10 @@
-# Northbeam Digital: rate card FY2026
+# Rate card FY2026
+
+Northbeam Digital.
 
 Simulated document for the Fleck demo. Valid 1 April 2026 to 31 March 2027.
 
-## Time and materials, per person per month (USD)
+## Time and materials (USD per person per month)
 
 | Role | Offshore (Bengaluru) | Onsite (US/UK) |
 |---|---|---|

@@ -1,4 +1,6 @@
-# Northbeam Digital: capabilities
+# Capabilities
+
+Northbeam Digital.
 
 Simulated document for the Fleck demo.
 
@@ -23,11 +25,14 @@ Retail and consumer goods (32% of revenue), BFSI (27%), healthcare (18%), logist
 
 ## Delivery model
 
-- Default mix 80% offshore, 20% onsite. Pods of 6–9 people led by a tech lead.
+- Default mix 80% offshore, 20% onsite. Pods of up to 6 people led by a tech lead.
 - Two-week sprints, a demo every sprint, monthly steering committee.
 - Overlap with the client: 4 hours a day with US Central, full day with the UK.
 
 ## Reference clients (with permission to name)
 
 - **Larkspur Retail Group** (US, 300 stores): order management modernisation, 2025. See `larkspur-retail/`.
+- **Brightwater Insurance**: contract-extraction pipeline, 2026. See `brightwater-insurance/`.
+- **Meridian Intelligence**: investigation research agent, 2026. See `meridian-intel/`.
+- **Calloway & Marsh**: legal redline assistant, 2026. Not approved to be named in writing. See `calloway-marsh/`.
 - Two BFSI clients and one hospital network are available as references on request, not named in writing.

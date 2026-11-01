@@ -1,0 +1,1846 @@
+{
+ "duration_ms": 749973,
+ "turns": [
+  {
+   "speaker": "client",
+   "start_ms": 1500,
+   "end_ms": 1981,
+   "text": "fine",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 3781,
+   "end_ms": 5396,
+   "text": "Shall we pick this up tomorrow?",
+   "question_id": null,
+   "category": "logistics"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 7496,
+   "end_ms": 9923,
+   "text": "It was lovely to catch up with everyone today.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 12323,
+   "end_ms": 12694,
+   "text": "fair",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 14194,
+   "end_ms": 16912,
+   "text": "Good morning, everyone, thanks for joining.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 18712,
+   "end_ms": 19143,
+   "text": "got it",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 21243,
+   "end_ms": 21855,
+   "text": "fair",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 24255,
+   "end_ms": 27220,
+   "text": "Right, I think I have what I need from you.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 28720,
+   "end_ms": 29165,
+   "text": "yes",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 30965,
+   "end_ms": 33570,
+   "text": "It was lovely to catch up with everyone today.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 35670,
+   "end_ms": 36046,
+   "text": "cool",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 38446,
+   "end_ms": 38854,
+   "text": "great",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 40354,
+   "end_ms": 40795,
+   "text": "sure",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 42595,
+   "end_ms": 43066,
+   "text": "right",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 45166,
+   "end_ms": 48019,
+   "text": "Yes, I think we have covered that already.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 50419,
+   "end_ms": 50764,
+   "text": "oh",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 52264,
+   "end_ms": 54733,
+   "text": "Yes, I think we have covered that already.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 56533,
+   "end_ms": 57016,
+   "text": "yeah",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 59116,
+   "end_ms": 59615,
+   "text": "mm-hmm",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 62015,
+   "end_ms": 64893,
+   "text": "Okay, I will check with my manager later.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 66393,
+   "end_ms": 68450,
+   "text": "Of course, take your time with it.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 70250,
+   "end_ms": 72616,
+   "text": "I will send that over this afternoon.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 74716,
+   "end_ms": 77339,
+   "text": "Thanks for waiting, I had another call run over.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 79739,
+   "end_ms": 80222,
+   "text": "yeah",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 81722,
+   "end_ms": 84438,
+   "text": "It is a bit noisy where I am, apologies.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 86238,
+   "end_ms": 86610,
+   "text": "true",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 88710,
+   "end_ms": 89099,
+   "text": "yep",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 91499,
+   "end_ms": 92327,
+   "text": "no problem",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 93827,
+   "end_ms": 94408,
+   "text": "fine",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 96208,
+   "end_ms": 96493,
+   "text": "good",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 98593,
+   "end_ms": 99986,
+   "text": "Are we all ready to begin?",
+   "question_id": null,
+   "category": "logistics"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 102386,
+   "end_ms": 105551,
+   "text": "Good morning, everyone, thanks for joining.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 107051,
+   "end_ms": 107578,
+   "text": "great",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 109378,
+   "end_ms": 109928,
+   "text": "perfect",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 112028,
+   "end_ms": 112974,
+   "text": "Shall we wrap up?",
+   "question_id": null,
+   "category": "logistics"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 115374,
+   "end_ms": 116826,
+   "text": "Can you turn your camera on?",
+   "question_id": null,
+   "category": "logistics"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 118326,
+   "end_ms": 118738,
+   "text": "sure",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 120538,
+   "end_ms": 122586,
+   "text": "I will let the rest of the team know today.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 124686,
+   "end_ms": 125935,
+   "text": "Can you hear me now?",
+   "question_id": null,
+   "category": "logistics"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 128335,
+   "end_ms": 130454,
+   "text": "That is fine, no rush on our side.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 131954,
+   "end_ms": 132511,
+   "text": "alright",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 134311,
+   "end_ms": 134971,
+   "text": "thanks",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 137071,
+   "end_ms": 137683,
+   "text": "fair",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 140083,
+   "end_ms": 140421,
+   "text": "good",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 141921,
+   "end_ms": 142393,
+   "text": "right",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 144193,
+   "end_ms": 146416,
+   "text": "Yes, I am happy to go with that.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 148516,
+   "end_ms": 148974,
+   "text": "hmm",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 151374,
+   "end_ms": 153683,
+   "text": "Yes, I am happy to go with that.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 155183,
+   "end_ms": 155628,
+   "text": "yes",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 157428,
+   "end_ms": 160084,
+   "text": "I will follow up by email after this call.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 162184,
+   "end_ms": 164707,
+   "text": "Yes, I can do that by the end of the week.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 167107,
+   "end_ms": 169853,
+   "text": "We had a quiet weekend, nothing special.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 171353,
+   "end_ms": 172147,
+   "text": "mm-hmm",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 173947,
+   "end_ms": 175736,
+   "text": "Should I share my screen now?",
+   "question_id": null,
+   "category": "logistics"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 177836,
+   "end_ms": 178333,
+   "text": "noted",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 180733,
+   "end_ms": 183655,
+   "text": "Yes, I have the same understanding as you.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 185155,
+   "end_ms": 188008,
+   "text": "Yes, that is what we agreed last week.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 189808,
+   "end_ms": 190093,
+   "text": "good",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 192193,
+   "end_ms": 192562,
+   "text": "uh-huh",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 194962,
+   "end_ms": 195402,
+   "text": "noted",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 196902,
+   "end_ms": 199542,
+   "text": "That sounds good to me, let's carry on.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 201342,
+   "end_ms": 202615,
+   "text": "Can you hear me okay?",
+   "question_id": null,
+   "category": "logistics"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 204715,
+   "end_ms": 205074,
+   "text": "ah",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 207474,
+   "end_ms": 207915,
+   "text": "sure",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 209415,
+   "end_ms": 209971,
+   "text": "I see",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 211771,
+   "end_ms": 212327,
+   "text": "I see",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 214427,
+   "end_ms": 215234,
+   "text": "no problem",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 217634,
+   "end_ms": 218148,
+   "text": "indeed",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 219648,
+   "end_ms": 222664,
+   "text": "It is a bit noisy where I am, apologies.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 224464,
+   "end_ms": 224833,
+   "text": "uh-huh",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 226933,
+   "end_ms": 229181,
+   "text": "Okay, that is clear to me now.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 231581,
+   "end_ms": 231770,
+   "text": "hmm",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 233270,
+   "end_ms": 236361,
+   "text": "Great, thanks for explaining that so clearly.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 238161,
+   "end_ms": 240411,
+   "text": "I will let the rest of the team know today.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 242511,
+   "end_ms": 242973,
+   "text": "okay",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 245373,
+   "end_ms": 247624,
+   "text": "Yes, the notes are on the shared drive.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 249124,
+   "end_ms": 249787,
+   "text": "understood",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 251587,
+   "end_ms": 253975,
+   "text": "Do you mind if we take this offline?",
+   "question_id": null,
+   "category": "logistics"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 256075,
+   "end_ms": 257722,
+   "text": "Can you see the document?",
+   "question_id": null,
+   "category": "logistics"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 260122,
+   "end_ms": 260861,
+   "text": "okay then",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 262361,
+   "end_ms": 264179,
+   "text": "Did the screen share come through?",
+   "question_id": null,
+   "category": "logistics"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 265979,
+   "end_ms": 266522,
+   "text": "agreed",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 268622,
+   "end_ms": 271249,
+   "text": "Brilliant, thanks again for your help.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 273649,
+   "end_ms": 275812,
+   "text": "Perfect, that is all I needed to hear.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 277312,
+   "end_ms": 277666,
+   "text": "yep",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 279466,
+   "end_ms": 282460,
+   "text": "Okay, thanks, that makes sense to me.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 284560,
+   "end_ms": 285108,
+   "text": "uh-huh",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 287508,
+   "end_ms": 287947,
+   "text": "noted",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 289447,
+   "end_ms": 292037,
+   "text": "Thanks, I appreciate you fitting this in.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 293837,
+   "end_ms": 294309,
+   "text": "yes",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 296409,
+   "end_ms": 296941,
+   "text": "I see",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 299341,
+   "end_ms": 299996,
+   "text": "understood",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 301496,
+   "end_ms": 301866,
+   "text": "fair",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 303666,
+   "end_ms": 305209,
+   "text": "Shall we take a short break?",
+   "question_id": null,
+   "category": "logistics"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 307309,
+   "end_ms": 309210,
+   "text": "That is a fair summary of where we are.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 311610,
+   "end_ms": 313651,
+   "text": "Brilliant, thanks again for your help.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 315151,
+   "end_ms": 315649,
+   "text": "mm-hmm",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 317449,
+   "end_ms": 317825,
+   "text": "cool",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 319925,
+   "end_ms": 321303,
+   "text": "Is my audio clear?",
+   "question_id": null,
+   "category": "logistics"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 323703,
+   "end_ms": 324091,
+   "text": "right",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 325591,
+   "end_ms": 327948,
+   "text": "Yes, that is what we agreed last week.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 329748,
+   "end_ms": 330465,
+   "text": "sounds good",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 332565,
+   "end_ms": 333014,
+   "text": "yeah",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 335414,
+   "end_ms": 336191,
+   "text": "sounds good",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 337691,
+   "end_ms": 339588,
+   "text": "We can pick that up in the next meeting.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 341388,
+   "end_ms": 343911,
+   "text": "We had a quiet weekend, nothing special.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 346011,
+   "end_ms": 348425,
+   "text": "Do you want to go to the next slide?",
+   "question_id": null,
+   "category": "logistics"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 350825,
+   "end_ms": 353366,
+   "text": "Yes, we are all set on our end.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 354866,
+   "end_ms": 355529,
+   "text": "understood",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 357329,
+   "end_ms": 357680,
+   "text": "ah",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 359780,
+   "end_ms": 360311,
+   "text": "agreed",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 362711,
+   "end_ms": 363237,
+   "text": "got it",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 364737,
+   "end_ms": 365294,
+   "text": "alright",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 367094,
+   "end_ms": 367590,
+   "text": "noted",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 369690,
+   "end_ms": 370044,
+   "text": "yep",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 372444,
+   "end_ms": 373020,
+   "text": "thanks",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 374520,
+   "end_ms": 375088,
+   "text": "okay",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 376888,
+   "end_ms": 379863,
+   "text": "Okay, I will share the document in a moment.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 381963,
+   "end_ms": 383013,
+   "text": "Shall we move on?",
+   "question_id": null,
+   "category": "logistics"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 385413,
+   "end_ms": 385764,
+   "text": "ah",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 387264,
+   "end_ms": 388822,
+   "text": "I think that is fine for now.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 390622,
+   "end_ms": 392991,
+   "text": "I will follow up by email after this call.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 395091,
+   "end_ms": 396590,
+   "text": "Is this a good time to stop?",
+   "question_id": null,
+   "category": "logistics"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 398990,
+   "end_ms": 399729,
+   "text": "okay then",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 401229,
+   "end_ms": 403757,
+   "text": "Yes, the notes are on the shared drive.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 405557,
+   "end_ms": 406760,
+   "text": "Can everyone hear me?",
+   "question_id": null,
+   "category": "logistics"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 408860,
+   "end_ms": 409654,
+   "text": "mm-hmm",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 412054,
+   "end_ms": 414670,
+   "text": "That is fine, no rush on our side.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 416170,
+   "end_ms": 418491,
+   "text": "That sounds good to me, let's carry on.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 420291,
+   "end_ms": 421016,
+   "text": "okay then",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 423116,
+   "end_ms": 424087,
+   "text": "Is everyone here?",
+   "question_id": null,
+   "category": "logistics"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 426487,
+   "end_ms": 427784,
+   "text": "Can you share your screen?",
+   "question_id": null,
+   "category": "logistics"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 429284,
+   "end_ms": 430184,
+   "text": "Can you hear me?",
+   "question_id": null,
+   "category": "logistics"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 431984,
+   "end_ms": 434438,
+   "text": "Thank you, that was really useful to know.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 436538,
+   "end_ms": 437081,
+   "text": "agreed",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 439481,
+   "end_ms": 442719,
+   "text": "Thanks for waiting, I had another call run over.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 444219,
+   "end_ms": 446981,
+   "text": "Perfect, that is all I needed to hear.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 448781,
+   "end_ms": 449440,
+   "text": "thanks",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 451540,
+   "end_ms": 452072,
+   "text": "I see",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 454472,
+   "end_ms": 457035,
+   "text": "Okay, I will check with my manager later.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 458535,
+   "end_ms": 461320,
+   "text": "Okay, thanks, that makes sense to me.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 463120,
+   "end_ms": 464926,
+   "text": "Can I share a link in the chat?",
+   "question_id": null,
+   "category": "logistics"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 467026,
+   "end_ms": 469393,
+   "text": "We can pick that up in the next meeting.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 471793,
+   "end_ms": 472201,
+   "text": "great",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 473701,
+   "end_ms": 476296,
+   "text": "Okay, I will share the document in a moment.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 478096,
+   "end_ms": 480785,
+   "text": "Great, thanks for explaining that so clearly.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 482885,
+   "end_ms": 485269,
+   "text": "That is a fair summary of where we are.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 487669,
+   "end_ms": 488789,
+   "text": "Is that better now?",
+   "question_id": null,
+   "category": "logistics"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 490289,
+   "end_ms": 490627,
+   "text": "good",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 492427,
+   "end_ms": 492915,
+   "text": "indeed",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 495015,
+   "end_ms": 495792,
+   "text": "sounds good",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 498192,
+   "end_ms": 501250,
+   "text": "Sorry, I was on mute for a second there.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 502750,
+   "end_ms": 504722,
+   "text": "I think that is fine for now.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 506522,
+   "end_ms": 508364,
+   "text": "That works well for our side as well.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 510464,
+   "end_ms": 512571,
+   "text": "I will be back in a couple of minutes.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 514971,
+   "end_ms": 515347,
+   "text": "cool",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 516847,
+   "end_ms": 517372,
+   "text": "got it",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 519172,
+   "end_ms": 521582,
+   "text": "Right, I think I have what I need from you.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 523682,
+   "end_ms": 524140,
+   "text": "hmm",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 526540,
+   "end_ms": 526894,
+   "text": "oh",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 528394,
+   "end_ms": 528824,
+   "text": "got it",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 530624,
+   "end_ms": 531186,
+   "text": "perfect",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 533286,
+   "end_ms": 535336,
+   "text": "Okay, that is clear to me now.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 537736,
+   "end_ms": 538267,
+   "text": "agreed",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 539767,
+   "end_ms": 540143,
+   "text": "cool",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 541943,
+   "end_ms": 542518,
+   "text": "thanks",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 544618,
+   "end_ms": 547150,
+   "text": "Right, let me write that down quickly.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 549550,
+   "end_ms": 551921,
+   "text": "Sorry, I was on mute for a second there.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 553421,
+   "end_ms": 553793,
+   "text": "true",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 555593,
+   "end_ms": 558039,
+   "text": "That works well for our side as well.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 560139,
+   "end_ms": 561991,
+   "text": "I will be back in a couple of minutes.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 564391,
+   "end_ms": 565938,
+   "text": "Can everyone see the slide?",
+   "question_id": null,
+   "category": "logistics"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 567438,
+   "end_ms": 567792,
+   "text": "oh",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 569592,
+   "end_ms": 571928,
+   "text": "The weather has been terrible here all week.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 574028,
+   "end_ms": 574996,
+   "text": "Are you still there?",
+   "question_id": null,
+   "category": "logistics"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 577396,
+   "end_ms": 577868,
+   "text": "yes",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 579368,
+   "end_ms": 580087,
+   "text": "exactly",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 581887,
+   "end_ms": 584394,
+   "text": "Yes, I have the same understanding as you.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 586494,
+   "end_ms": 588500,
+   "text": "Yes, we are all set on our end.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 590900,
+   "end_ms": 593814,
+   "text": "That is a good point, I will think about it.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 595314,
+   "end_ms": 595864,
+   "text": "perfect",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 597664,
+   "end_ms": 598009,
+   "text": "oh",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 600109,
+   "end_ms": 603024,
+   "text": "Yes, I can do that by the end of the week.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 605424,
+   "end_ms": 607565,
+   "text": "I had a very long train ride this morning.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 609065,
+   "end_ms": 609787,
+   "text": "exactly",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 611587,
+   "end_ms": 614043,
+   "text": "Okay, I am happy with that approach.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 616143,
+   "end_ms": 616691,
+   "text": "uh-huh",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 619091,
+   "end_ms": 621269,
+   "text": "Of course, take your time with it.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 622769,
+   "end_ms": 623181,
+   "text": "sure",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 624981,
+   "end_ms": 626170,
+   "text": "Is the recording on?",
+   "question_id": null,
+   "category": "logistics"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 628270,
+   "end_ms": 628919,
+   "text": "alright",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 631319,
+   "end_ms": 631707,
+   "text": "right",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 633207,
+   "end_ms": 635778,
+   "text": "I had a very long train ride this morning.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 637578,
+   "end_ms": 638159,
+   "text": "fine",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 640259,
+   "end_ms": 640822,
+   "text": "perfect",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 643222,
+   "end_ms": 644498,
+   "text": "Can you speak up a little?",
+   "question_id": null,
+   "category": "logistics"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 645998,
+   "end_ms": 647905,
+   "text": "Could you mute yourself, please?",
+   "question_id": null,
+   "category": "logistics"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 649705,
+   "end_ms": 651164,
+   "text": "Can you see my screen?",
+   "question_id": null,
+   "category": "logistics"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 653264,
+   "end_ms": 655631,
+   "text": "Okay, I am happy with that approach.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 658031,
+   "end_ms": 659504,
+   "text": "Are you able to see this?",
+   "question_id": null,
+   "category": "logistics"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 661004,
+   "end_ms": 663289,
+   "text": "Is it okay if we start a few minutes late?",
+   "question_id": null,
+   "category": "logistics"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 665089,
+   "end_ms": 667320,
+   "text": "Good, let me make a note of that.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 669420,
+   "end_ms": 671321,
+   "text": "Good, let me make a note of that.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 673721,
+   "end_ms": 674438,
+   "text": "sounds good",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 675938,
+   "end_ms": 676507,
+   "text": "okay",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 678307,
+   "end_ms": 681407,
+   "text": "Thanks, I appreciate you fitting this in.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 683507,
+   "end_ms": 683867,
+   "text": "ah",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 686267,
+   "end_ms": 686986,
+   "text": "exactly",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 688486,
+   "end_ms": 690586,
+   "text": "The weather has been terrible here all week.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 692386,
+   "end_ms": 692775,
+   "text": "yep",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 694875,
+   "end_ms": 695336,
+   "text": "okay",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 697736,
+   "end_ms": 698565,
+   "text": "no problem",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 700065,
+   "end_ms": 700872,
+   "text": "no problem",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 702672,
+   "end_ms": 703327,
+   "text": "understood",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 705427,
+   "end_ms": 705780,
+   "text": "true",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 708180,
+   "end_ms": 708905,
+   "text": "okay then",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 710405,
+   "end_ms": 710893,
+   "text": "indeed",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 712693,
+   "end_ms": 714518,
+   "text": "I will send that over this afternoon.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 716618,
+   "end_ms": 717266,
+   "text": "alright",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 719666,
+   "end_ms": 721947,
+   "text": "That is a good point, I will think about it.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 723447,
+   "end_ms": 723636,
+   "text": "hmm",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 725436,
+   "end_ms": 725950,
+   "text": "indeed",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 728050,
+   "end_ms": 730197,
+   "text": "Right, let me write that down quickly.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 732597,
+   "end_ms": 733491,
+   "text": "Should we start?",
+   "question_id": null,
+   "category": "logistics"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 734991,
+   "end_ms": 735713,
+   "text": "exactly",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 737513,
+   "end_ms": 738039,
+   "text": "great",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 740139,
+   "end_ms": 742989,
+   "text": "Thank you, that was really useful to know.",
+   "question_id": null,
+   "category": "medium"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 745389,
+   "end_ms": 745870,
+   "text": "fine",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "client",
+   "start_ms": 747370,
+   "end_ms": 747820,
+   "text": "yeah",
+   "question_id": null,
+   "category": "short"
+  },
+  {
+   "speaker": "you",
+   "start_ms": 749620,
+   "end_ms": 749973,
+   "text": "true",
+   "question_id": null,
+   "category": "short"
+  }
+ ],
+ "questions": []
+}

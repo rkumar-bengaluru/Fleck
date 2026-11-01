@@ -1,0 +1,18 @@
+[project]
+name = "fleck"
+version = "0.0.0"
+requires-python = ">=3.12,<3.13"
+dependencies = ["pyyaml>=6"]  # scripts/measure_e2e.py; on macOS it also comes via huggingface-hub, not on CI
+
+[tool.uv.workspace]
+members = ["core", "api", "gsim", "helper"]
+
+[tool.uv.sources]
+fleck-core = { workspace = true }
+fleck-api = { workspace = true }
+fleck-gsim = { workspace = true }
+fleck-helper = { workspace = true }
+
+[tool.pytest.ini_options]
+markers = ["ollama: needs a local Ollama with the pinned models (skipped in CI)",
+           "claude: calls the Claude API with ANTHROPIC_API_KEY (skipped when it is empty)"]

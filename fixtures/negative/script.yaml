@@ -1,0 +1,78 @@
+# Negative set: nothing here may trigger an answer. Segments are shuffled with a fixed seed, voices alternate by phrase index.
+seed: 7
+voices: {you: Rishi, client: Samantha}
+gaps: [1.5, 1.8, 2.1, 2.4]   # seconds between segments, cycled
+short:
+  ["uh-huh", "okay", "got it", "hmm", "right", "yes", "sure", "mm-hmm", "yeah", "okay then", "I see", "fine", "great", "good", "alright", "ah", "oh", "no problem", "exactly", "thanks", "cool", "understood", "true", "yep", "indeed", "noted", "perfect", "sounds good", "fair", "agreed"]
+medium:
+  - That sounds good to me, let's carry on.
+  - Yes, I think we have covered that already.
+  - Okay, thanks, that makes sense to me.
+  - Sorry, I was on mute for a second there.
+  - I will send that over this afternoon.
+  - Great, thanks for explaining that so clearly.
+  - Yes, that is what we agreed last week.
+  - I think that is fine for now.
+  - Right, let me write that down quickly.
+  - Of course, take your time with it.
+  - The weather has been terrible here all week.
+  - I had a very long train ride this morning.
+  - Thanks, I appreciate you fitting this in.
+  - Okay, I am happy with that approach.
+  - That is a good point, I will think about it.
+  - We can pick that up in the next meeting.
+  - Yes, the notes are on the shared drive.
+  - It is a bit noisy where I am, apologies.
+  - I will let the rest of the team know today.
+  - That works well for our side as well.
+  - Good, let me make a note of that.
+  - Yes, I have the same understanding as you.
+  - Perfect, that is all I needed to hear.
+  - Thank you, that was really useful to know.
+  - We had a quiet weekend, nothing special.
+  - Okay, I will check with my manager later.
+  - That is fine, no rush on our side.
+  - Yes, I can do that by the end of the week.
+  - Brilliant, thanks again for your help.
+  - I will follow up by email after this call.
+  - Right, I think I have what I need from you.
+  - It was lovely to catch up with everyone today.
+  - Yes, we are all set on our end.
+  - That is a fair summary of where we are.
+  - Okay, I will share the document in a moment.
+  - Good morning, everyone, thanks for joining.
+  - Thanks for waiting, I had another call run over.
+  - Yes, I am happy to go with that.
+  - Okay, that is clear to me now.
+  - I will be back in a couple of minutes.
+logistics:
+  - Can you see my screen?
+  - Can you hear me okay?
+  - Can you hear me?
+  - Shall we move on?
+  - Is my audio clear?
+  - Can everyone see the slide?
+  - Are you able to see this?
+  - Shall we take a short break?
+  - Can you hear me now?
+  - Is everyone here?
+  - Should we start?
+  - Can you share your screen?
+  - Is the recording on?
+  - Are we all ready to begin?
+  - Can you see the document?
+  - Shall we wrap up?
+  - Should I share my screen now?
+  - Can you turn your camera on?
+  - Do you want to go to the next slide?
+  - Is it okay if we start a few minutes late?
+  - Can everyone hear me?
+  - Are you still there?
+  - Did the screen share come through?
+  - Shall we pick this up tomorrow?
+  - Is that better now?
+  - Can you speak up a little?
+  - Do you mind if we take this offline?
+  - Could you mute yourself, please?
+  - Can I share a link in the chat?
+  - Is this a good time to stop?

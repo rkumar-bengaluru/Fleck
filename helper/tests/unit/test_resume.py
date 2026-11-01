@@ -344,14 +344,10 @@ def test_a_finished_meeting_thread_never_stops_the_next_meeting(make):
 
 @pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")  # the alert's error, on purpose
 def test_a_failing_resume_prompt_answers_start_new(monkeypatch):
-    import sys
-
-    import rumps
+    rumps = pytest.importorskip("rumps", reason="AppKit (macOS only)")
     from PyObjCTools import AppHelper
 
     from fleck_helper import menubar
-    if sys.platform != "darwin":
-        pytest.skip("AppKit")
 
     def boom(**kw):
         raise RuntimeError("alert failed")

@@ -159,12 +159,13 @@ def test_video_upload_retries_then_deletes(tmp_path, monkeypatch):
 
 
 def test_non_ascii_text_survives_an_ascii_locale(tmp_path):
-    # the app bundle ran with an ASCII locale encoding: a Whisper line with "ú" ended meeting 11's recording
+    # the app bundle ran with an ASCII locale encoding: a Whisper line with "ú" ended meeting 11's recording.
+    # The child's source stays ASCII (escapes): an ASCII locale can't carry "é" in argv on Linux.
     import subprocess
     import sys
     code = ("import sys; from pathlib import Path; from fleck_helper.transport import Transport\n"
             "t = Transport('http://127.0.0.1:1', 'tok', Path(sys.argv[1]))\n"
-            "class E:\n    def model_dump_json(self): return '{\"text\": \"Qu\u00e9 ser\u00e1\"}'\n"
+            "class E:\n    def model_dump_json(self): return '{\"text\": \"Qu\\u00e9 ser\\u00e1\"}'\n"
             "t.send(E()); t.close()\n"
             "print(Path(t._items()[0]).read_text(encoding='utf-8'))")
     r = subprocess.run([sys.executable, "-c", code, str(tmp_path)], capture_output=True, text=True, encoding="utf-8",

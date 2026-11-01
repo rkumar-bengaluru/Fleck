@@ -267,7 +267,9 @@ class VideoRecorder:
                 if self._writer is not None and round((wall - self._piece_wall) * 1000) >= round(self.piece_s * 1000):
                     self._hand_off(wall)
                 if self._writer is None:
-                    self._piece_wall, self._piece_ms = wall, max(0, round((wall - self.t0_wall()) * 1000))
+                    if wall < self.t0_wall():  # captured before audio began: no meeting time to place it at
+                        return
+                    self._piece_wall, self._piece_ms = wall, round((wall - self.t0_wall()) * 1000)
                     self._writer = self.writer_factory(self.out_dir / f"piece-{self._piece_ms:09d}.mp4")
                 self._writer.append(sbuf, wall)
         except Exception:

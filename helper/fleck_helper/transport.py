@@ -60,7 +60,7 @@ class Transport:
             self._last = max(self._last + 1, time.time_ns())  # names sort in send order, across restarts too
             name = f"{self._last:020d}.{kind}"
         tmp = self.outbox / (name + ".tmp")
-        tmp.write_text(body)
+        tmp.write_text(body, encoding="utf-8")  # the app bundle may run with an ASCII locale
         tmp.rename(self.outbox / name)
 
     def _items(self) -> list[Path]:
@@ -121,7 +121,7 @@ class Transport:
             nxt = next((p for p in self._items() if p not in inflight), None)
             wait = 0.05
             if nxt is not None and nxt.suffix == ".evt" and len(inflight) < WINDOW:
-                ws.send(nxt.read_text())
+                ws.send(nxt.read_text(encoding="utf-8"))
                 inflight.append(nxt)
                 wait = 0
             elif nxt is not None and nxt.suffix == ".chunk" and not inflight:  # keep order: events before it are acked
@@ -134,7 +134,7 @@ class Transport:
             self._take(raw, inflight)
 
     def _upload(self, item: Path) -> None:
-        job = json.loads(item.read_text())
+        job = json.loads(item.read_text(encoding="utf-8"))
         video = item.suffix == ".vchunk"
         key = job["start_ms"] if video else job["seq"]
         path = Path(job["path"])

@@ -156,3 +156,18 @@ def test_video_upload_retries_then_deletes(tmp_path, monkeypatch):
     t.close()
     assert calls == [("http://127.0.0.1:1/api/meetings/7/video/61000", "video/mp4", 120)] * 2
     assert not mp4.exists() and not list((tmp_path / "box").glob("*.vchunk"))
+
+
+def test_non_ascii_text_survives_an_ascii_locale(tmp_path):
+    # the app bundle ran with an ASCII locale encoding: a Whisper line with "ú" ended meeting 11's recording
+    import subprocess
+    import sys
+    code = ("import sys; from pathlib import Path; from fleck_helper.transport import Transport\n"
+            "t = Transport('http://127.0.0.1:1', 'tok', Path(sys.argv[1]))\n"
+            "class E:\n    def model_dump_json(self): return '{\"text\": \"Qu\u00e9 ser\u00e1\"}'\n"
+            "t.send(E()); t.close()\n"
+            "print(Path(t._items()[0]).read_text(encoding='utf-8'))")
+    r = subprocess.run([sys.executable, "-c", code, str(tmp_path)], capture_output=True, text=True, encoding="utf-8",
+                       env={"LC_ALL": "en_US.US-ASCII", "PYTHONUTF8": "0", "PYTHONIOENCODING": "utf-8", "PATH": "/usr/bin:/bin"})
+    assert r.returncode == 0, r.stderr
+    assert json.loads(r.stdout)["text"] == "Qué será"

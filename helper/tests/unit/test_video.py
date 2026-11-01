@@ -104,6 +104,17 @@ def test_waits_for_t0_at_first_frame(tmp_path):
     assert [ms for ms, _ in pieces] == [3000]
 
 
+def test_frames_before_t0_are_dropped(tmp_path):
+    # measured on the Mac: video starts ~2 s before audio sets t0; clamping those frames to 0 put piece 0 2 s late
+    stream = FakeStream([T - 2.0, T - 0.1, T + 0.05, T + 0.15])
+    r, pieces, _, _ = _rec(tmp_path, stream)
+    r.start()
+    _wait(lambda: stream.done)
+    r.stop()
+    assert [ms for ms, _ in pieces] == [50]
+    assert r.writers[0].frames == ["buf2", "buf3"]
+
+
 def test_pieces_roll_every_piece_s(tmp_path):
     stream = FakeStream([T + i / 10 for i in range(25)])
     r, pieces, _, log = _rec(tmp_path, stream, piece_s=1.0)

@@ -326,6 +326,7 @@ class Recorder:
     def _video_status(self, mid: str, status: str) -> None:
         """From the video threads; a status after this meeting's Stop is ignored."""
         try:
+            log.info("meeting %s: %s", mid, status)  # the menu line, kept for troubleshooting
             with self._lock:
                 if self.recording != mid:
                     return

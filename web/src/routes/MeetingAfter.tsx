@@ -91,7 +91,7 @@ export default function MeetingAfter({ id }: { id: string }) {
         </div>
       )}
       {m.status === "ready" && <RecordingTimeline src={`/api/meetings/${id}/${shown === "video" ? "video" : "recording"}`} kind={shown} media={audio} totalMs={span || Math.max(0, ...d.segments.map(s => s.end_ms))}
-        markers={items.map(a => ({ id: a.assist_id, at_ms: a.at_ms, kind: a.kind }))} canSeek={canSeek} onSeek={seek} onBroken={() => setBroken(true)} />}
+        markers={items.map(a => ({ id: a.assist_id, at_ms: a.at_ms, kind: a.kind }))} canSeek={canSeek} onSeek={seek} onBroken={() => { if (shown === "video") { carry.current = null; setView("audio"); } else setBroken(true); }} />}
       <div role="tablist" aria-label="Meeting views" className="tabs">
         {tabs.map(t => <button key={t} type="button" role="tab" id={`tab-${t}`} aria-selected={tab === t} aria-controls="tabpanel" tabIndex={tab === t ? 0 : -1}
           onClick={() => setTab(t)}>{t}</button>)}

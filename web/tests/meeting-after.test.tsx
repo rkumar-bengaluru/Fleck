@@ -259,3 +259,13 @@ test("video label on rows with video", async () => {
   await screen.findByText("With");
   expect(screen.getAllByText(/· Video/).length).toBe(1);
 });
+
+test("a video that fails falls back to audio and keeps the saved choice", async () => {
+  withVideo();
+  await open();
+  fireEvent.error(document.querySelector("video")!);
+  const audio = await waitFor(() => document.querySelector("audio")!);
+  expect(audio.getAttribute("src")).toMatch(/\/recording$/);
+  expect((screen.getByRole("button", { name: "Play recording" }) as HTMLButtonElement).disabled).toBe(false);
+  expect(localStorage.getItem("fleck.recordingView")).toBeNull();
+});

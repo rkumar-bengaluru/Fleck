@@ -122,6 +122,7 @@ class Meeting(Base):
     started_at: Mapped[datetime] = _now()
     ended_at: Mapped[datetime | None]
     recording_key: Mapped[str | None]
+    video_key: Mapped[str | None]
 
 
 class Segment(Base):
@@ -143,6 +144,15 @@ class AudioChunk(Base):
     id: Mapped[int] = _id()
     meeting_id: Mapped[int] = _fk("meetings")
     seq: Mapped[int] = mapped_column(Integer)
+    blob_key: Mapped[str]
+
+
+class VideoChunk(Base):
+    __tablename__ = "video_chunks"
+    __table_args__ = (UniqueConstraint("meeting_id", "start_ms"),)
+    id: Mapped[int] = _id()
+    meeting_id: Mapped[int] = _fk("meetings")
+    start_ms: Mapped[int] = mapped_column(Integer)
     blob_key: Mapped[str]
 
 

@@ -773,3 +773,40 @@ From the final whole-branch review (final-review.md) and the Milestone H critiqu
 - **Critique items.** Gap lines are labelled Fleck in the summary and chat (156); targets and soak fail on false triggers past 1 per 10 min and excuse only a row's own Claude timeout (157, not re-run: scripted checks only); the offshore-rate Ask-all answer was reproduced: Claude cited the rate card on the "From [1]:" lead-in and every uncited list line was dropped, a false negative, now fixed (158); the used-marker threshold stays at 0.52 (159, rupak.k); the brief counts cited documents (160); the upload dialog hides reference companies (161); seed_demo's kill-and-stop is unit-tested (162).
 - **Found on the way.** `test_processing`'s run_once loop ran `index_meeting` against the stack's `MeetingText` collection and emptied the demo meeting's chat rows (test meeting id 1 = demo meeting id 1). The module now uses a throwaway collection; the demo meeting was re-indexed (20 rows).
 - **Runs.** `pytest core api gsim helper/tests -m "not ollama and not claude"` (mac excluded): 661 passed, 1 warning (the existing resume-alert warning). Vitest: 62 passed; `tsc --noEmit` clean. `make up` rebuilt the stack; `full-journey.spec.ts` and `chat.spec.ts` pass (chat.spec failed once right after the re-index, then passed 3 times in a row). `FLECK_TARGETS=1 pytest helper/tests/mac/test_local_only.py -s`: passed in 6 min 42 s: no connection refused by the guard, 8/8 triggered, 6 library/not-in-material as expected, q_general and q_liability not_in_material (allowed). That run left meeting 2 ("Task 22 local only 1834") on the demo stack. Ask all "what's our offshore rate?" now keeps its rates. Secret scan (grep for key patterns and the .env values over the round's diff): clean.
+
+## Meeting video (2026-11-01)
+
+Spec `specs/2026-11-01-meeting-video-design.md`, decisions 165–175. Measured on this Mac (M5, 24 GB) with a stand-in call window: `helper/tests/mac/meet_test.html`, a Chrome window titled "Meet - test" that shows the wall clock (mm:ss.d) and, on every whole second, flashes white and beeps 1 kHz from the same timer.
+
+**Where it ran.** A terminal has no Screen Recording (TCC -3801), so the Mac test runs `VideoRecorder` inside the signed bundle (`--video-test`, decision 174). The end-to-end runs used the signed app, started with `open --env` and a throwaway file keyring (a `keyringrc.cfg` under a scratch `XDG_CONFIG_HOME`), paired as its own device: a rebuilt bundle otherwise stops at the login keychain's password prompt, and the real keychain was never written.
+
+**1. Mac test (`FLECK_TARGETS=1 … test_video_capture.py`): PASS.** 70 s of the real window:
+- 2 pieces: `start_ms` 5376 (60.07 s, 597 frames, 9.94 fps, 1152×720, 1.78 MB) and 65443 (9.86 s, 10.04 fps, 0.29 MB).
+- First `start_ms` within 0.5 s of the expected value.
+- **1.78 MB per minute of pieces, about 107 MB per hour.**
+
+**2. End to end in the signed app (Record through the api, 3 minutes, Stop).**
+- *Meeting 9 (before the fix):* a bug. Video starts about 2 s before audio sets meeting time 0; those frames were clamped to `start_ms` 0, so the first minute played about 2.1 s late (counter 10:09.8 at 0:30.5 and 11:11.9 at 1:30.5: 62.1 s of clock in 60 s of file) and overlapped the second piece. **Fixed** (decision 172): frames before t0 are dropped. Test `test_frames_before_t0_are_dropped`.
+- *Meeting 10 (after the fix):* pieces at 59, 60127 and 120205 ms. The assembled file: H.264 1248×720 + AAC, 178.8 s, 1780 frames (10.0 fps), 4.03 MB: **1.35 MB per minute, about 81 MB per hour.**
+- **Sync:** the flash came 0.22 s after the beep at the start (0–15 s) and 0.22 s at the end (165–180 s); every 15 s window was between +0.12 and +0.32 s. Within 0.5 s. The counter agreed with the file's time at 0:01.5, 0:30.5, 1:30.5 and 2:55.5 to within 0.2 s (one or two frames).
+- The meeting reached `ready` with `has_video` about 60 s after Stop. The page shows **Video | Audio only** (checked afterwards in headless Chrome: the player loads 1248×720, 178.8 s, plays from 0:30, and Audio only swaps in the audio player; note the recorded window includes Chrome's tab strip, so other tab titles show).
+- helper.log now carries the menu's state (decision 173): `meeting 10: Video: waiting for call window`, then `meeting 10: Video: Meet - test` 54 ms later.
+- The app used about 0.6 % CPU while recording the window (top, every 20 s for 2 min).
+
+**3. A longer recording (meeting 12, 19.6 min, during the load check):** 26.1 MB, 11779 frames (9.99 fps): **1.33 MB per minute, 80 MB per hour.** Ready with video about 60 s after Stop. A static counter page is a light load for H.264; a real call's moving faces will cost more, up to the 1.5 Mbit/s cap (about 11 MB per minute, 675 MB per hour).
+
+**4. Found on the way: non-ASCII text ended a recording (meeting 11).** The first load-check recording stopped after 6 minutes: `UnicodeEncodeError: 'ascii' codec can't encode character '\xfa'` in `Transport._put`. The bundle runs with an ASCII locale encoding, and a Whisper line with "ú" went to `Path.write_text` without an encoding, which killed the recording thread (audio and video). **Fixed**: the outbox is written and read as UTF-8. Test `test_non_ascii_text_survives_an_ascii_locale` (subprocess under `LC_ALL=en_US.US-ASCII`). This bug predates video: any accented word on a real call would have ended the recording.
+
+**5. Load check (anti-goal: video never slows live help).** `scripts/measure_e2e.py --runs 3` while the signed app recorded the silent "Meet - test" window for the whole run (meeting 12), then the same with no recording as a control. Decision 112's gates, pooled p95:
+
+| Run | Library first words (≤ 3.0 s) | Library full (≤ 6.0 s) | Claude first words (≤ 5.0 s) | Outcomes |
+|---|---|---|---|---|
+| Task 22 (full-stack replays, for reference) | 2.28 s | 2.71 s | 2.32 s | 24/24 |
+| Recording video (meeting 12) | **3.20 s** (p50 1.50 s) | 4.31 s | 3.14 s | 24/24, recall 8/8 ×3, 0 false triggers |
+| Control, no recording | **3.93 s** (p50 1.35 s) | 4.34 s | 2.48 s | 24/24 |
+
+With n=15 the p95 is the slowest question. Both runs miss the first-words gate on one question each (video: q_ip 3.20 s in run 3; control: q_rate 3.93 s in run 1, warm-up), so the miss is not video's. Medians differ by 0.15 s. Full answers and Claude pass in both. The app used about 0.6 % CPU while recording. An earlier attempt (meeting 11) gave library first words p95 2.67 s, full 3.17 s, Claude 2.98 s, all PASS, but its recording had died at minute 6 (item 4), so only its first run had video.
+
+**6. A closed window.** Checked through the bundle's `--video-test` on a window titled "Meet - close", whose Chrome was killed 24.7 s in: the status went to **Video: none (audio only)** and the open piece (24.6 s) was delivered. ScreenCaptureKit does report a closed window. Not repeated in the full app.
+
+**Meetings created:** 9, 10, 11, 12 (titles "Video e2e 3 min", "Video e2e 3 min (fix)", "Video load check", "Video load check 2"). There is no meeting delete route, so they stay.

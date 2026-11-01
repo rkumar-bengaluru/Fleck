@@ -240,6 +240,13 @@ Any of these starts a recording:
 
 Join the call as usual, on speakers or a headset. No bot joins.
 
+**Video.** Fleck also records the call window as video: a Zoom window with "Meeting" in its title, or a Chrome window whose title starts with "Meet". It records that window only, never your whole screen, at 10 frames a second, up to 1280×720. The **Fleck** menu shows the state on a **Video:** line:
+- **Video: waiting for call window**: no call window yet. Open or bring forward the Meet tab or the Zoom meeting; Fleck checks every 2 seconds.
+- **Video: <window title>**: recording that window. Fleck keeps it until Stop, even if another call window opens.
+- **Video: none (audio only)**: video stopped (the window closed, or capture failed). Audio goes on as before.
+
+Fleck records the window as it looks: if you switch that Chrome window to another tab, such as Fleck's meeting page or your email, that tab is in the video. Keep the Meet call in its own window.
+
 ### During the meeting
 
 - The menu-bar title shows **● Fleck** and the recording time.
@@ -261,6 +268,7 @@ Join the call as usual, on speakers or a headset. No bot joins.
 - The page shows **Processing the recording…**, then the notes. A 3-minute call took about 30 seconds.
 - Read **Where Fleck helped** and the **Used** / **Not used** markers. Fleck marks an answer **Used** when what you said in the 15 seconds after it appeared is close to it. It measures topic, not correctness, so check the markers and flip any that are wrong.
 - **Claude cost** at the top is what this meeting's Claude calls cost.
+- A meeting with video shows **· Video** in the **Meetings** list. Its page has a **Video | Audio only** switch above the player: **Video** plays the call window with the meeting's audio, **Audio only** plays the sound alone. Both follow the transcript and the markers. The video appears a little after the notes, once Fleck has joined the pieces.
 
 ### Chat
 
@@ -295,6 +303,11 @@ Logs:
 - The transcript shows a **Fleck** line such as "Audio from the call was interrupted (1:02–1:09)": capture stopped and restarted. Fleck carries on.
 - Nothing at all: check that the menu shows **Recording**, and that **Connected as** is there. If it says **Not connected to Fleck**, the stack is down: run `make up`.
 - "Desktop app not connected" on **Record**: open `dist/Fleck Helper.app`, and pair it if the menu says **Not paired**.
+
+**No video**
+- The menu stays on **Video: waiting for call window**: Fleck sees no call window. Meet must be a Chrome window (not Safari) with the Meet tab in front, so its title starts with "Meet"; in another language the title may not, and Fleck won't find it. Zoom must be the desktop app's meeting window. Teams and Webex are not recorded. The meeting still records audio.
+- **Video: none (audio only)**: the window closed or capture failed. The meeting keeps the video up to that point. Details are in the helper log (lines with "Video:").
+- No **Video** option on the page: the recording had no video, or it is still being joined; reload in a minute.
 
 **Slow answers**
 - Answers are written by Ollama on your Mac, one request at a time. Another app using the same Ollama makes Fleck wait. Close it during calls.

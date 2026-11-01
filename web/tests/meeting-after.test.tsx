@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import MeetingAfter from "../src/routes/MeetingAfter";
+import Meetings from "../src/routes/Meetings";
 
 const rate = { doc_id: "d1", chunk_id: "c1", title: "Rate card FY2026", client: null, kind: "firm" };
 const a = (n: number, o: object = {}) => ({ assist_id: `a${n}`, segment_id: `s${n}`, question: `Question ${n}?`, answer: `Answer ${n}.`, kind: "library",
@@ -94,12 +95,26 @@ test("processing polls every 3 s until ready", async () => {
   state.meeting.status = "processing"; state.summary = null;
   render(<MemoryRouter><MeetingAfter id="5" /></MemoryRouter>);
   await screen.findByText("Processing the recording…");
-  state.meeting.status = "ready";
+  state.meeting.status = "ready"; state.meeting.has_video = true;
   await act(async () => { await vi.advanceTimersByTimeAsync(3100); });
   await waitFor(() => expect(screen.queryByText("Processing the recording…")).toBeNull());
   const n = calls.length;
   await act(async () => { await vi.advanceTimersByTimeAsync(7000); });
   expect(calls.length).toBe(n);  // stopped polling
+});
+
+test("ready without video keeps checking until the video appears, then stops", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try { localStorage.removeItem("fleck.recordingView"); } catch { /* none */ }
+  render(<MemoryRouter><MeetingAfter id="5" /></MemoryRouter>);
+  await screen.findByRole("heading", { level: 1 });
+  expect(screen.queryByRole("radio", { name: "Video" })).toBeNull();
+  state.meeting.has_video = true;
+  await act(async () => { await vi.advanceTimersByTimeAsync(5100); });
+  expect(await screen.findByRole("radio", { name: "Video" })).toBeTruthy();
+  const n = calls.length;
+  await act(async () => { await vi.advanceTimersByTimeAsync(11000); });
+  expect(calls.length).toBe(n);
 });
 
 test("failed shows the reason and Try again re-enqueues", async () => {
@@ -208,4 +223,63 @@ test("an ad-hoc meeting shows its linked client after the meeting and can unlink
   fireEvent.change(select, { target: { value: "none" } });
   await waitFor(() => expect(calls.find(c => c.method === "PUT")).toMatchObject({ url: "/api/meetings/5/client", body: JSON.stringify({ client_id: null }) }));
   await waitFor(() => expect(select.value).toBe("none"));
+});
+
+const withVideo = () => { state.meeting.has_video = true; try { localStorage.removeItem("fleck.recordingView"); } catch { /* none */ } };
+
+test("shows video player and switch when has_video", async () => {
+  withVideo();
+  await open();
+  expect(document.querySelector("video")!.getAttribute("src")).toMatch(/\/api\/meetings\/5\/video$/);
+  const group = screen.getByRole("radiogroup", { name: "Recording view" });
+  expect((within(group).getByRole("radio", { name: "Video" }) as HTMLInputElement).checked).toBe(true);
+  expect((within(group).getByRole("radio", { name: "Audio only" }) as HTMLInputElement).checked).toBe(false);
+});
+
+test("switching to Audio only keeps time", async () => {
+  withVideo();
+  await open();
+  document.querySelector("video")!.currentTime = 42;
+  fireEvent.click(screen.getByRole("radio", { name: "Audio only" }));
+  const audio = document.querySelector("audio")!;
+  expect(audio.getAttribute("src")).toMatch(/\/recording$/);
+  expect(audio.currentTime).toBe(42);
+  expect(document.querySelector("video")).toBeNull();
+  expect(localStorage.getItem("fleck.recordingView")).toBe("audio");
+});
+
+test("transcript link seeks the video", async () => {
+  withVideo();
+  state.segments[0].start_ms = 65_000;
+  await open();
+  fireEvent.click(screen.getByRole("tab", { name: "Transcript" }));
+  fireEvent.click(screen.getByRole("button", { name: "Play from 1:05" }));
+  expect(document.querySelector("video")!.currentTime).toBe(65);
+});
+
+test("meeting without video is unchanged", async () => {
+  await open();
+  expect(screen.queryByRole("radiogroup")).toBeNull();
+  expect(document.querySelector("video")).toBeNull();
+  expect(document.querySelector("audio")).toBeTruthy();
+});
+
+test("video label on rows with video", async () => {
+  cleanup();
+  (fetch as ReturnType<typeof vi.fn>).mockImplementation(async () => new Response(JSON.stringify([
+    { id: 1, title: "With", status: "ready", client_name: null, started_at: "2026-10-30T11:00:00Z", has_video: true },
+    { id: 2, title: "Without", status: "ready", client_name: null, started_at: "2026-10-30T12:00:00Z", has_video: false }]), { status: 200 }));
+  render(<MemoryRouter><Meetings /></MemoryRouter>);
+  await screen.findByText("With");
+  expect(screen.getAllByText(/· Video/).length).toBe(1);
+});
+
+test("a video that fails falls back to audio and keeps the saved choice", async () => {
+  withVideo();
+  await open();
+  fireEvent.error(document.querySelector("video")!);
+  const audio = await waitFor(() => document.querySelector("audio")!);
+  expect(audio.getAttribute("src")).toMatch(/\/recording$/);
+  expect((screen.getByRole("button", { name: "Play recording" }) as HTMLButtonElement).disabled).toBe(false);
+  expect(localStorage.getItem("fleck.recordingView")).toBeNull();
 });

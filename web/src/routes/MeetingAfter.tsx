@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, setTitle } from "../api";
 import ChatPanel from "../components/ChatPanel";
@@ -11,7 +11,7 @@ import type { Citation } from "../events";
 import type { Kind } from "../components/SourceChip";
 
 interface Detail {
-  meeting: MeetingRef & { status: string; failure_reason: string | null; started_at: string; ended_at: string | null; recorded_by_name: string };
+  meeting: MeetingRef & { status: string; failure_reason: string | null; started_at: string; ended_at: string | null; recorded_by_name: string; has_video?: boolean };
   segments: (Line & { end_ms: number })[];
   assists: { assist_id: string; segment_id: string; question: string; answer: string; kind: Kind; citations: Citation[]; used: boolean | null; used_by: string | null; late?: boolean }[];
   summary: Section[] | null;
@@ -29,13 +29,32 @@ export default function MeetingAfter({ id }: { id: string }) {
   const [error, setError] = useState(false);
   const [broken, setBroken] = useState(false);  // the audio element failed
   const [note, setNote] = useState("");  // an inline message after a failed save or retry
-  const audio = useRef<HTMLAudioElement>(null);
+  const audio = useRef<HTMLMediaElement>(null);  // whichever of the video or audio element is shown
+  const [view, setView] = useState<"video" | "audio">(() => { try { return localStorage.getItem("fleck.recordingView") === "audio" ? "audio" : "video"; } catch { return "video"; } });
+  const carry = useRef<{ t: number; playing: boolean } | null>(null);  // position to restore on the element that replaces the old one
+  useLayoutEffect(() => {
+    const c = carry.current, a = audio.current; carry.current = null;
+    if (c && a) { a.currentTime = c.t; if (c.playing) a.play().catch(() => {}); }
+  }, [view]);
+  const choose = (v: "video" | "audio") => {
+    if (v === view) return;
+    const a = audio.current; carry.current = a ? { t: a.currentTime, playing: !a.paused } : null;
+    try { localStorage.setItem("fleck.recordingView", v); } catch { /* private mode */ }
+    setBroken(false); setView(v);
+  };
   const t = Number(useSearchParams()[0].get("t") ?? NaN);  // a chat citation opens the transcript at this time
   const load = useCallback(() => api<Detail>(`/api/meetings/${id}`).then(x => { setD(x); setError(false); }).catch(() => setError(true)), [id]);
   useEffect(() => { void load(); }, [load]);
   // the worker cannot push to browsers (decision 120d): poll until it is done
   const status = d?.meeting.status;
   useEffect(() => { if (status !== "processing") return; const t = setInterval(() => void load(), 3000); return () => clearInterval(t); }, [status, load]);
+  // the video is assembled ~60 s after ready: keep checking for 3 minutes so it appears without a reload
+  const waitVideo = status === "ready" && !d?.meeting.has_video;
+  useEffect(() => {
+    if (!waitVideo) return;
+    const t = setInterval(() => void load(), 5000), end = setTimeout(() => clearInterval(t), 180_000);
+    return () => { clearInterval(t); clearTimeout(end); };
+  }, [waitVideo, load]);
   const ready = d?.meeting.status === "ready";
   useEffect(() => {
     if (Number.isNaN(t) || !d) return;
@@ -50,6 +69,7 @@ export default function MeetingAfter({ id }: { id: string }) {
   const at = new Map(d.segments.map(s => [s.segment_id, s.start_ms]));
   const items: Helped[] = d.assists.map(a => ({ ...a, at_ms: at.get(a.segment_id) ?? 0 }));
   const span = m.ended_at ? new Date(m.ended_at).getTime() - new Date(m.started_at).getTime() : 0;
+  const shown = m.has_video ? view : "audio";
   const canSeek = m.status === "ready" && !broken;
   const seek = (ms: number) => { const a = audio.current; if (a && canSeek) { a.currentTime = ms / 1000; a.play().catch(() => {}); } };
   const toggle = (a: Helped) => {
@@ -70,8 +90,15 @@ export default function MeetingAfter({ id }: { id: string }) {
         <span className="muted">Claude cost ${d.cost_usd.toFixed(2)}</span>
       </header>
       {m.event_id === null && <MeetingClient meeting={m} />}
-      {m.status === "ready" && <RecordingTimeline src={`/api/meetings/${id}/recording`} audio={audio} totalMs={span || Math.max(0, ...d.segments.map(s => s.end_ms))}
-        markers={items.map(a => ({ id: a.assist_id, at_ms: a.at_ms, kind: a.kind }))} canSeek={canSeek} onSeek={seek} onBroken={() => setBroken(true)} />}
+      {m.status === "ready" && m.has_video && (
+        <div role="radiogroup" aria-label="Recording view" className="rec-view">
+          {(["video", "audio"] as const).map(v => (
+            <label key={v}><input type="radio" name="recording-view" checked={shown === v} onChange={() => choose(v)} />{v === "video" ? "Video" : "Audio only"}</label>
+          ))}
+        </div>
+      )}
+      {m.status === "ready" && <RecordingTimeline src={`/api/meetings/${id}/${shown === "video" ? "video" : "recording"}`} kind={shown} media={audio} totalMs={span || Math.max(0, ...d.segments.map(s => s.end_ms))}
+        markers={items.map(a => ({ id: a.assist_id, at_ms: a.at_ms, kind: a.kind }))} canSeek={canSeek} onSeek={seek} onBroken={() => { if (shown === "video") { carry.current = null; setView("audio"); } else setBroken(true); }} />}
       <div role="tablist" aria-label="Meeting views" className="tabs">
         {tabs.map(t => <button key={t} type="button" role="tab" id={`tab-${t}`} aria-selected={tab === t} aria-controls="tabpanel" tabIndex={tab === t ? 0 : -1}
           onClick={() => setTab(t)}>{t}</button>)}

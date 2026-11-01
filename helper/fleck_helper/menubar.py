@@ -22,6 +22,7 @@ from fleck_core.retrieval import EMBED_MODEL
 from fleck_helper.audio import CHUNK_FRAMES, AudioChunkWriter, Frame, Gap, Unavailable
 from fleck_helper.classify import CLASSIFY_MODEL
 from fleck_helper.pipeline import Candidate, Trigger
+from fleck_helper.video import NO_VIDEO, VideoRecorder
 
 STOP_RETRIES = (2, 5, 10, 20, 30, 60)  # seconds between tries of a Stop the api didn't take (~2 min, decision 153)
 MODELS = (ANSWER_MODEL, EMBED_MODEL, CLASSIFY_MODEL)  # loaded while recording, unloaded after (decision 123)
@@ -173,7 +174,7 @@ class Recorder:
 
     def __init__(self, api, transport, panel, *, power, ollama, ask, pipeline_factory=None, source_factory=default_source,
                  assistant_factory=None, chunks: Path = CHUNKS, check_parallel=check_parallel, rewarm=rewarm_embedders,
-                 on_change=lambda: None):
+                 on_change=lambda: None, video_factory=VideoRecorder):
         if pipeline_factory is None:
             from fleck_helper.pipeline import Pipeline as pipeline_factory
         if assistant_factory is None:
@@ -182,6 +183,7 @@ class Recorder:
         self.api, self.transport, self.panel, self.power, self.ollama, self.ask = api, transport, panel, power, ollama, ask
         self.pipeline_factory, self.source_factory, self.assistant_factory = pipeline_factory, source_factory, assistant_factory
         self.chunks, self.check_parallel, self.rewarm, self.on_change = Path(chunks), check_parallel, rewarm, on_change
+        self.video_factory, self.video_status, self._video = video_factory, None, None
         self.recording: str | None = None  # the meeting id
         self.title: str | None = None
         self.started_at: float | None = None
@@ -265,8 +267,8 @@ class Recorder:
         with self._lock:
             if not self.recording or (meeting_id is not None and meeting_id != self.recording):
                 return
-            mid, th = self.recording, self._thread
-            self.recording = self.started_at = None
+            mid, th, video = self.recording, self._thread, self._video
+            self.recording = self.started_at = self.video_status = self._video = None
             self._stop.set()
             if not notify_api:  # the api already has this Stop; otherwise the file goes once it does (a failed Stop is offered again)
                 (self.chunks / "current.json").unlink(missing_ok=True)
@@ -274,6 +276,11 @@ class Recorder:
             self.power.release()
 
             def after():  # the pipeline flushes its last segments and chunks first
+                if video is not None:  # up to ~5 s, off the caller's thread; a piece finishing later still queues
+                    try:
+                        video.stop()
+                    except Exception:
+                        log.warning("video stop failed", exc_info=True)
                 if th is not threading.current_thread():
                     th.join(120)
                 with self._lock:
@@ -316,6 +323,34 @@ class Recorder:
                 threading.Thread(target=self.rewarm, daemon=True).start()
             self.on_change()
 
+    def _video_status(self, mid: str, status: str) -> None:
+        """From the video threads; a status after this meeting's Stop is ignored."""
+        try:
+            log.info("meeting %s: %s", mid, status)  # the menu line, kept for troubleshooting
+            with self._lock:
+                if self.recording != mid:
+                    return
+                self.video_status = status
+            self.on_change()
+        except Exception:
+            log.warning("video status not shown", exc_info=True)
+
+    def _start_video(self, mid: str, stop: threading.Event, src: "_Recording") -> None:
+        """Video is best effort: any failure here leaves audio recording as before."""
+        try:
+            with self._lock:
+                if stop.is_set():  # Stop came first: no video to stop later
+                    return
+                out = self.chunks / mid / "video"  # pieces are keyed by start_ms, so a resumed meeting never overwrites
+                out.mkdir(parents=True, exist_ok=True)
+                self._video = self.video_factory(out_dir=out, t0_wall=lambda: src.t0_wall,
+                                                 on_piece=lambda ms, path: self.transport.upload_video(mid, ms, path),
+                                                 on_status=lambda s: self._video_status(mid, s))
+                self._video.start()
+        except Exception:
+            log.warning("meeting %s: video not started; recording audio only", mid, exc_info=True)
+            self._video_status(mid, NO_VIDEO)
+
     def _record(self, mid: str, stop: threading.Event) -> None:
         try:
             m = self.api.get(f"/api/meetings/{mid}")["meeting"]
@@ -335,6 +370,7 @@ class Recorder:
                 self.transport.upload_chunk(mid, seq, path)
                 self._save_state(mid, seq + 1)
             src = _Recording(self.source_factory(), stop, writer.seq * CHUNK_FRAMES * 20, writer, upload)
+            self._start_video(mid, stop, src)
 
             def post(e):
                 self.transport.send(e)
@@ -448,6 +484,7 @@ def _app_class():
             if r and r.recording:
                 self._rec_item = rumps.MenuItem(f"Recording {_clock(time.time() - (r.started_at or time.time()))}")
                 items += [self._rec_item] + ([rumps.MenuItem(r.title)] if r.title else [])
+                items += [rumps.MenuItem(r.video_status)] if r.video_status else []
                 items += [rumps.MenuItem("Stop recording", callback=lambda _: _bg(r.stop)), None]
             hide = rumps.MenuItem("Hide answer panel" if not self.panel.user_hidden else "Show answer panel",
                                   callback=lambda _: self.panel.toggle())
@@ -506,7 +543,7 @@ def main() -> None:
 
     LOG.parent.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-                        handlers=[logging.StreamHandler(), logging.FileHandler(LOG)])
+                        handlers=[logging.StreamHandler(), logging.FileHandler(LOG, encoding="utf-8")])
     has_key = load_claude_key()  # never logged
     token = load_token()
     panel = AnswerPanel()

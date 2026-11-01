@@ -58,11 +58,12 @@ def reprocess_late(session: Session, meeting_id: int) -> None:
         session.commit()  # the caller's row
 
 
-def enqueue_once(session: Session, kind: str, payload: dict) -> int | None:
-    """enqueue unless an identical job is already queued or running; returns None when skipped.
+def enqueue_once(session: Session, kind: str, payload: dict, active: tuple[str, ...] = ("queued", "running")) -> int | None:
+    """enqueue unless an identical job is already in one of `active`; returns None when skipped.
+    A job that reads its inputs once at the start passes ("queued",): a running one may have missed the new input.
     shortcut: check-then-insert, two callers racing can both enqueue; fine while handlers are idempotent."""
     if session.scalar(select(Job.id).where(Job.kind == kind, Job.payload == payload,
-                                           Job.status.in_(("queued", "running"))).limit(1)):
+                                           Job.status.in_(active)).limit(1)):
         return None
     return enqueue(session, kind, payload)
 
@@ -78,6 +79,12 @@ def _fail(session: Session, j: Job, error: str) -> None:
         except Exception:
             session.rollback()
             log.exception("on_fail for job %s (%s) raised", j.id, j.kind)
+
+
+def heartbeat(session: Session, kind: str, payload: dict) -> None:
+    """A long handler calls this between steps so run_once does not reclaim its job as stale. No running job: no-op."""
+    session.execute(update(Job).where(Job.kind == kind, Job.payload == payload, Job.status == "running").values(locked_at=func.now()))
+    session.commit()
 
 
 def run_once(session: Session) -> bool:

@@ -109,3 +109,66 @@ def test_an_uploaded_chunk_is_deleted_locally(tmp_path, monkeypatch):
     assert wav.exists() and t.pending() == 1
     t._upload(t._items()[0])
     assert not wav.exists() and t.pending() == 0  # the api has it: about 230 MB an hour no longer piles up
+
+
+def test_video_upload_does_not_block_events(tmp_path, monkeypatch):
+    import httpx
+
+    from fleck_helper import transport
+
+    def slow_put(url, **k):
+        time.sleep(2)
+        return httpx.Response(204)
+    monkeypatch.setattr(transport.httpx, "put", slow_put)
+    api = FakeApi(drop_after=99)
+    t = Transport(api.url, "tok", tmp_path / "box")
+    mp4 = tmp_path / "piece.mp4"
+    mp4.write_bytes(b"mp4")
+    t.upload_video("7", 0, mp4)
+    time.sleep(0.1)  # the video PUT is under way
+    t.send({"type": "segment", "segment_id": "c-0"})
+    deadline = time.time() + 0.5
+    while not api.got and time.time() < deadline:
+        time.sleep(0.01)
+    got = list(api.got)
+    t.close()
+    api.close()
+    assert [e["segment_id"] for e in got] == ["c-0"]
+
+
+def test_video_upload_retries_then_deletes(tmp_path, monkeypatch):
+    import httpx
+
+    from fleck_helper import transport
+    codes, calls = iter([503, 204]), []
+
+    def put(url, **k):
+        calls.append((url, k["headers"]["Content-Type"], k["timeout"]))
+        return httpx.Response(next(codes))
+    monkeypatch.setattr(transport.httpx, "put", put)
+    t = Transport("http://127.0.0.1:1", "tok", tmp_path / "box")
+    mp4 = tmp_path / "piece-000061000.mp4"
+    mp4.write_bytes(b"mp4")
+    t.upload_video("7", 61000, mp4)
+    deadline = time.time() + 3
+    while (mp4.exists() or list((tmp_path / "box").glob("*.vchunk"))) and time.time() < deadline:
+        time.sleep(0.02)
+    t.close()
+    assert calls == [("http://127.0.0.1:1/api/meetings/7/video/61000", "video/mp4", 120)] * 2
+    assert not mp4.exists() and not list((tmp_path / "box").glob("*.vchunk"))
+
+
+def test_non_ascii_text_survives_an_ascii_locale(tmp_path):
+    # the app bundle ran with an ASCII locale encoding: a Whisper line with "ú" ended meeting 11's recording.
+    # The child's source stays ASCII (escapes): an ASCII locale can't carry "é" in argv on Linux.
+    import subprocess
+    import sys
+    code = ("import sys; from pathlib import Path; from fleck_helper.transport import Transport\n"
+            "t = Transport('http://127.0.0.1:1', 'tok', Path(sys.argv[1]))\n"
+            "class E:\n    def model_dump_json(self): return '{\"text\": \"Qu\\u00e9 ser\\u00e1\"}'\n"
+            "t.send(E()); t.close()\n"
+            "print(Path(t._items()[0]).read_text(encoding='utf-8'))")
+    r = subprocess.run([sys.executable, "-c", code, str(tmp_path)], capture_output=True, text=True, encoding="utf-8",
+                       env={"LC_ALL": "en_US.US-ASCII", "PYTHONUTF8": "0", "PYTHONIOENCODING": "utf-8", "PATH": "/usr/bin:/bin"})
+    assert r.returncode == 0, r.stderr
+    assert json.loads(r.stdout)["text"] == "Qué será"

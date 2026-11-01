@@ -335,6 +335,33 @@ def panel_test(out_path: str) -> None:
     _run_in_app(work)
 
 
+def video_test(out_dir: str, secs: float, t0: float, title: str | None = None) -> None:
+    """Mac test helper (tests/mac/test_video_capture.py): the real VideoRecorder for `secs`, meeting time 0 at wall
+    time `t0`, on the window titled `title` if given; writes its pieces and video.json. Runs in the signed bundle,
+    which holds the Screen Recording permission."""
+    from fleck_helper.video import VideoRecorder, sck_windows
+
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    info = {"pieces": [], "status": []}
+
+    def work(app):  # inside a running app, as in the helper: SCContentFilter aborts the process without one
+        try:
+            wins = lambda: [w for w in sck_windows() if title is None or w.title == title]  # noqa: E731
+            rec = VideoRecorder(out, lambda: t0, lambda ms, p: info["pieces"].append([ms, str(p)]), info["status"].append,
+                                list_windows=wins)
+            info["start_wall"] = time.time()
+            rec.start()
+            time.sleep(secs)
+            rec.stop()
+            time.sleep(1)  # a piece still finishing after stop()'s budget
+            info["windows"] = [[w.owner, w.title, w.on_screen] for w in sck_windows() if w.title]  # why nothing matched
+        except Exception as e:
+            info["error"] = repr(e)
+        (out / "video.json").write_text(json.dumps(info, indent=2))
+    _run_in_app(work)
+
+
 def main(argv=None) -> None:
     argv = list(sys.argv[1:] if argv is None else argv)
     arg = lambda name, default=None: argv[argv.index(name) + 1] if name in argv else default  # noqa: E731
@@ -344,6 +371,8 @@ def main(argv=None) -> None:
         capture_test(arg("--play"), arg("--out"))
     elif "--panel-test" in argv:
         panel_test(arg("--out"))
+    elif "--video-test" in argv:
+        video_test(arg("--out"), float(arg("--secs", "70")), float(arg("--t0")), arg("--title"))
     else:  # the app itself
         from fleck_helper.menubar import main as run
         run()

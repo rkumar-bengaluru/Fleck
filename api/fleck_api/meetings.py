@@ -14,12 +14,14 @@ from fleck_api.db import get_session
 from fleck_api.devices import current_device, user_or_device
 from fleck_api.jobs import enqueue, enqueue_once, reprocess_late
 from fleck_api.library import _minio
-from fleck_api.models import Assist, AudioChunk, Brief, BriefItem, CalendarEvent, Client, Device, LlmCall, Meeting, Note, Segment, Summary, User
+from fleck_api.models import Assist, AudioChunk, Brief, BriefItem, CalendarEvent, Client, Device, LlmCall, Meeting, Note, Segment, Summary, User, VideoChunk
 from fleck_api.realtime import hub
 
 router = APIRouter(prefix="/api")
 BUCKET = "fleck-recordings"
 MAX_CHUNK = 64 * 1024 * 1024
+MAX_VIDEO_CHUNK = 64 * 2**20
+MAX_VIDEO_START_MS = 4 * 3600 * 1000
 
 
 def _row(o, *cols) -> dict:
@@ -32,7 +34,7 @@ def meeting_dict(s: Session, m: Meeting) -> dict:
     return _row(m, "id", "event_id", "title", "client_id", "recorded_by", "status", "failure_reason", "started_at", "ended_at") | {
         "client_name": client.name if client else None, "attendees": ev.attendees if ev else [],
         # the names the helper must keep out of what it sends to Claude (either side of the call)
-        "people": people_of(ev) if ev else []}
+        "people": people_of(ev) if ev else [], "has_video": m.video_key is not None}
 
 
 def people_of(ev: CalendarEvent) -> list[str]:
@@ -144,6 +146,26 @@ async def put_audio(meeting_id: int, seq: int, request: Request, d: Device = Dep
     if s.execute(insert(AudioChunk).values(meeting_id=meeting_id, seq=seq, blob_key=key).on_conflict_do_nothing().returning(AudioChunk.id)).first():
         reprocess_late(s, meeting_id)  # commits the row too
     s.commit()
+
+
+@router.put("/meetings/{meeting_id}/video/{start_ms}", status_code=204)
+async def put_video(meeting_id: int, start_ms: int, request: Request, d: Device = Depends(current_device), s: Session = Depends(get_session)):
+    m = _meeting(s, meeting_id)
+    if m.recorded_by != d.user_id:
+        raise HTTPException(403, "not your meeting")
+    data = await request.body()
+    if not 0 <= start_ms <= MAX_VIDEO_START_MS or not data or len(data) > MAX_VIDEO_CHUNK:
+        raise HTTPException(400, "empty or oversized video piece, or start_ms out of range")
+    key = f"meetings/{meeting_id}/video/{start_ms:09d}.mp4"
+    mc = _minio()
+    if not mc.bucket_exists(BUCKET):
+        mc.make_bucket(BUCKET)
+    mc.put_object(BUCKET, key, io.BytesIO(data), len(data), content_type="video/mp4")  # same key: a resend overwrites
+    new = s.execute(insert(VideoChunk).values(meeting_id=meeting_id, start_ms=start_ms, blob_key=key).on_conflict_do_nothing().returning(VideoChunk.id)).first()
+    s.commit()
+    s.refresh(m)  # commit first, then read status: either process_meeting sees the row or we see ready; enqueue_once absorbs a double
+    if new and m.status in ("ready", "failed"):  # while recording/processing, process_meeting enqueues it
+        enqueue_once(s, "assemble_video", {"meeting_id": meeting_id}, active=("queued",))
 
 
 class NotesIn(BaseModel):

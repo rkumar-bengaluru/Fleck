@@ -1,4 +1,4 @@
-import { useState, type RefObject } from "react";
+import { useState, type RefObject, type SyntheticEvent } from "react";
 import type { Kind } from "./SourceChip";
 
 export const mmss = (ms: number) => { const s = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
@@ -8,19 +8,25 @@ export const KIND_LABEL: Record<NonNullable<Kind>, string> = {
 export interface Marker { id: string; at_ms: number; kind: Kind }
 
 /** The player for the stitched recording with one marker per assist, coloured by kind. Without a recording only the markers show. */
-export default function RecordingTimeline({ src, audio, markers, totalMs, canSeek, onSeek, onBroken }: {
-  src: string | null; audio: RefObject<HTMLAudioElement | null>; markers: Marker[]; totalMs: number; canSeek: boolean; onSeek: (ms: number) => void; onBroken: () => void;
+export default function RecordingTimeline({ src, kind = "audio", media, markers, totalMs, canSeek, onSeek, onBroken }: {
+  src: string | null; kind?: "audio" | "video"; media: RefObject<HTMLMediaElement | null>; markers: Marker[]; totalMs: number; canSeek: boolean; onSeek: (ms: number) => void; onBroken: () => void;
 }) {
   const [now, setNow] = useState(0);
   const [length, setLength] = useState(0);
   const [playing, setPlaying] = useState(false);
   const total = length || totalMs || 1;
-  const toggle = () => { const a = audio.current; if (a) { if (a.paused) a.play().catch(() => {}); else a.pause(); } };
+  const toggle = () => { const a = media.current; if (a) { if (a.paused) a.play().catch(() => {}); else a.pause(); } };
   return (
     <div className="player">
-      {src && canSeek && <audio ref={audio} src={src} preload="metadata" onError={onBroken}
-        onTimeUpdate={e => setNow(e.currentTarget.currentTime * 1000)} onLoadedMetadata={e => setLength(Number.isFinite(e.currentTarget.duration) ? e.currentTarget.duration * 1000 : 0)}
-        onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} />}
+      {src && canSeek && (() => {
+        const p = { src, preload: "metadata" as const, onError: onBroken,
+          onTimeUpdate: (e: SyntheticEvent<HTMLMediaElement>) => setNow(e.currentTarget.currentTime * 1000),
+          onLoadedMetadata: (e: SyntheticEvent<HTMLMediaElement>) => setLength(Number.isFinite(e.currentTarget.duration) ? e.currentTarget.duration * 1000 : 0),
+          onPlay: () => setPlaying(true), onPause: () => setPlaying(false) };
+        return kind === "video"
+          ? <video key="video" ref={media as RefObject<HTMLVideoElement>} className="meeting-video" playsInline {...p} />
+          : <audio key="audio" ref={media as RefObject<HTMLAudioElement>} {...p} />;
+      })()}
       <button type="button" className="play" aria-label={playing ? "Pause recording" : "Play recording"} onClick={toggle} disabled={!canSeek}>
         <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">{playing ? <path d="M3 1.5h3v11H3zM8 1.5h3v11H8z" fill="currentColor" /> : <path d="M3 1.5v11l9-5.5z" fill="currentColor" />}</svg>
       </button>

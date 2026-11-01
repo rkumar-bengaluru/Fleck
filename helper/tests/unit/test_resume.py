@@ -71,13 +71,32 @@ class FakeOllama:
 
 class FakeTransport:
     def __init__(self):
-        self.sent, self.chunks = [], []
+        self.sent, self.chunks, self.videos = [], [], []
 
     def send(self, e):
         self.sent.append(e)
 
     def upload_chunk(self, meeting_id, seq, path):
         self.chunks.append((meeting_id, seq))
+
+    def upload_video(self, meeting_id, start_ms, path):
+        self.videos.append((meeting_id, start_ms, path))
+
+
+class FakeVideo:
+    """Records what the Recorder hands it; `made` holds every instance."""
+    made: list = []
+
+    def __init__(self, out_dir, t0_wall, on_piece, on_status):
+        self.out_dir, self.t0_wall, self.on_piece, self.on_status = out_dir, t0_wall, on_piece, on_status
+        self.calls = []
+        FakeVideo.made.append(self)
+
+    def start(self):
+        self.calls.append("start")
+
+    def stop(self):
+        self.calls.append("stop")
 
 
 class Silence:
@@ -115,12 +134,13 @@ class FakeAssistant:
 
 @pytest.fixture
 def make(tmp_path):
-    FakePipeline.created, FakePipeline.first_t = [], {}
+    FakePipeline.created, FakePipeline.first_t, FakeVideo.made = [], {}, []
 
     def make(api=None, ask=lambda text: True):
         r = Recorder(api or FakeApi(), FakeTransport(), FakePanel(), power=FakePower(), ollama=FakeOllama(), ask=ask,
                      pipeline_factory=FakePipeline, source_factory=Silence, assistant_factory=lambda m: FakeAssistant(),
-                     chunks=tmp_path, check_parallel=lambda: None, rewarm=lambda: make.rewarmed.append(1))
+                     chunks=tmp_path, check_parallel=lambda: None, rewarm=lambda: make.rewarmed.append(1),
+                     video_factory=FakeVideo)
         return r
     make.rewarmed = []
     return make
@@ -324,14 +344,10 @@ def test_a_finished_meeting_thread_never_stops_the_next_meeting(make):
 
 @pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")  # the alert's error, on purpose
 def test_a_failing_resume_prompt_answers_start_new(monkeypatch):
-    import sys
-
-    import rumps
+    rumps = pytest.importorskip("rumps", reason="AppKit (macOS only)")
     from PyObjCTools import AppHelper
 
     from fleck_helper import menubar
-    if sys.platform != "darwin":
-        pytest.skip("AppKit")
 
     def boom(**kw):
         raise RuntimeError("alert failed")
@@ -390,3 +406,56 @@ def test_a_menu_stop_the_api_missed_is_retried_and_offered_again_until_it_lands(
     r.stop()
     r.wait(5)
     assert json.loads((tmp_path / "current.json").read_text())["meeting_id"] == "101"
+
+
+def test_record_starts_and_stops_video(make, tmp_path):
+    r = make()
+    r.start()
+    assert _until(lambda: FakeVideo.made and FakeVideo.made[0].calls == ["start"])
+    v = FakeVideo.made[0]
+    assert v.out_dir == tmp_path / "101" / "video" and v.out_dir.is_dir()
+    assert _until(lambda: v.t0_wall() is not None)  # the audio's wall clock at meeting time 0
+    assert abs(v.t0_wall() - time.time()) < 5
+    v.on_piece(61000, v.out_dir / "piece-000061000.mp4")
+    assert r.transport.videos == [("101", 61000, v.out_dir / "piece-000061000.mp4")]
+    r.stop()
+    r.wait(5)
+    assert v.calls == ["start", "stop"]
+    v.on_piece(121000, v.out_dir / "piece-000121000.mp4")  # a piece finishing after stop still goes up
+    assert r.transport.videos[-1] == ("101", 121000, v.out_dir / "piece-000121000.mp4")
+
+
+def test_window_gone_ends_video_keeps_audio(make):
+    from fleck_helper.video import NO_VIDEO
+    r = make()
+    r.start()
+    assert _until(lambda: FakeVideo.made)
+    v = FakeVideo.made[0]
+    v.on_status("Video: Zoom Meeting")
+    assert r.video_status == "Video: Zoom Meeting"
+    v.on_status(NO_VIDEO)
+    assert r.video_status == NO_VIDEO
+    n = len(r.transport.chunks)
+    assert _until(lambda: len(r.transport.chunks) > n + 1, 15)  # audio goes on
+    assert r.recording == "101"
+    r.stop()
+    r.wait(5)
+    assert ("/api/meetings/101/stop", None) in r.api.posts
+    assert r.video_status is None
+    v.on_status("Video: late")  # a status after stop is ignored
+    assert r.video_status is None
+
+
+def test_video_factory_error_does_not_stop_recording(make):
+    from fleck_helper.video import NO_VIDEO
+
+    def boom(**kw):
+        raise RuntimeError("no screen recording permission")
+    r = make()
+    r.video_factory = boom
+    r.start()
+    assert _until(lambda: r.video_status == NO_VIDEO)
+    assert _until(lambda: len(r.transport.chunks) > 1, 15) and r.recording == "101"
+    r.stop()
+    r.wait(5)
+    assert ("/api/meetings/101/stop", None) in r.api.posts

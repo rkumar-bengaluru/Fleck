@@ -2,6 +2,7 @@
 import difflib
 import io
 import json
+import logging
 import math
 import re
 import subprocess
@@ -22,10 +23,10 @@ from fleck_api.auth import current_user
 from fleck_api.claude import claude_call
 from fleck_api.config import get_settings, setting
 from fleck_api.db import get_session
-from fleck_api.jobs import LATE_GRACE, enqueue, job
+from fleck_api.jobs import LATE_GRACE, enqueue, enqueue_once, heartbeat, job
 from fleck_api.library import _minio
 from fleck_api.meetings import BUCKET, _meeting
-from fleck_api.models import Assist, AudioChunk, Meeting, Note, Segment, Summary, User
+from fleck_api.models import Assist, AudioChunk, Meeting, Note, Segment, Summary, User, VideoChunk
 
 router = APIRouter(prefix="/api")
 USED_WINDOW_MS = 15_000
@@ -42,6 +43,7 @@ SUMMARY_TOOL = {
 }
 MAX_CHUNKS = 4 * 360  # 4 hours of the helper's 10 s chunks; a larger seq is a bad upload, not a meeting
 BULLET = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+")
+log = logging.getLogger(__name__)
 
 
 def assemble_recording(s: Session, meeting_id: int) -> None:
@@ -74,6 +76,75 @@ def assemble_recording(s: Session, meeting_id: int) -> None:
         key = f"recordings/{meeting_id}.m4a"
         mc.fput_object(BUCKET, key, str(out), content_type="audio/mp4")
     s.get(Meeting, meeting_id).recording_key = key
+
+
+def _ff(cmd: list[str], timeout=1800) -> str:
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    if r.returncode:
+        raise RuntimeError(f"{cmd[0]} failed: {r.stderr.strip()[-300:]}")
+    return r.stdout
+
+
+def _duration(path: Path) -> float:
+    return float(_ff(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)]))
+
+
+def assemble_video(s: Session, meeting_id: int) -> None:
+    """Pieces by start_ms (a gap becomes black) -> one H.264 10 fps file, with the recording's audio when there is one.
+    Never changes the meeting status and never raises: a failure is a warning and leaves video_key as it was."""
+    try:
+        m = s.get(Meeting, meeting_id)
+        pieces = list(s.scalars(select(VideoChunk).where(VideoChunk.meeting_id == meeting_id).order_by(VideoChunk.start_ms)))
+        if not pieces:
+            return
+        mc = _minio()
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            src = []
+            for i, c in enumerate(pieces):
+                mc.fget_object(BUCKET, c.blob_key, str(d / f"src{i}.mp4"))
+                src.append(d / f"src{i}.mp4")
+            w, h = _ff(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=s=x:p=0", str(src[0])]).strip().split("x")
+            k = min(1, 1280 / int(w), 720 / int(h))  # capped at 1280x720, aspect kept
+            w, h = int(int(w) * k) // 2 * 2, int(int(h) * k) // 2 * 2  # yuv420p needs even sides
+            enc = ["-vf", f"fps=10,scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1",
+                   "-r", "10", "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-an"]
+            clips, cursor = [], 0.0  # cursor: seconds of timeline already filled
+            for i, c in enumerate(pieces):
+                start = c.start_ms / 1000
+                if start - cursor > 0.05:
+                    gap = d / f"gap{i}.mp4"
+                    _ff(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", f"color=black:s={w}x{h}:r=10", "-t", f"{start - cursor:.3f}", *enc[2:], str(gap)])
+                    clips.append(gap)
+                    cursor = start
+                if cursor - start >= _duration(src[i]) - 0.05:  # wholly inside the previous piece
+                    continue
+                out = d / f"clip{i}.mp4"
+                # an overlapping piece (a resend after a resume) loses its head so start times never go backwards
+                _ff(["ffmpeg", "-y", "-v", "error", "-ss", f"{max(0.0, cursor - start):.3f}", "-i", str(src[i]), *enc, str(out)])
+                clips.append(out)
+                cursor += _duration(out)
+                heartbeat(s, "assemble_video", {"meeting_id": meeting_id})
+            (d / "list.txt").write_text("".join(f"file '{p}'\n" for p in clips))
+            audio = []
+            if m.recording_key:
+                mc.fget_object(BUCKET, m.recording_key, str(d / "audio.m4a"))
+                audio = ["-i", str(d / "audio.m4a")]
+            final = d / "final.mp4"
+            _ff(["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", str(d / "list.txt"), *audio,
+                 "-c", "copy", "-movflags", "+faststart", str(final)])
+            key = f"recordings/{meeting_id}.mp4"
+            mc.fput_object(BUCKET, key, str(final), content_type="video/mp4")
+        m.video_key = key
+    except Exception as e:
+        s.rollback()
+        log.warning("assemble_video for meeting %s failed: %s: %s", meeting_id, type(e).__name__, e)
+
+
+@job("assemble_video")
+def _assemble_video_job(s: Session, payload: dict) -> None:
+    assemble_video(s, payload["meeting_id"])
+    s.commit()
 
 
 def store_transcript(s: Session, meeting_id: int) -> None:
@@ -222,6 +293,9 @@ def process_meeting(s: Session, payload: dict) -> None:
         s.get(Meeting, mid).status = "ready"
         s.commit()
         enqueue(s, "index_meeting", {"meeting_id": mid})  # its own job: a slow Ollama must not fail the meeting
+        # counted after the commit: with put_video's post-commit status read, one side always sees the other
+        if s.scalar(select(func.count()).select_from(VideoChunk).where(VideoChunk.meeting_id == mid)):
+            enqueue_once(s, "assemble_video", {"meeting_id": mid}, active=("queued",))
     except Exception as e:
         s.rollback()
         m = s.get(Meeting, mid)
@@ -237,11 +311,23 @@ def get_recording(meeting_id: int, request: Request, _u: User = Depends(current_
     m = _meeting(s, meeting_id)
     if not m.recording_key:
         raise HTTPException(404, "no recording")
-    mc, key = _minio(), m.recording_key
+    return _stream_object(request, m.recording_key, "audio/mp4")
+
+
+@router.get("/meetings/{meeting_id}/video")
+def get_video(meeting_id: int, request: Request, _u: User = Depends(current_user), s: Session = Depends(get_session)):
+    m = _meeting(s, meeting_id)
+    if not m.video_key:
+        raise HTTPException(404, "no video")
+    return _stream_object(request, m.video_key, "video/mp4")
+
+
+def _stream_object(request: Request, key: str, media_type: str) -> StreamingResponse:
+    mc = _minio()
     try:
         size = mc.stat_object(BUCKET, key).size
     except S3Error:
-        raise HTTPException(404, "recording file is missing")
+        raise HTTPException(404, "file is missing")
     head = {"Accept-Ranges": "bytes"}
     start, end, status = 0, size - 1, 200
     if rng := request.headers.get("range"):  # single ranges only: "a-b", "a-", "-n"
@@ -260,4 +346,4 @@ def get_recording(meeting_id: int, request: Request, _u: User = Depends(current_
         finally:
             obj.close()
             obj.release_conn()
-    return StreamingResponse(body(), status_code=status, media_type="audio/mp4", headers=head | {"Content-Length": str(end - start + 1)})
+    return StreamingResponse(body(), status_code=status, media_type=media_type, headers=head | {"Content-Length": str(end - start + 1)})

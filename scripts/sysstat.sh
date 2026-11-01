@@ -16,9 +16,9 @@ snapshot() {
   else
     echo "Ollama   not running"
   fi
-  local docker_mem; docker_mem=$(docker stats --no-stream --format '{{.Name}} {{.MemUsage}}' 2>/dev/null | grep '^fleck-' | awk '{print $1, $2}' | paste -sd, - | sed 's/,/, /g')
+  local docker_mem; docker_mem=$(docker stats --no-stream --format '{{.Name}} {{.MemUsage}}' 2>/dev/null | { grep '^fleck-' || true; } | awk '{print $1, $2}' | paste -sd, - | sed 's/,/, /g')
   echo "Docker   ${docker_mem:-no Fleck containers}"
-  local helper; helper=$(pgrep -f "Fleck Helper.app/Contents/MacOS" | head -1)
+  local helper; helper=$(pgrep -f "Fleck Helper.app/Contents/MacOS" | head -1 || true)
   if [ -n "$helper" ]; then echo "Helper   running, $(( $(ps -o rss= -p "$helper") / 1024 )) MB"; else echo "Helper   not running"; fi
   echo
 }

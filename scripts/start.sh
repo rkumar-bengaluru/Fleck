@@ -24,7 +24,8 @@ check "api health (postgres, minio, weaviate, ollama)" 'curl -sf localhost:8000/
 check "web app on :5173" 'curl -sf -o /dev/null localhost:5173/'
 check "worker container running" 'docker ps --format "{{.Names}}" | grep -qx fleck-worker-1'
 for m in qwen3:4b-q4_K_M qwen3-embedding:0.6b qwen3-embedding:4b; do
-  check "ollama model $m loaded" "ollama ps | awk 'NR>1 {print \$1}' | grep -qx '$m'"
+  # installed, not loaded: Fleck loads them into GPU memory when a recording starts (helper warm-up)
+  check "ollama model $m installed" "ollama list | awk 'NR>1 {print \$1}' | grep -qx '$m'"
 done
 check "Fleck Helper running" 'pgrep -f "Fleck Helper.app/Contents/MacOS"'
 echo

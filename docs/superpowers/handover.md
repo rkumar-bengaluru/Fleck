@@ -1,6 +1,6 @@
 # Hand-over notes
 
-For rupak.k. Fleck's MVP is built on branch `feat/mvp`. This note says what is running, what was measured, what only you can check, and what is known not to work. Every call made without you is in the [decision log](decisions.md) (decisions 1–162, each with the critique agent's verdict). What happened, run by run, is in the [build log](build-log.md). To use Fleck, follow the [user guide](../user-guide.md).
+For rupak.k. Fleck's MVP is built on branch `feat/mvp`. This note says what is running, what was measured, what only you can check, and what is known not to work. Every call made without you is in the [decision log](decisions.md) (decisions 1–164, each with the critique agent's verdict). What happened, run by run, is in the [build log](build-log.md). To use Fleck, follow the [user guide](../user-guide.md).
 
 ## 1. What's running and where
 
@@ -127,6 +127,12 @@ The older Task 2b and Task 11 checks are further down `manual-checks.md` (captur
 - Device tokens never expire and can't be revoked in the app (M8). Fine for one Mac on localhost; needed before a shared deployment.
 - `make reset` asks you to type RESET (decision 155). It doesn't clear the helper's outbox or state file, which can then land in a new meeting with the same id: quit the helper and empty `~/Library/Application Support/Fleck/outbox` and `recordings/current.json` before a reset.
 - A remote colleague on the call is heard through call audio and treated as **Client** (spec §7.2).
+
+**Your own audio (found in your test recordings, 31 Oct)**
+- Recording no longer turns other apps' audio down (decision 163); the call and videos keep their volume.
+- Whisper loads when the app opens (decision 164). Give it about 30 s after opening before the first recording, or the first seconds may still be slow to transcribe.
+- Voices near your Mac (a TV, someone in the room) are heard on your mic as **You**. While they talk, the client's lines are gated "overlap" and never trigger an answer. Record in a quiet room.
+- On noise or unclear sound, Whisper sometimes writes a made-up phrase, repeated ("I'm not going to be a good one" ×3 in meeting 6). It lands in the transcript and the summary's input.
 
 ## 5. Retraining the question classifier
 

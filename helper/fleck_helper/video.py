@@ -87,6 +87,27 @@ def _fit(w: float, h: float) -> tuple[int, int]:
     return max(2, int(w * s) // 2 * 2), max(2, int(h * s) // 2 * 2)  # H.264 wants even sides
 
 
+def _frame_handler(on_frame, on_stopped, status_of, wall_of):
+    """SCK calls this on its GCD queue: nothing may raise out of it (an uncaught error aborts the process, audio too)."""
+    dead = []
+
+    def cb(sbuf):
+        if dead:
+            return
+        try:
+            st = status_of(sbuf)
+            if st != "stopped":
+                if st == "complete":  # idle/blank frames carry no image; skip them
+                    on_frame(sbuf, wall_of(sbuf))
+                return
+        except Exception:
+            log.exception("video frame callback failed")
+        dead.append(1)
+        on_stopped()
+
+    return cb
+
+
 class _Stream:
     def __init__(self, stream, keep):
         self._stream, self._keep = stream, keep  # keep: the ObjC output/delegate must outlive the stream
@@ -111,21 +132,22 @@ def sck_window_stream(window_id: int, on_frame: Callable[[object, float], None],
     cfg.setMinimumFrameInterval_(CM.CMTimeMake(1, FPS))
     cfg.setCapturesAudio_(False)
     host = CM.CMClockGetHostTimeClock()
-    complete = SC.SCFrameStatusComplete
+    # a closed window may only show up as a Stopped frame, never as didStopWithError
+    names = {SC.SCFrameStatusComplete: "complete", SC.SCFrameStatusStopped: "stopped"}
 
-    def on_video(sbuf):
-        # idle/blank frames carry no image; only complete frames go to the encoder
+    def status_of(sbuf):
         att = CM.CMSampleBufferGetSampleAttachmentsArray(sbuf, False)
-        if not att or att[0].get(SC.SCStreamFrameInfoStatus) != complete:
-            return
+        return names.get(att[0].get(SC.SCStreamFrameInfoStatus)) if att else None
+
+    def wall_of(sbuf):
         pts = CM.CMTimeGetSeconds(CM.CMSampleBufferGetPresentationTimeStamp(sbuf))  # host clock
-        on_frame(sbuf, time.time() - (CM.CMTimeGetSeconds(CM.CMClockGetTime(host)) - pts))
+        return time.time() - (CM.CMTimeGetSeconds(CM.CMClockGetTime(host)) - pts)
 
     cls = _sc_classes()
     delegate = cls["delegate"].alloc().init()
     delegate.cb = on_stopped
     out = cls["out"].alloc().init()
-    out.cb = on_video
+    out.cb = _frame_handler(on_frame, on_stopped, status_of, wall_of)
     stream = SC.SCStream.alloc().initWithFilter_configuration_delegate_(flt, cfg, delegate)
     ok, err = stream.addStreamOutput_type_sampleHandlerQueue_error_(out, SC.SCStreamOutputTypeScreen, None, None)
     if not ok:
@@ -178,10 +200,14 @@ class _AVWriter:
             if not self.input.appendSampleBuffer_(sbuf):
                 raise RuntimeError(f"video append: {self.writer.error()}")
 
-    def finish(self):
+    def finish(self, end_wall: float):
         import AVFoundation as AV
+        import CoreMedia as CM
 
+        # end at end_wall, not the last frame: a static window sends no frames, its tail must not be cut
+        now = CM.CMTimeGetSeconds(CM.CMClockGetTime(CM.CMClockGetHostTimeClock()))
         self.input.markAsFinished()
+        self.writer.endSessionAtSourceTime_(CM.CMTimeMakeWithSeconds(now - (time.time() - end_wall), 1_000_000_000))
         ev = threading.Event()
         self.writer.finishWritingWithCompletionHandler_(ev.set)
         if not ev.wait(3) or self.writer.status() != AV.AVAssetWriterStatusCompleted:
@@ -193,6 +219,8 @@ class _AVWriter:
 
 
 class VideoRecorder:
+    STOP_BUDGET_S = 4.5  # stop() returns within 5 s; a piece still finishing then arrives late
+
     def __init__(self, out_dir: Path, t0_wall: Callable[[], float | None], on_piece: Callable[[int, Path], None],
                  on_status: Callable[[str], None], list_windows: Callable[[], list[Win]] = sck_windows,
                  stream_factory=sck_window_stream, poll_s: float = 2.0, piece_s: float = 60.0,
@@ -205,6 +233,7 @@ class VideoRecorder:
         self._stream = self._writer = self._thread = None
         self._piece_wall = self._piece_ms = None
         self._failed = False
+        self._finisher = None  # the last piece-finishing thread; each joins the one before
 
     def start(self) -> None:
         self._thread = threading.Thread(target=self._run, name="fleck-video", daemon=True)
@@ -236,7 +265,7 @@ class VideoRecorder:
                 if self._halt.is_set():
                     return
                 if self._writer is not None and round((wall - self._piece_wall) * 1000) >= round(self.piece_s * 1000):
-                    self._finish_piece()
+                    self._hand_off(wall)
                 if self._writer is None:
                     self._piece_wall, self._piece_ms = wall, max(0, round((wall - self.t0_wall()) * 1000))
                     self._writer = self.writer_factory(self.out_dir / f"piece-{self._piece_ms:09d}.mp4")
@@ -244,20 +273,39 @@ class VideoRecorder:
         except Exception:
             self._fail()
 
-    def _finish_piece(self):  # caller holds the lock
-        w, self._writer = self._writer, None
-        w.finish()
-        self.on_piece(self._piece_ms, w.path)
+    def _hand_off(self, end_wall: float):
+        """Caller holds the lock. Finish the open piece off the capture thread; pieces are delivered in order."""
+        w, ms, prev, self._writer = self._writer, self._piece_ms, self._finisher, None
+        if w is None:
+            return
 
-    def _on_stopped(self):  # the stream ended on its own (window closed, permission pulled)
-        log.warning("video stream stopped")
+        def run():
+            if prev is not None:
+                prev.join()
+            try:
+                w.finish(end_wall)
+                self.on_piece(ms, w.path)
+            except Exception:  # one lost piece; video goes on
+                log.warning("video piece %s lost", w.path.name, exc_info=True)
+
+        self._finisher = threading.Thread(target=run, name="fleck-video-piece", daemon=True)
+        self._finisher.start()
+
+    def _on_stopped(self):  # the stream ended on its own (window closed, permission pulled, callback error)
         try:
             with self._lock:
+                if self._halt.is_set():  # our own stop(), or a failure already reported
+                    return
                 self._halt.set()
-                if self._writer is not None:
-                    self._finish_piece()
+                self._failed = True
+                self._hand_off(time.time())
+                stream, self._stream = self._stream, None
+            log.warning("video stream stopped; recording audio only")
+            if stream is not None:
+                stream.stop()
         except Exception:
-            self._fail()
+            log.warning("video stream stop failed", exc_info=True)
+        self.on_status(NO_VIDEO)
 
     def _fail(self):
         with self._lock:
@@ -276,19 +324,17 @@ class VideoRecorder:
         self.on_status(NO_VIDEO)
 
     def stop(self) -> None:
+        deadline = time.monotonic() + self.STOP_BUDGET_S
         self._halt.set()
-        try:
-            with self._lock:
-                if self._writer is not None:
-                    self._finish_piece()
-        except Exception:
-            self._fail()
         with self._lock:
+            self._hand_off(time.time())
             stream, self._stream = self._stream, None
+            fin = self._finisher
         if stream is not None:
             try:
                 stream.stop()
             except Exception:
                 log.warning("video stream stop failed", exc_info=True)
-        if self._thread is not None:
-            self._thread.join(timeout=4)
+        for t in (fin, self._thread):
+            if t is not None:
+                t.join(max(0.0, deadline - time.monotonic()))

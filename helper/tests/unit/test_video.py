@@ -1,7 +1,7 @@
 import threading
 import time
 
-from fleck_helper.video import VideoRecorder, Win, pick_window
+from fleck_helper.video import VideoRecorder, Win, _frame_handler, pick_window
 
 ZOOM, CHROME = "us.zoom.xos", "com.google.Chrome"
 T = 1_700_000_000.0
@@ -22,15 +22,17 @@ def test_pick_window_never_fleck_or_fallback():
 
 
 class FakeWriter:
-    def __init__(self, path, log, fail=False):
-        self.path, self.log, self.fail, self.frames = path, log, fail, []
+    def __init__(self, path, log, fail=False, slow=0.0):
+        self.path, self.log, self.fail, self.slow, self.frames = path, log, fail, slow, []
 
     def append(self, sbuf, wall):
         if self.fail:
             raise RuntimeError("encoder exploded")
         self.frames.append(sbuf)
 
-    def finish(self):
+    def finish(self, end_wall):
+        time.sleep(self.slow)
+        self.end_wall = end_wall
         self.log.append(("finish", self.path.name, len(self.frames)))
 
     def cancel(self):
@@ -42,7 +44,7 @@ class FakeStream:
         self.frames, self.stopped, self.on_frame, self.done = frames, False, None, False
 
     def factory(self, window_id, on_frame, on_stopped):
-        self.window_id, self.on_frame = window_id, on_frame
+        self.window_id, self.on_frame, self.on_stopped = window_id, on_frame, on_stopped
         for i, wall in enumerate(self.frames):
             on_frame(f"buf{i}", wall)
         self.done = True
@@ -52,11 +54,17 @@ class FakeStream:
         self.stopped = True
 
 
-def _rec(tmp_path, stream, wins=lambda: [Win(7, CHROME, "Meet - abc-defg-hij", True)], t0=lambda: T, fail=False, **kw):
-    pieces, status, log = [], [], []
+def _rec(tmp_path, stream, wins=lambda: [Win(7, CHROME, "Meet - abc-defg-hij", True)], t0=lambda: T, fail=False,
+         slow=0.0, **kw):
+    pieces, status, log, writers = [], [], [], []
+
+    def writer(p):
+        writers.append(FakeWriter(p, log, fail, slow))
+        return writers[-1]
+
     r = VideoRecorder(tmp_path, t0, lambda ms, p: pieces.append((ms, p)), status.append,
-                      list_windows=wins, stream_factory=stream.factory, poll_s=0.01,
-                      writer_factory=lambda p: FakeWriter(p, log, fail), **kw)
+                      list_windows=wins, stream_factory=stream.factory, poll_s=0.01, writer_factory=writer, **kw)
+    r.writers = writers
     return r, pieces, status, log
 
 
@@ -104,18 +112,19 @@ def test_pieces_roll_every_piece_s(tmp_path):
     r.stop()
     assert [ms for ms, _ in pieces] == [0, 1000, 2000]
     assert [n for _, _, n in log] == [10, 10, 5]
+    assert [w.end_wall for w in r.writers[:2]] == [T + 1.0, T + 2.0]  # a piece ends where the next begins
 
 
 def test_stop_finishes_partial_piece(tmp_path):
     stream = FakeStream([T + i / 10 for i in range(5)])
-    r, pieces, _, log = _rec(tmp_path, stream)
+    r, pieces, status, log = _rec(tmp_path, stream)
     r.start()
     _wait(lambda: stream.done)
     t = time.monotonic()
     r.stop()
     assert time.monotonic() - t < 5
     assert len(pieces) == 1 and log == [("finish", "piece-000000000.mp4", 5)]
-    assert stream.stopped
+    assert stream.stopped and "Video: none (audio only)" not in status
     stream.on_frame("late", T + 9)  # frames after stop are dropped
     assert len(pieces) == 1
 
@@ -149,3 +158,59 @@ def test_list_windows_error_reports_audio_only(tmp_path):
     _wait(lambda: "Video: none (audio only)" in status)
     r.stop()
     assert status == ["Video: waiting for call window", "Video: none (audio only)"]
+
+
+def test_window_closed_delivers_piece_and_reports_audio_only(tmp_path):
+    stream = FakeStream([T, T + 0.1])
+    r, pieces, status, _ = _rec(tmp_path, stream)
+    r.start()
+    _wait(lambda: stream.done)
+    stream.on_stopped()
+    _wait(lambda: pieces)
+    stream.on_stopped()  # a second stop signal changes nothing
+    r.stop()
+    assert [ms for ms, _ in pieces] == [0]
+    assert status == ["Video: waiting for call window", "Video: Meet - abc-defg-hij", "Video: none (audio only)"]
+    assert stream.stopped
+
+
+def test_frame_handler_forwards_complete_and_stops_on_stopped_or_error():
+    got, stops = [], []
+    status = {"a": "complete", "idle": None, "end": "stopped", "after": "complete"}
+    cb = _frame_handler(lambda b, w: got.append((b, w)), lambda: stops.append(1), status.__getitem__, lambda b: 5.0)
+    for b in ("a", "idle", "end", "after"):
+        cb(b)
+    assert got == [("a", 5.0)] and stops == [1]
+
+    def boom(b):
+        raise ValueError("bad attachment")
+
+    stops.clear()
+    cb = _frame_handler(lambda b, w: got.append(b), lambda: stops.append(1), boom, lambda b: 5.0)
+    cb("x")  # must not raise on the SCK queue
+    cb("y")
+    assert stops == [1]
+
+
+def test_rollover_does_not_block_capture(tmp_path):
+    stream = FakeStream([T + i / 10 for i in range(25)])
+    r, pieces, _, _ = _rec(tmp_path, stream, piece_s=1.0, slow=0.2)
+    r.start()
+    t = time.monotonic()
+    _wait(lambda: stream.done)
+    assert time.monotonic() - t < 0.3  # two slow finishes ran off the capture thread
+    r.stop()
+    assert [ms for ms, _ in pieces] == [0, 1000, 2000]  # still in order
+
+
+def test_stop_keeps_its_budget_with_slow_finishes(tmp_path):
+    stream = FakeStream([T + i / 10 for i in range(15)])
+    r, pieces, _, _ = _rec(tmp_path, stream, piece_s=1.0, slow=0.4)
+    r.STOP_BUDGET_S = 0.5
+    r.start()
+    _wait(lambda: stream.done)
+    t = time.monotonic()
+    r.stop()
+    assert time.monotonic() - t < 0.7 and stream.stopped
+    _wait(lambda: len(pieces) == 2)  # the late piece still arrives, in order
+    assert [ms for ms, _ in pieces] == [0, 1000]

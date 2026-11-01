@@ -240,3 +240,14 @@ def test_meeting_dict_has_video(env):
         s.get(Meeting, mid).video_key = "meetings/1/video.mp4"
         s.commit()
     assert client.get(f"/api/meetings/{mid}").json()["meeting"]["has_video"] is True
+
+
+def test_piece_enqueues_assemble_video_by_status(env):
+    client, make, auth, mid = _video_meeting(env)
+    for status, n in (("processing", 0), ("failed", 1)):
+        with make() as s:
+            s.get(Meeting, mid).status = status
+            s.commit()
+        assert client.put(f"/api/meetings/{mid}/video/{n}", content=b"abc", headers=auth).status_code == 204
+        with make() as s:
+            assert s.scalar(select(func.count()).select_from(Job).where(Job.kind == "assemble_video")) == n

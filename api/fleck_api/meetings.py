@@ -163,6 +163,7 @@ async def put_video(meeting_id: int, start_ms: int, request: Request, d: Device 
     mc.put_object(BUCKET, key, io.BytesIO(data), len(data), content_type="video/mp4")  # same key: a resend overwrites
     new = s.execute(insert(VideoChunk).values(meeting_id=meeting_id, start_ms=start_ms, blob_key=key).on_conflict_do_nothing().returning(VideoChunk.id)).first()
     s.commit()
+    s.refresh(m)  # commit first, then read status: either process_meeting sees the row or we see ready; enqueue_once absorbs a double
     if new and m.status in ("ready", "failed"):  # while recording/processing, process_meeting enqueues it
         enqueue_once(s, "assemble_video", {"meeting_id": meeting_id})
 

@@ -378,3 +378,82 @@ def test_audio_seq_past_four_hours_fails_the_meeting(env):
         s.expire_all()
         m = s.get(Meeting, mid)
         assert m.status == "failed" and "4 hour" in m.failure_reason
+
+
+def mp4(path, seconds=2, size="160x120") -> bytes:
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", f"testsrc=s={size}:r=10:d={seconds}", "-pix_fmt", "yuv420p", str(path)], check=True)
+    return Path(path).read_bytes()
+
+
+def _video_meeting(env, tmp_path, starts=(1000, 5000), audio=8.0, pieces=None):
+    client, _, make = env
+    auth = pair(env)
+    mid = new_meeting(client, auth)
+    for i, st in enumerate(starts):
+        data = pieces[i] if pieces else mp4(tmp_path / f"p{i}.mp4")
+        assert client.put(f"/api/meetings/{mid}/video/{st}", content=data, headers=auth).status_code == 204
+    if audio:
+        client.put(f"/api/meetings/{mid}/audio/0", content=wav(audio), headers=auth)
+    client.post(f"/api/meetings/{mid}/stop")
+    with make() as s:
+        if audio:
+            processing.assemble_recording(s, mid)
+            s.commit()
+    return client, make, auth, mid
+
+
+def test_assemble_video_places_pieces_with_gap(env, tmp_path):
+    client, make, _, mid = _video_meeting(env, tmp_path)
+    with make() as s:
+        processing.assemble_video(s, mid)
+        s.commit()
+        key = s.get(Meeting, mid).video_key
+    assert key == f"recordings/{mid}.mp4"
+    _minio().fget_object(BUCKET, key, str(tmp_path / "v.mp4"))
+    info = probe(str(tmp_path / "v.mp4"), "codec_type")
+    assert sorted(x["codec_type"] for x in info["streams"]) == ["audio", "video"]
+    assert abs(float(info["format"]["duration"]) - 8.0) < 0.2
+
+
+def test_assemble_video_failure_leaves_meeting_ready(env, tmp_path):
+    client, make, _, mid = _video_meeting(env, tmp_path, starts=(0,), pieces=[b"not an mp4"], audio=0)
+    with make() as s:
+        s.get(Meeting, mid).status = "ready"
+        s.commit()
+        processing.assemble_video(s, mid)  # must not raise
+        s.commit()
+        m = s.get(Meeting, mid)
+        assert m.status == "ready" and m.video_key is None
+
+
+def test_process_meeting_enqueues_assemble_video(env, monkeypatch, tmp_path):
+    client, make, auth, mid = _video_meeting(env, tmp_path, starts=(0,), audio=1.0)
+    plain = new_meeting(client, auth)
+    client.put(f"/api/meetings/{plain}/audio/0", content=wav(1.0), headers=auth)
+    client.post(f"/api/meetings/{plain}/stop")
+    monkeypatch.setattr(processing, "compute_used_markers", lambda s, m: None)
+    monkeypatch.setattr(processing, "summarise", lambda s, m: None)
+    monkeypatch.setattr(processing, "assemble_video", lambda s, m: None)
+    with make() as s:
+        while run_once(s):
+            pass
+        assert s.get(Meeting, mid).status == "ready"
+        kinds = lambda m: [j.kind for j in s.scalars(select(Job).where(Job.payload["meeting_id"].as_integer() == m))]
+        assert kinds(mid).count("assemble_video") == 1 and kinds(plain).count("assemble_video") == 0
+
+
+def test_get_video_range(env, tmp_path):
+    client, make, _, mid = _video_meeting(env, tmp_path, starts=(0,), audio=0)
+    with make() as s:
+        processing.assemble_video(s, mid)
+        s.commit()
+    r = client.get(f"/api/meetings/{mid}/video", headers={"Range": "bytes=0-9"})
+    assert r.status_code == 206 and len(r.content) == 10 and r.headers["content-range"].startswith("bytes 0-9/")
+    assert r.headers["content-type"] == "video/mp4"
+
+
+def test_get_video_404_without_video(env):
+    client = env[0]
+    mid = new_meeting(client, pair(env))
+    r = client.get(f"/api/meetings/{mid}/video")
+    assert r.status_code == 404 and r.json()["detail"] == "no video"

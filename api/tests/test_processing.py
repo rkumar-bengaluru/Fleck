@@ -9,7 +9,7 @@ from sqlalchemy import func, select, text, update
 
 from fleck_api import chat, processing
 from fleck_api.claude import Message
-from fleck_api.jobs import run_once
+from fleck_api.jobs import enqueue, run_once
 from fleck_api.meetings import BUCKET
 from fleck_api.library import _minio
 from fleck_api.realtime import hub
@@ -457,3 +457,27 @@ def test_get_video_404_without_video(env):
     mid = new_meeting(client, pair(env))
     r = client.get(f"/api/meetings/{mid}/video")
     assert r.status_code == 404 and r.json()["detail"] == "no video"
+
+
+def test_assemble_video_skips_a_covered_piece_and_caps_size(env, tmp_path):
+    big, inner = mp4(tmp_path / "a.mp4", 4, "1920x1080"), mp4(tmp_path / "b.mp4", 1, "1920x1080")
+    client, make, _, mid = _video_meeting(env, tmp_path, starts=(0, 1000), audio=0, pieces=[big, inner])  # b sits inside a
+    with make() as s:
+        processing.assemble_video(s, mid)
+        s.commit()
+        key = s.get(Meeting, mid).video_key
+    assert key
+    _minio().fget_object(BUCKET, key, str(tmp_path / "v.mp4"))
+    info = probe(str(tmp_path / "v.mp4"), "width", "height")
+    assert (info["streams"][0]["width"], info["streams"][0]["height"]) == (1280, 720) and abs(float(info["format"]["duration"]) - 4.0) < 0.3
+
+
+def test_assemble_video_heartbeats_the_running_job(env, tmp_path):
+    client, make, _, mid = _video_meeting(env, tmp_path, audio=0)
+    with make() as s:
+        jid = enqueue(s, "assemble_video", {"meeting_id": mid})
+        old = text("now() - interval '5 minutes'")
+        s.execute(update(Job).where(Job.id == jid).values(status="running", locked_at=old))
+        s.commit()
+        processing.assemble_video(s, mid)
+        assert s.scalar(select(Job.locked_at > func.now() - text("interval '1 minute'")).where(Job.id == jid)) is True

@@ -23,7 +23,7 @@ from fleck_api.auth import current_user
 from fleck_api.claude import claude_call
 from fleck_api.config import get_settings, setting
 from fleck_api.db import get_session
-from fleck_api.jobs import LATE_GRACE, enqueue, enqueue_once, job
+from fleck_api.jobs import LATE_GRACE, enqueue, enqueue_once, heartbeat, job
 from fleck_api.library import _minio
 from fleck_api.meetings import BUCKET, _meeting
 from fleck_api.models import Assist, AudioChunk, Meeting, Note, Segment, Summary, User, VideoChunk
@@ -105,9 +105,10 @@ def assemble_video(s: Session, meeting_id: int) -> None:
                 mc.fget_object(BUCKET, c.blob_key, str(d / f"src{i}.mp4"))
                 src.append(d / f"src{i}.mp4")
             w, h = _ff(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=s=x:p=0", str(src[0])]).strip().split("x")
-            w, h = int(w) // 2 * 2, int(h) // 2 * 2  # yuv420p needs even sides
+            k = min(1, 1280 / int(w), 720 / int(h))  # capped at 1280x720, aspect kept
+            w, h = int(int(w) * k) // 2 * 2, int(int(h) * k) // 2 * 2  # yuv420p needs even sides
             enc = ["-vf", f"fps=10,scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1",
-                   "-r", "10", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an"]
+                   "-r", "10", "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-an"]
             clips, cursor = [], 0.0  # cursor: seconds of timeline already filled
             for i, c in enumerate(pieces):
                 start = c.start_ms / 1000
@@ -116,11 +117,14 @@ def assemble_video(s: Session, meeting_id: int) -> None:
                     _ff(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", f"color=black:s={w}x{h}:r=10", "-t", f"{start - cursor:.3f}", *enc[2:], str(gap)])
                     clips.append(gap)
                     cursor = start
+                if cursor - start >= _duration(src[i]) - 0.05:  # wholly inside the previous piece
+                    continue
                 out = d / f"clip{i}.mp4"
                 # an overlapping piece (a resend after a resume) loses its head so start times never go backwards
                 _ff(["ffmpeg", "-y", "-v", "error", "-ss", f"{max(0.0, cursor - start):.3f}", "-i", str(src[i]), *enc, str(out)])
                 clips.append(out)
                 cursor += _duration(out)
+                heartbeat(s, "assemble_video", {"meeting_id": meeting_id})
             (d / "list.txt").write_text("".join(f"file '{p}'\n" for p in clips))
             audio = []
             if m.recording_key:

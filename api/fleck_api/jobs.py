@@ -80,6 +80,12 @@ def _fail(session: Session, j: Job, error: str) -> None:
             log.exception("on_fail for job %s (%s) raised", j.id, j.kind)
 
 
+def heartbeat(session: Session, kind: str, payload: dict) -> None:
+    """A long handler calls this between steps so run_once does not reclaim its job as stale. No running job: no-op."""
+    session.execute(update(Job).where(Job.kind == kind, Job.payload == payload, Job.status == "running").values(locked_at=func.now()))
+    session.commit()
+
+
 def run_once(session: Session) -> bool:
     """Claim and run one due job. Returns False when nothing was due.
 

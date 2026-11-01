@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select, update
 
-from fleck_api.models import Assist, AudioChunk, CalendarEvent, Job, LlmCall, Meeting, PairingCode, User
+from fleck_api.models import Assist, AudioChunk, CalendarEvent, Job, LlmCall, Meeting, PairingCode, User, VideoChunk
 from test_auth import _sign_in, env  # noqa: F401  (env is a fixture)
 
 WAV = b"RIFF\x24\x00\x00\x00WAVEfmt " + b"\x00" * 24
@@ -181,3 +181,62 @@ def test_the_helper_gets_the_fallback_switch_and_the_guests_company(env, monkeyp
         assert "Orion Freight" in m["library_clients"] and "Northbeam" not in m["library_clients"]
     finally:
         get_settings.cache_clear()
+
+
+def _video_meeting(env):
+    client, _, make = env
+    auth = pair(env)
+    return client, make, auth, client.post("/api/meetings", json={"title": "Vid"}, headers=auth).json()["id"]
+
+
+def test_put_video_stores_piece(env):
+    client, make, auth, mid = _video_meeting(env)
+    assert client.put(f"/api/meetings/{mid}/video/61000", content=b"abc", headers=auth).status_code == 204
+    with make() as s:
+        [c] = s.scalars(select(VideoChunk).where(VideoChunk.meeting_id == mid))
+        assert c.start_ms == 61000 and c.blob_key == f"meetings/{mid}/video/000061000.mp4"
+
+
+def test_put_video_other_users_meeting_403(env):
+    client, gs, _ = env
+    mid = client.post("/api/meetings", json={"title": "Mine"}, headers=pair(env)).json()["id"]
+    client.cookies.clear()
+    _sign_in(client, gs, "priya@northbeam.test")
+    code = client.post("/api/devices/pairing-code").json()["code"]
+    token = client.post("/api/devices/pair", json={"code": code, "name": "Priya's Mac"}).json()["device_token"]
+    assert client.put(f"/api/meetings/{mid}/video/0", content=b"abc", headers={"Authorization": f"Bearer {token}"}).status_code == 403
+
+
+def test_put_video_empty_or_out_of_range_400(env):
+    client, _, auth, mid = _video_meeting(env)
+    assert client.put(f"/api/meetings/{mid}/video/0", content=b"", headers=auth).status_code == 400
+    assert client.put(f"/api/meetings/{mid}/video/{4 * 3600 * 1000 + 1}", content=b"abc", headers=auth).status_code == 400
+
+
+def test_put_video_resend_is_idempotent(env):
+    client, make, auth, mid = _video_meeting(env)
+    for _ in range(2):
+        assert client.put(f"/api/meetings/{mid}/video/5", content=b"abc", headers=auth).status_code == 204
+    with make() as s:
+        assert s.scalar(select(func.count()).select_from(VideoChunk).where(VideoChunk.meeting_id == mid)) == 1
+
+
+def test_late_piece_requeues_only_assemble_video(env):
+    client, make, auth, mid = _video_meeting(env)
+    with make() as s:
+        s.get(Meeting, mid).status = "ready"
+        s.commit()
+    assert client.put(f"/api/meetings/{mid}/video/0", content=b"abc", headers=auth).status_code == 204
+    with make() as s:
+        kinds = list(s.scalars(select(Job.kind)))
+        assert kinds.count("assemble_video") == 1 and "process_meeting" not in kinds
+        assert s.get(Meeting, mid).status == "ready"
+
+
+def test_meeting_dict_has_video(env):
+    client, make, auth, mid = _video_meeting(env)
+    assert client.get(f"/api/meetings/{mid}").json()["meeting"]["has_video"] is False
+    with make() as s:
+        s.get(Meeting, mid).video_key = "meetings/1/video.mp4"
+        s.commit()
+    assert client.get(f"/api/meetings/{mid}").json()["meeting"]["has_video"] is True

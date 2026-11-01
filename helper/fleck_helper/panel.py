@@ -132,6 +132,12 @@ def place(saved, screens, width: int, gap: int = 16) -> tuple[float, float]:
     return (x + (w - width) / 2, y + h - gap)
 
 
+def hidden_from_capture() -> bool:
+    """The panel stays out of screen shares and recordings, except for a filmed demo that sets exactly
+    FLECK_PANEL_SHAREABLE=1 (Walker's desktop take films the panel answering)."""
+    return os.environ.get("FLECK_PANEL_SHAREABLE") != "1"
+
+
 def clock(ms: int) -> str:
     s = ms // 1000
     return f"{s // 3600}:{s // 60 % 60:02d}:{s % 60:02d}" if s >= 3600 else f"{s // 60:02d}:{s % 60:02d}"
@@ -247,7 +253,8 @@ class AnswerPanel:
             ((0, 0), (WIDTH, 120)), NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel, NSBackingStoreBuffered, False)
         p.setLevel_(NSStatusWindowLevel)
         p.setCollectionBehavior_(NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary)
-        p.setSharingType_(NSWindowSharingNone)  # left out of screen shares and recordings
+        if hidden_from_capture():
+            p.setSharingType_(NSWindowSharingNone)  # left out of screen shares and recordings
         p.setBecomesKeyOnlyIfNeeded_(True)
         p.setFloatingPanel_(True)
         p.setHidesOnDeactivate_(False)

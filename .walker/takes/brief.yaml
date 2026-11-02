@@ -1,0 +1,35 @@
+# Act 2: walking in prepared. Today's calendar; the demo prospect linked to its client; the brief Fleck builds.
+take: brief
+kind: browser
+start: /
+steps:
+  - beat: setup                 # off camera: the demo client exists, today's calendar is synced
+    id: setup
+    run: uv run --all-packages python {walker}/scenarios/demo_client.py
+    expect: {exit_code: 0, contains: ["demo client ready"]}
+  - beat: today
+    goto: /
+    expect_text: ["Presales: demo prospect"]
+    hold_ms: 4500
+    dump: true
+  - beat: link-client
+    select: {label: Client, option: "Suggested: Harbourline Legal", within: {css: "article[aria-label='Presales: demo prospect']"}}
+    hold_ms: 5000
+  - beat: open-brief
+    click: {role: link, name: Open brief, within: {css: "article[aria-label='Presales: demo prospect']"}}
+    expect_text: ["Brief for Harbourline Legal"]
+  - beat: brief-wait
+    wait_for: ["What we know going in"]
+    wait_s: 420
+    hold_ms: 3000
+    shot: brief
+    dump: true
+  - beat: brief-scroll
+    scroll_by: 700
+    hold_ms: 8000
+  - scroll_by: 700
+    hold_ms: 4000
+  - beat: cost                  # off camera: what the brief cost, for the spend ledger
+    id: cost
+    run: uv run --all-packages python {walker}/scenarios/cost.py {footage}/cost.mark
+    expect: {exit_code: 0, contains: [WALKER_COST]}

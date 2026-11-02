@@ -1,0 +1,20 @@
+# Act 1: the firm's memory. Sign in through the Google sign-in simulator; the library the set indexed off camera.
+take: library
+kind: browser
+start: /signin?next=%2F
+steps:
+  - signin: true
+  - beat: today
+    expect_text: ["Today"]
+    hold_ms: 2000
+  - beat: library
+    click: {role: link, name: Library, within: {css: nav}}
+    expect_text: ["What Fleck answers from. Shared with everyone on your team.", "Rate card"]
+    hold_ms: 9000
+    shot: library
+    dump: true
+  - beat: library-scroll
+    scroll_by: 600
+    hold_ms: 14000
+  - scroll_by: -600
+    hold_ms: 500

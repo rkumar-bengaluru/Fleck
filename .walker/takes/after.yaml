@@ -1,0 +1,52 @@
+# Act 4: the team's memory. The processed meeting: where Fleck helped, video or audio only, chat with a citation
+# that opens the transcript line, and one question across every meeting.
+take: after
+kind: browser
+start: /
+steps:
+  - beat: meeting
+    goto: /meetings/${WALKER_MEETING}
+    expect_text: ["Where Fleck helped", "Video", "Audio only"]
+    hold_ms: 12000
+    shot: meeting-after
+    dump: true
+  - beat: play
+    click: {role: button, name: Play recording}
+    hold_ms: 12000
+  - click: {role: button, name: Pause recording}
+    hold_ms: 800
+  - beat: audio-only
+    click: {role: radio, name: Audio only}
+    hold_ms: 5000
+  - click: {role: radio, name: Video}
+    hold_ms: 1000
+  - beat: helped
+    scroll_to: {text: "Where Fleck helped"}
+    hold_ms: 8000
+  - beat: chat
+    click: {role: tab, name: Chat}
+  - type: {role: textbox, name: Ask about this meeting, value: "What did they say about where documents can live?", delay_ms: 25}
+  - click: {role: button, name: Ask}
+  - beat: chat-answer
+    scroll_to: {css: ".chat-cites a", nth: 0}
+    timeout_ms: 150000
+    hold_ms: 7000
+    shot: chat
+  - beat: cite                  # the first source with a time: a summary source has none
+    click: {css: '.chat-cites a:text-matches("\\d+:\\d\\d$")', nth: 0}
+    wait_url: '\?t=\d+'
+    hold_ms: 4000
+  - beat: ask-all
+    click: {role: link, name: Ask across meetings, within: {css: nav}}
+    expect_text: ["Answers come from every recorded meeting and the library, with sources you can open."]
+  - type: {role: textbox, name: Ask across meetings, value: "What rate did we quote for a senior engineer?", delay_ms: 25}
+  - click: {role: button, name: Ask}
+  - beat: ask-all-answer
+    scroll_to: {css: ".chat-cites a", nth: 0}
+    timeout_ms: 150000
+    hold_ms: 9000
+    shot: ask-all
+  - beat: cost                  # off camera: the summary was counted in live; this is the chat
+    id: cost
+    run: uv run --all-packages python {walker}/scenarios/cost.py {footage}/cost.mark
+    expect: {exit_code: 0, contains: [WALKER_COST]}

@@ -1,0 +1,52 @@
+# Production sheet: Fleck as an investor pitch with a product demo (story.md).
+format: walker/0.2
+project:
+  name: Fleck
+  logline: "Fleck sits in a sales call without a bot, hears the client's question and shows the answer from the firm's own material, with its source, in seconds."
+  audience: "Investors deciding whether to back Fleck."
+  walked_at: 67b588f2adf6b0dc66e9da327e533918fa9b8881   # v0.2.0: FLECK_PANEL_SHAREABLE puts the panel on camera
+  walked_tag: v0.2.0
+  title: "Fleck: the right answer, in the room, while the deal is on the line"
+  runtime_target_s: [330, 420]   # about 6½ minutes: every live answer has its scene (rupak.k)
+  narration_words: [850, 1050]
+  scenes: [25, 36]
+
+needs:
+  tools: [docker>=24, "docker compose v2", uv, ollama, ffmpeg, python>=3.11]
+  ports: [5173, 8000, 8090, 8080, 50051, 5432, 9000, 9001]   # fixed in deploy/docker-compose.yml: the owner's stack must be down
+  secrets: [ANTHROPIC_API_KEY]
+  generated_secrets: []
+  redact:
+    - "sk-ant-[A-Za-z0-9_-]{20,}"
+    - "FLECK_SECRET_KEY=(\\S+)"
+  redact_screen:
+    - "sk-ant-[A-Za-z0-9_-]{20,}"
+
+set:
+  compose_project: walker-fleck
+  base_url: http://localhost:5173
+  up: bash {walker}/scenarios/up.sh {project}
+  down: docker compose -p {project} -f deploy/docker-compose.yml --env-file .env down -v
+  ready:
+    - http: http://localhost:8000/api/health
+      expect_json: {status: ok}
+    - http: http://localhost:5173/
+      expect_status: 200
+
+macros:
+  signin:
+    offscreen_in_video: true
+    steps:
+      - goto: /signin?next=%2F
+      - click: {role: button, name: Sign in with Google}
+      - click: {role: button, name: rupak@northbeam.test}
+      - click: {role: button, name: Allow}
+        expect_text: ["Today"]
+
+takes:
+  - takes/library.yaml   # sign in; the firm's material, every document indexed
+  - takes/brief.yaml     # Today: link the demo prospect to its client; the brief
+  - takes/live-desktop.yaml  # the staged call on the real screen; Fleck records it and its panel shows the rate-card answer
+  - takes/after.yaml     # the ready meeting: where Fleck helped, video or audio, chat with a citation, ask across meetings
+
+screenplay: screenplay.md

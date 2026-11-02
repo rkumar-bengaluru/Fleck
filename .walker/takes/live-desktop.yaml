@@ -1,0 +1,94 @@
+# Act 3: the moment that matters, on the real Mac screen. A staged call (Walker's call page, titled "Meet – ...", in
+# real Chrome) and the real Fleck menu-bar app fed the recorded conversation: Fleck records that call window, hears
+# the client's question and its panel shows the rate-card answer over the call. Filmed until the call ends, so
+# Fleck's own recording covers the whole call.
+take: live-desktop
+kind: desktop
+desktop:
+  window: {x: 134, y: 40, width: 1244, height: 700}   # 16:9; the panel's top-centre spot falls inside it
+  hide_others: false                                   # the panel is another app; Chrome covers the region
+call:
+  title: "Meet – Presales: demo prospect"   # Fleck records the Chrome window whose title starts with "Meet"
+  audio: "{repo}/fixtures/conversation/conversation.wav"
+  people:
+    - {name: "Rupak (Northbeam)", channel: left}
+    - {name: "Dana (Harbourline Legal)", channel: right}
+start: "{call}"
+steps:
+  - beat: setup                 # off camera: the real menu-bar app, paired with a throwaway keyring
+    id: setup
+    run: uv run --all-packages python {walker}/scenarios/desktop_start.py {footage}/live-desktop/state.json
+    expect: {exit_code: 0, contains: ["HELPER_UP"]}
+  - id: record                  # Record, as the web app does; the app must lock onto this call window
+    run: uv run --all-packages python {walker}/scenarios/desktop_record.py {footage}/live-desktop/state.json
+    expect: {exit_code: 0, contains: ["MEETING="]}
+    capture_vars:
+      WALKER_MEETING: 'MEETING=(\d+)'
+  - beat: join
+    click: {role: button, name: Join}
+    hold_ms: 6000
+  - beat: wait-1               # cut: the call runs on to question 1
+    id: answer-1
+    run: uv run --all-packages python {walker}/scenarios/desktop_answer.py {footage}/live-desktop/state.json 1
+    timeout_s: 420
+    expect: {exit_code: 0, contains: ["ANSWER n=1", "Rate card FY2026"]}
+  - beat: answer-1             # the panel holds answer 1 while the narration explains it
+    hold_ms: 14000
+    shot: desktop-answer
+  - beat: wait-2               # cut: the call runs on to question 2
+    id: answer-2
+    run: uv run --all-packages python {walker}/scenarios/desktop_answer.py {footage}/live-desktop/state.json 2
+    timeout_s: 420
+    expect: {exit_code: 0, contains: ["ANSWER n=2"]}
+  - beat: answer-2             # the panel holds answer 2 while the narration explains it
+    hold_ms: 9000
+  - beat: wait-3               # cut: the call runs on to question 3
+    id: answer-3
+    run: uv run --all-packages python {walker}/scenarios/desktop_answer.py {footage}/live-desktop/state.json 3
+    timeout_s: 420
+    expect: {exit_code: 0, contains: ["ANSWER n=3"]}
+  - beat: answer-3             # the panel holds answer 3 while the narration explains it
+    hold_ms: 9000
+  - beat: wait-4               # cut: the call runs on to question 4
+    id: answer-4
+    run: uv run --all-packages python {walker}/scenarios/desktop_answer.py {footage}/live-desktop/state.json 4
+    timeout_s: 420
+    expect: {exit_code: 0, contains: ["ANSWER n=4"]}
+  - beat: answer-4             # the panel holds answer 4 while the narration explains it
+    hold_ms: 9000
+  - beat: wait-5               # cut: the call runs on to question 5
+    id: answer-5
+    run: uv run --all-packages python {walker}/scenarios/desktop_answer.py {footage}/live-desktop/state.json 5
+    timeout_s: 420
+    expect: {exit_code: 0, contains: ["ANSWER n=5"]}
+  - beat: answer-5             # the panel holds answer 5 while the narration explains it
+    hold_ms: 9000
+  - beat: wait-6               # cut: the call runs on to question 6
+    id: answer-6
+    run: uv run --all-packages python {walker}/scenarios/desktop_answer.py {footage}/live-desktop/state.json 6
+    timeout_s: 420
+    expect: {exit_code: 0, contains: ["ANSWER n=6"]}
+  - beat: answer-6             # the panel holds answer 6 while the narration explains it
+    hold_ms: 9000
+  - beat: wait-7               # cut: the call runs on to question 7
+    id: answer-7
+    run: uv run --all-packages python {walker}/scenarios/desktop_answer.py {footage}/live-desktop/state.json 7
+    timeout_s: 420
+    expect: {exit_code: 0, contains: ["ANSWER n=7"]}
+  - beat: answer-7             # the panel holds answer 7 while the narration explains it
+    hold_ms: 9000
+  - beat: wait-8               # cut: the call runs on to question 8
+    id: answer-8
+    run: uv run --all-packages python {walker}/scenarios/desktop_answer.py {footage}/live-desktop/state.json 8
+    timeout_s: 420
+    expect: {exit_code: 0, contains: ["ANSWER n=8"]}
+  - beat: answer-8             # the panel holds answer 8 while the narration explains it
+    hold_ms: 9000
+  - beat: finish                # off camera: the call ends, Fleck processes it with its own call-window video
+    id: finish
+    run: uv run --all-packages python {walker}/scenarios/desktop_finish.py {footage}/live-desktop/state.json
+    timeout_s: 1800
+    expect: {exit_code: 0, contains: ["ready with video"]}
+  - run: uv run --all-packages python {walker}/scenarios/cost.py {footage}/cost.mark
+    id: cost
+    expect: {exit_code: 0, contains: [WALKER_COST]}

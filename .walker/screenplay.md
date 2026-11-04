@@ -212,7 +212,7 @@ take: live-desktop
 beat: answer-7
 narration:
   - say: On capping liability at 12 months of fees, it gives the market view and the risks, again marked as general knowledge.
-    cite: ['footage/after/meeting.txt: "would you cap liability at 12 months of fees?"', 'footage/after/meeting.txt: "A 12-month fee cap is a common middle ground"', 'footage/after/meeting.txt: "General knowledge"']
+    cite: ['footage/after/meeting.txt: "would you cap liability at 12 months of fees?"', 'footage/after/meeting.txt: "is a common middle ground"', 'footage/after/meeting.txt: "General knowledge"']
 ```
 
 ```yaml
